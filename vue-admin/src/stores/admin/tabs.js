@@ -101,8 +101,7 @@ export const useTabsStore = defineStore('tabs', {
     },
     closeOtherTab() {
       const data = this.getTab();
-      this.tabs.splice(0, data.index);
-      this.tabs.splice(Number(data.index) + 1, this.tabs.length);
+      this.tabs = [data.tab];
     },
     closeAllTab() {
       this.tabs.splice(1, this.tabs.length);
