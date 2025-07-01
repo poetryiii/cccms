@@ -120,6 +120,8 @@ ThinkAdmin：https://gitee.com/zoujingli/ThinkAdmin
 
 Arco Design Vue：https://github.com/arco-design/arco-design-vue
 
+Remixicon：https://remixicon.cn/
+
 ## 版权许可
 
 [License MIT](LICENSE)
