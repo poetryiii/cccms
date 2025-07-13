@@ -126,7 +126,7 @@ CREATE TABLE `sys_role`
 CREATE TABLE `sys_role_node`
 (
     `role_id` int unsigned NOT NULL DEFAULT 0 COMMENT '角色ID',
-    `node`    varchar(255) NOT NULL DEFAULT '' COMMENT '权限节点',
+    `node`    varchar(128) NOT NULL DEFAULT '' COMMENT '权限节点',
     UNIQUE INDEX `uk_role_node` (`role_id`, `node`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
