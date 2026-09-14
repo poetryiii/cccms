@@ -1,0 +1,63 @@
+/* =====================================================================
+ * 样式总入口（在 main.ts 中第一个被引入）
+ * 顺序：Tailwind(含 preflight) → 设计 token → 暗色变体 → Tailwind 工具类映射
+ * Element Plus 的样式与覆盖在 main.ts 中后续引入，保证 EP 组件样式优先。
+ * ===================================================================== */
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* 暗色变体绑定到 html.dark（与 Element Plus 暗色 class 保持一致） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 把设计 token 映射成 Tailwind 工具类：bg-card / text-sub / border-line ... */
+@theme {
+  --color-primary: var(--art-primary);
+
+  --color-body: var(--art-body-bg);
+  --color-card: var(--art-card-bg);
+  --color-line: var(--art-card-border);
+  --color-header: var(--art-header-bg);
+  --color-sidebar: var(--art-sidebar-bg);
+  --color-hover: var(--art-hover-bg);
+
+  --color-main: var(--art-main);
+  --color-sub: var(--art-sub);
+  --color-muted: var(--art-muted);
+
+  --color-success: var(--art-success);
+  --color-warning: var(--art-warning);
+  --color-danger: var(--art-danger);
+  --color-info: var(--art-info);
+
+  --radius-art: var(--art-radius);
+}
+
+/* ---- 基础重置 ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5715;
+  color: var(--art-main);
+  background: var(--art-body-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: var(--art-primary);
+  text-decoration: none;
+}

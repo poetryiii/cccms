@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 站点图标：与登录页 / 侧边栏共用同一个文件（public/logo.png） -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <title>CCCMS 管理系统</title>
+    <style>
+      html,
+      body,
+      #app {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #cccms-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #f6f8fb;
+        transition: opacity 0.25s ease;
+      }
+      #cccms-loader.is-hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* 首屏品牌：盾牌 + 系统名（与登录页/侧边栏同一套比例，整体放大 1.5 倍） */
+      .cccms-loader-brand {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: center;
+      }
+      .cccms-loader-brand img {
+        width: 30px;
+        height: 30px;
+        object-fit: contain;
+      }
+      .cccms-loader-brand span {
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: #444;
+      }
+      .cccms-loader-bar {
+        width: 160px;
+        height: 3px;
+        overflow: hidden;
+        background: #e3e8f0;
+        border-radius: 3px;
+      }
+      .cccms-loader-bar::after {
+        display: block;
+        width: 40%;
+        height: 100%;
+        content: '';
+        background: #2b6cff;
+        border-radius: 3px;
+        animation: cccms-loading 1s ease-in-out infinite;
+      }
+      @keyframes cccms-loading {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(280%);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="cccms-loader">
+      <div class="cccms-loader-brand">
+        <img src="/logo.png" alt="logo" />
+        <span>CCCMS</span>
+      </div>
+      <div class="cccms-loader-bar"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,105 @@
+/* =====================================================================
+ * 业务全局样式：页面高度链、卡片、滚动条、路由过渡、NProgress
+ * ===================================================================== */
+
+/* ---- 页面高度链 ----
+ * 内容区不滚动，由页面自己决定滚动方式：
+ *   .art-fill  → 列表页：撑满高度，表格主体内部滚动
+ *   .art-scroll → 普通页：页面整体纵向滚动
+ */
+.art-fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.art-scroll {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 内容区居中容器（配合 --art-container-width） */
+.art-page {
+  width: 100%;
+  max-width: var(--art-container-width);
+  margin: 0 auto;
+}
+
+/* ---- 通用卡片 ---- */
+.art-card {
+  background: var(--art-card-bg);
+  border: 1px solid var(--art-card-border);
+  border-radius: var(--art-radius);
+  box-shadow: var(--art-shadow-1);
+}
+
+.art-card-body {
+  padding: 16px;
+}
+
+/* ---- 路由过渡 ---- */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* ---- 滚动条 ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--art-scrollbar-thumb);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--art-gray-500);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- NProgress 进度条跟随主色 ---- */
+#nprogress .bar {
+  background: var(--art-primary) !important;
+}
+
+#nprogress .peg {
+  box-shadow: 0 0 10px var(--art-primary), 0 0 5px var(--art-primary) !important;
+}
+
+#nprogress .spinner-icon {
+  border-top-color: var(--art-primary) !important;
+  border-left-color: var(--art-primary) !important;
+}
+
+/* ---- 主题切换时禁止过渡，避免整页颜色渐变动画造成的闪烁 ---- */
+.theme-transition-off,
+.theme-transition-off * {
+  transition: none !important;
+}

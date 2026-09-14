@@ -1,0 +1,136 @@
+/* =====================================================================
+ * Element Plus 主题覆盖（必须在 element-plus 样式之后引入）
+ * 全部通过 EP 的 CSS 变量与少量类选择器完成，暗色随 html.dark 自动生效。
+ * ===================================================================== */
+
+:root {
+  /* ---- 主色系列（默认值；utils/theme.ts 会在运行时按用户选择覆盖） ---- */
+  --el-color-primary: #2b6cff;
+  --el-color-primary-light-3: #6b98ff;
+  --el-color-primary-light-5: #95b6ff;
+  --el-color-primary-light-7: #bfd3ff;
+  --el-color-primary-light-8: #d5e2ff;
+  --el-color-primary-light-9: #eaf0ff;
+  --el-color-primary-dark-2: #2256cc;
+
+  /* ---- 语义色 ---- */
+  --el-color-success: var(--art-success);
+  --el-color-warning: var(--art-warning);
+  --el-color-danger: var(--art-danger);
+  --el-color-error: var(--art-danger);
+  --el-color-info: var(--art-info);
+
+  /* ---- 圆角 ---- */
+  --el-border-radius-base: var(--art-radius);
+  --el-border-radius-small: calc(var(--art-radius) - 2px);
+
+  /* ---- 文本 / 边框 / 填充 ---- */
+  --el-text-color-primary: var(--art-main);
+  --el-text-color-regular: var(--art-sub);
+  --el-text-color-secondary: var(--art-muted);
+  --el-text-color-placeholder: var(--art-muted);
+  --el-border-color: var(--art-card-border);
+  --el-border-color-light: var(--art-card-border);
+  --el-border-color-lighter: var(--art-card-border);
+  --el-fill-color-light: var(--art-hover-bg);
+  --el-fill-color-blank: var(--art-card-bg);
+  --el-bg-color: var(--art-card-bg);
+  --el-bg-color-page: var(--art-body-bg);
+  --el-bg-color-overlay: var(--art-card-bg);
+
+  /* ---- 阴影 ---- */
+  --el-box-shadow-light: var(--art-shadow-1);
+  --el-box-shadow: var(--art-shadow-2);
+}
+
+/* ---- 组件级微调 ---- */
+.el-card {
+  border-color: var(--art-card-border);
+  border-radius: var(--art-radius);
+  box-shadow: var(--art-shadow-1) !important;
+}
+
+.el-card__header {
+  padding: 14px 16px;
+  font-weight: 600;
+  border-bottom-color: var(--art-card-border);
+}
+
+/* 表格：表头浅底、边框与底色全部走 token */
+.el-table {
+  --el-table-border-color: var(--art-card-border);
+  --el-table-header-bg-color: var(--art-gray-100);
+  --el-table-header-text-color: var(--art-main);
+  --el-table-row-hover-bg-color: var(--art-hover-bg);
+  --el-table-bg-color: var(--art-card-bg);
+  --el-table-tr-bg-color: var(--art-card-bg);
+}
+
+html.dark .el-table {
+  --el-table-header-bg-color: var(--art-hover-bg);
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+
+.el-table .el-table__cell {
+  padding: 9px 0;
+}
+
+/* 分页 */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: transparent;
+}
+
+/* 弹窗 / 抽屉 */
+.el-dialog {
+  border-radius: var(--art-radius);
+  padding: 0;
+}
+
+.el-dialog__header {
+  padding: 16px 20px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--art-card-border);
+}
+
+.el-dialog__body {
+  padding: 20px;
+}
+
+.el-dialog__footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--art-card-border);
+}
+
+.el-drawer__header {
+  padding: 16px 20px;
+  margin-bottom: 0;
+  font-weight: 600;
+  color: var(--art-main);
+  border-bottom: 1px solid var(--art-card-border);
+}
+
+/* 侧边栏菜单：去掉默认边框与背景，交给布局控制 */
+.el-menu {
+  border-right: none;
+}
+
+/* 按钮图标与文字的对齐 */
+.el-button > span {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 表格内的文字按钮间距收紧 */
+.el-table .el-button + .el-button {
+  margin-left: 6px;
+}
+
+/* 消息与通知的圆角跟随主题 */
+.el-message,
+.el-notification {
+  border-radius: var(--art-radius);
+}

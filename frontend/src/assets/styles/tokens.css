@@ -1,0 +1,74 @@
+/* =====================================================================
+ * 设计 token（唯一来源）
+ * 亮色定义在 :root，暗色覆盖在 html.dark（与 Element Plus 暗色机制一致）。
+ * 主色系列由 utils/theme.ts 在运行时按用户选择覆盖。
+ * ===================================================================== */
+
+:root {
+  /* ---- 品牌主色（默认值；运行时由 theme.ts 重算 --el-* 系列） ---- */
+  --art-primary: #2b6cff;
+
+  /* ---- 中性色阶 ---- */
+  --art-gray-50: #f8fafc;
+  --art-gray-100: #f2f5fa;
+  --art-gray-200: #e9edf5;
+  --art-gray-300: #d9e0ec;
+  --art-gray-400: #c2cbdb;
+  --art-gray-500: #98a2b5;
+  --art-gray-600: #6b7688;
+  --art-gray-700: #4a5568;
+  --art-gray-800: #2f3747;
+  --art-gray-900: #1f2430;
+
+  /* ---- 语义色 ---- */
+  --art-success: #21c26b;
+  --art-warning: #ff9f2e;
+  --art-danger: #f4524d;
+  --art-info: #8f98a8;
+
+  /* ---- 背景 / 文本 / 边框 ---- */
+  --art-body-bg: #f6f8fb;
+  --art-card-bg: #ffffff;
+  --art-card-border: #e9edf5;
+  --art-header-bg: #ffffff;
+  --art-sidebar-bg: #ffffff;
+  --art-hover-bg: #f2f5fa;
+  --art-main: #1f2430;
+  --art-sub: #5b6474;
+  --art-muted: #8f98a8;
+
+  /* ---- 布局尺寸 ---- */
+  --art-header-height: 56px;
+  --art-tagbar-height: 40px;
+  --art-sidebar-width: 220px;
+  --art-sidebar-collapsed-width: 64px;
+  --art-radius: 10px;
+  --art-container-width: 100%;
+
+  /* ---- 阴影 ---- */
+  --art-shadow-1: 0 1px 2px rgb(16 24 40 / 5%);
+  --art-shadow-2: 0 4px 16px rgb(16 24 40 / 8%);
+
+  /* ---- 滚动条 ---- */
+  --art-scrollbar-thumb: #d3d9e4;
+
+  color-scheme: light;
+}
+
+html.dark {
+  --art-body-bg: #14161c;
+  --art-card-bg: #1c1f27;
+  --art-card-border: #2a2e39;
+  --art-header-bg: #1c1f27;
+  --art-sidebar-bg: #1c1f27;
+  --art-hover-bg: #23262f;
+  --art-main: #e8eaf0;
+  --art-sub: #a3abba;
+  --art-muted: #6f7787;
+
+  --art-shadow-1: 0 1px 2px rgb(0 0 0 / 30%);
+  --art-shadow-2: 0 4px 16px rgb(0 0 0 / 36%);
+  --art-scrollbar-thumb: #3a4050;
+
+  color-scheme: dark;
+}

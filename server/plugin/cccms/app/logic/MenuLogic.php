@@ -1,0 +1,126 @@
+<?php
+
+declare(strict_types=1);
+
+namespace plugin\cccms\app\logic;
+
+use plugin\cccms\support\SoftDelete;
+use plugin\cccms\support\UserContext;
+use think\facade\Db;
+
+/** 菜单 / 权限节点逻辑。 */
+final class MenuLogic
+{
+    /**
+     * 全量菜单树（菜单管理用）。
+     *
+     * `$trashed=true` 时返回**平铺**的已删节点（且不按 status 过滤，隐藏节点也要能恢复）：
+     * 回收站里的节点，其父节点可能还活着，拼树会漏掉「父未删、子已删」的节点。
+     */
+    public static function tree(bool $trashed = false): array
+    {
+        $query = SoftDelete::scope(Db::name('menu'), $trashed)
+            ->order('sort', 'asc')
+            ->order('id', 'asc');
+        if (!$trashed) {
+            $query->where('status', 1);
+        }
+
+        $all = $query->select()->toArray();
+
+        return $trashed ? $all : self::buildTree($all, 0);
+    }
+
+    /** 当前用户可见的菜单树（前端动态路由）。 */
+    public static function userTree(UserContext $user): array
+    {
+        $all = SoftDelete::apply(Db::name('menu'))
+            ->where('status', 1)
+            ->order('sort', 'asc')
+            ->order('id', 'asc')
+            ->select()->toArray();
+
+        if ($user->isSuperAdmin()) {
+            return self::buildTree($all, 0);
+        }
+
+        $nodes = array_flip($user->permissions);
+        // 保留目录/菜单：其自身 node 在权限内，或其下有可见按钮/菜单
+        $visible = [];
+        foreach ($all as $item) {
+            $type = (int)$item['type'];
+            $node = (string)$item['node'];
+            if ($type === 3) {
+                if (isset($nodes[$node])) {
+                    $visible[(int)$item['id']] = true;
+                }
+            } else {
+                if ($node !== '' && isset($nodes[$node])) {
+                    $visible[(int)$item['id']] = true;
+                }
+            }
+        }
+        // 向上传播：有可见子节点的父节点也可见
+        $byParent = [];
+        foreach ($all as $item) {
+            $byParent[(int)$item['parent_id']][] = $item;
+        }
+        $changed = true;
+        while ($changed) {
+            $changed = false;
+            foreach ($all as $item) {
+                $id = (int)$item['id'];
+                if (!isset($visible[$id]) && !empty($byParent[$id])) {
+                    foreach ($byParent[$id] as $child) {
+                        if (isset($visible[(int)$child['id']])) {
+                            $visible[$id] = true;
+                            $changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        $filtered = array_values(array_filter($all, fn ($i) => isset($visible[(int)$i['id']])));
+        return self::buildTree($filtered, 0);
+    }
+
+    public static function create(array $data): int
+    {
+        $data['node'] = $data['node'] ?? '';
+        return (int)Db::name('menu')->insertGetId($data);
+    }
+
+    public static function update(int $id, array $data): void
+    {
+        if (!SoftDelete::apply(Db::name('menu'))->where('id', $id)->find()) {
+            throw new \RuntimeException('菜单不存在');
+        }
+        Db::name('menu')->where('id', $id)->update($data);
+    }
+
+    public static function delete(int $id): void
+    {
+        if (SoftDelete::apply(Db::name('menu'))->where('parent_id', $id)->count() > 0) {
+            throw new \RuntimeException('存在子节点，无法删除');
+        }
+
+        // 软删除：进回收站；role_node 授权刻意保留，恢复后授权原样回来。
+        // 授权侧（AuthService::permissions）会把「回收站里的菜单节点」排除，所以删了就是真的没权限。
+        // 「彻底删除」时才清理 role_node（见 RecycleLogic::forceDelete）。
+        SoftDelete::remove(Db::name('menu'), $id);
+    }
+
+    private static function buildTree(array $items, int $parentId): array
+    {
+        $tree = [];
+        foreach ($items as $item) {
+            if ((int)$item['parent_id'] === $parentId) {
+                $item['children'] = self::buildTree($items, (int)$item['id']);
+                $tree[] = $item;
+            }
+        }
+        return $tree;
+    }
+}
