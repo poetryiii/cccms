@@ -62,6 +62,18 @@ final class SoftDelete
         return !empty($row[self::FIELD]);
     }
 
+    /**
+     * 同 listQuery，但 `$table` 为**完整表名**（不走连接前缀）。
+     *
+     * 用于业务插件表（如 `ks_*`，连接前缀 `sys_` 不适用）：
+     * 业务 Logic 只需 `SoftDelete::listQueryFull('ks_subject', $params)`，
+     * 无需自己写 `SoftDelete::scope(Db::table(...), ...)`。
+     */
+    public static function listQueryFull(string $table, array $params)
+    {
+        return self::scope(Db::table($table), !empty($params['trashed']));
+    }
+
     /** 回收站：只看已删除 */
     public static function onlyTrashed($query)
     {

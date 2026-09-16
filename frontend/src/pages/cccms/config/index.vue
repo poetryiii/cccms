@@ -135,6 +135,15 @@
                     />
 
                     <el-input
+                      v-else-if="item.type === 'password'"
+                      v-model="values[item.name]"
+                      type="password"
+                      show-password
+                      placeholder="留空表示不修改（敏感项加密存储）"
+                      style="max-width: 420px"
+                    />
+
+                    <el-input
                       v-else
                       v-model="values[item.name]"
                       placeholder="请输入"

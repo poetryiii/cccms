@@ -29,6 +29,45 @@ final class PermScanner
     }
 
     /**
+     * 为每个「CCCMS 业务插件」构造一个扫描器（cccms + 各业务插件）。
+     *
+     * 判定标准：插件提供 `db/menu.php`（声明式菜单）。这样可排除 `plugin/index` 这类
+     * 有意的公开前台插件（其控制器本就不声明鉴权注解，不应参与权限校验）。
+     *
+     * @return array<int,self>
+     */
+    public static function pluginScanners(): array
+    {
+        $scanners = [];
+        foreach (glob(base_path() . '/plugin/*', GLOB_ONLYDIR) ?: [] as $pluginDir) {
+            $controllerDir = $pluginDir . '/app/controller';
+            // 非 CCCMS 业务插件（无 db/menu.php）跳过：其控制器不受权限注解约束
+            if (!is_dir($controllerDir) || !is_file($pluginDir . '/db/menu.php')) {
+                continue;
+            }
+            $plugin = basename($pluginDir);
+            $scanners[] = new self($controllerDir, 'plugin\\' . $plugin . '\\app\\controller');
+        }
+        return $scanners;
+    }
+
+    /**
+     * 扫描所有插件的控制器注解（cccms + 各业务插件）。
+     *
+     * @return array<int,array>
+     */
+    public static function scanAllPlugins(): array
+    {
+        $items = [];
+        foreach (self::pluginScanners() as $scanner) {
+            foreach ($scanner->scan() as $item) {
+                $items[] = $item;
+            }
+        }
+        return $items;
+    }
+
+    /**
      * 扫描所有 BaseController 子类的方法声明。
      *
      * @return array<int,array{controller:string,action:string,slug:?string,title:?string,sort:int,group:?string,noAuth:bool,noLogin:bool,methods:array,encode:?array}>
@@ -64,12 +103,12 @@ final class PermScanner
     }
 
     /**
-     * 纯代码校验（无需数据库）。
+     * 纯代码校验（无需数据库、无实例状态，故为静态方法）。
      *
-     * @param array $items scan() 的结果
+     * @param array $items scan() / scanAllPlugins() 的结果
      * @return array<int,string> 错误信息列表
      */
-    public function validate(array $items): array
+    public static function validate(array $items): array
     {
         $errors = [];
         $seen = [];

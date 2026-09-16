@@ -23,11 +23,11 @@ class PermScanCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $scanner = new PermScanner();
-        $items = $scanner->scan();
+        $items = PermScanner::scanAllPlugins();
 
         $output->writeln("<info>扫描到 " . count($items) . " 个方法</info>");
 
-        $errors = $scanner->validate($items);
+        $errors = PermScanner::validate($items);
         foreach ($errors as $e) {
             $output->writeln("<error>{$e}</error>");
         }

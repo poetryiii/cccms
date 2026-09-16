@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\support\Cipher;
 use plugin\cccms\support\SessionGuard;
 use plugin\cccms\support\SysConfig;
 use think\facade\Db;
@@ -27,6 +28,12 @@ final class ConfigLogic
             if (is_string($options)) {
                 $decoded         = json_decode($options, true);
                 $row['options'] = is_array($decoded) ? $decoded : null;
+            }
+
+            // 敏感项不下发密文：只回传「是否已配置」，编辑时留空即不修改
+            if ((string)($row['type'] ?? '') === 'password') {
+                $row['has_value'] = (string)($row['value'] ?? '') !== '';
+                $row['value']     = '';
             }
         }
         unset($row);
@@ -78,21 +85,33 @@ final class ConfigLogic
             return 0;
         }
 
-        $names = Db::name('config')->whereIn('name', array_keys($values))->column('name');
-        if ($names === []) {
+        // name => type（type=password 的敏感项需要加密存储）
+        $types = Db::name('config')->whereIn('name', array_keys($values))->column('type', 'name');
+        if ($types === []) {
             return 0;
         }
 
         $now     = date('Y-m-d H:i:s');
         $updated = 0;
 
-        Db::transaction(static function () use ($values, $names, $now, &$updated): void {
+        Db::transaction(static function () use ($values, $types, $now, &$updated): void {
             foreach ($values as $name => $value) {
-                if (!in_array((string)$name, $names, true)) {
-                    continue;
+                $name = (string)$name;
+                if (!isset($types[$name])) {
+                    continue; // 未知键一律忽略，避免往 sys_config 塞脏数据
                 }
+
+                if ((string)$types[$name] === 'password') {
+                    if ((string)$value === '') {
+                        continue; // 敏感项留空 = 保持原值不变
+                    }
+                    $stored = SysConfig::SECRET_PREFIX . Cipher::encrypt((string)$value);
+                } else {
+                    $stored = self::encode($value);
+                }
+
                 Db::name('config')->where('name', $name)->update([
-                    'value'       => self::encode($value),
+                    'value'       => $stored,
                     'update_time' => $now,
                 ]);
                 $updated++;

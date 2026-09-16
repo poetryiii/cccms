@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace plugin\cccms\command;
 
+use plugin\cccms\support\SqlFileRunner;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -177,6 +178,23 @@ SQL,
         }
 
         $output->writeln("<info>升级完成：建表 {$tables}，加列 {$cols}，加索引 {$idxs}，时间戳 {$stamps}</info>");
+
+        // 业务插件建表：执行 plugin/*/db/schema.sql（幂等；cccms 自身由上面的增量逻辑负责）
+        $pluginStatements = 0;
+        foreach (SqlFileRunner::pluginSchemaFiles() as $file) {
+            $plugin = SqlFileRunner::pluginNameOf($file);
+            try {
+                $n = SqlFileRunner::run($file);
+                $pluginStatements += $n;
+                $output->writeln("  <info>插件 schema</info> {$plugin}（{$n} 条）");
+            } catch (\Throwable $e) {
+                $output->writeln("  <error>插件 schema 失败</error> {$plugin}：{$e->getMessage()}");
+                return Command::FAILURE;
+            }
+        }
+        if ($pluginStatements > 0) {
+            $output->writeln("<info>业务插件表结构：共执行 {$pluginStatements} 条语句</info>");
+        }
 
         return Command::SUCCESS;
     }

@@ -78,6 +78,32 @@ final class SysConfig
         return array_values(array_filter($items, static fn (string $v): bool => $v !== ''));
     }
 
+    /** 敏感配置的密文前缀（type=password 的配置值以 `enc:` + Cipher 密文存储） */
+    public const SECRET_PREFIX = 'enc:';
+
+    /**
+     * 读取敏感配置（type=password）。
+     *
+     * 存储约定：`enc:` + Cipher（AES-256-GCM）密文；读取时自动解密。
+     * 兼容直接写入的明文（便于手工初始化）。解密失败返回默认值，不抛错。
+     */
+    public static function getSecret(string $name, string $default = ''): string
+    {
+        $value = (string)self::get($name, '');
+        if ($value === '') {
+            return $default;
+        }
+        if (!str_starts_with($value, self::SECRET_PREFIX)) {
+            return $value;
+        }
+
+        try {
+            return Cipher::decrypt(substr($value, strlen(self::SECRET_PREFIX)));
+        } catch (Throwable) {
+            return $default;
+        }
+    }
+
     /** 保存配置后调用：清掉 Redis 缓存，各进程下一个请求即拿到新值 */
     public static function flush(): void
     {

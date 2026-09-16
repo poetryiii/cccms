@@ -116,6 +116,9 @@ final class DataScope
      *   - dept：「本部门 / 及以下」如何落到当前表，回调收到的是**已展开好的**部门 id 列表。
      *     不传则默认 `whereIn('dept_id', $ids)`（适用于带 dept_id 的业务表）。
      *     回调需自行 fail-closed：列表为空时不能放行任何数据。
+     *   - no_baseline：true 时**跳过** data_scope 的预设基线（仅本人 / 本部门），
+     *     只叠加自定义行级规则。适用于没有 owner（create_by）与 dept_id 列的业务表
+     *     （如插件表 ks_*），避免拼出不存在的列导致 SQL 报错；隔离完全由自定义规则表达。
      */
     public static function row($query, UserContext $user, array $options = []): void
     {
@@ -128,9 +131,12 @@ final class DataScope
             return;
         }
 
-        if ($scope === 4) {
+        // 业务表可能既无 create_by 也无 dept_id，此时只走自定义规则（见 docblock）
+        $noBaseline = !empty($options['no_baseline']);
+
+        if (!$noBaseline && $scope === 4) {
             $query->where($options['owner'] ?? 'create_by', $user->id);
-        } elseif (in_array($scope, [2, 3], true)) {
+        } elseif (!$noBaseline && in_array($scope, [2, 3], true)) {
             $ids = self::userDeptIds($user);
             if ($scope === 2) {
                 $ids = self::deptAndChildren($ids);

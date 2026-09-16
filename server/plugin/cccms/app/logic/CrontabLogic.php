@@ -40,26 +40,33 @@ final class CrontabLogic
         return ['total' => $total, 'list' => $list];
     }
 
-    /** 可作为调度目标的任务类（实现 CrontabTask）。 */
+    /** 可作为调度目标的任务类（实现 CrontabTask）。扫描所有插件的 plugin/*\/command/task。 */
     public static function targets(): array
     {
-        $dir = base_path() . '/plugin/cccms/command/task';
         $result = [];
-        if (!is_dir($dir)) {
-            return $result;
-        }
-        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
-        foreach ($iterator as $file) {
-            if ($file->getExtension() !== 'php') {
-                continue;
+        foreach (glob(base_path() . '/plugin/*/command/task', GLOB_ONLYDIR) ?: [] as $dir) {
+            // .../plugin/{插件}/command/task → 命名空间 plugin\{插件}\command\task\
+            $plugin    = basename(dirname($dir, 2));
+            $namespace = 'plugin\\' . $plugin . '\\command\\task\\';
+            $iterator  = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir));
+            foreach ($iterator as $file) {
+                if ($file->getExtension() !== 'php') {
+                    continue;
+                }
+                $rel   = substr($file->getPathname(), strlen($dir) + 1, -4);
+                $class = $namespace . str_replace(DIRECTORY_SEPARATOR, '\\', (string)$rel);
+                if (class_exists($class) && is_subclass_of($class, CrontabTask::class)) {
+                    // label 带插件前缀，避免多插件同名任务类无法区分（如两个插件都有 DailyReportTask）
+                    $result[] = [
+                        'class' => $class,
+                        'label' => $plugin . '/' . substr((string)strrchr($class, '\\'), 1),
+                    ];
+                }
             }
-            $rel = substr($file->getPathname(), strlen($dir) + 1, -4);
-            $class = 'plugin\\cccms\\command\\task\\' . str_replace(DIRECTORY_SEPARATOR, '\\', (string)$rel);
-            if (class_exists($class) && is_subclass_of($class, CrontabTask::class)) {
-                $short = substr((string)strrchr($class, '\\'), 1);
-                $result[] = ['class' => $class, 'label' => $short];
-            }
         }
+
+        usort($result, static fn (array $a, array $b): int => strcmp($a['class'], $b['class']));
+
         return $result;
     }
 

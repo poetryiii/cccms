@@ -17,7 +17,7 @@ class MenuSyncCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         try {
-            $result = MenuSyncer::sync();
+            $result = MenuSyncer::syncAll();
         } catch (Throwable $e) {
             $output->writeln('<error>同步失败：' . $e->getMessage() . '</error>');
             return Command::FAILURE;
@@ -26,6 +26,13 @@ class MenuSyncCommand extends Command
         $output->writeln(
             "<info>同步完成：新增 {$result['created']}，更新 {$result['updated']}，清理 {$result['removed']}</info>"
         );
+
+        // 按插件明细，便于多插件环境下定位变更来源
+        foreach ($result['perPlugin'] ?? [] as $plugin => $detail) {
+            $output->writeln(
+                "  - {$plugin}: 新增 {$detail['created']}，更新 {$detail['updated']}，清理 {$detail['removed']}"
+            );
+        }
 
         return Command::SUCCESS;
     }

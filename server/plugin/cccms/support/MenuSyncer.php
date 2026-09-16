@@ -28,6 +28,63 @@ final class MenuSyncer
     }
 
     /**
+     * 所有插件的菜单声明文件（cccms 自身排最前，其余按路径排序）。
+     *
+     * 业务插件只要提供 `plugin/{插件}/db/menu.php`，即会被同步进 sys_menu，
+     * 无需改动框架代码。
+     *
+     * @return array<int,string>
+     */
+    public static function menuFiles(): array
+    {
+        $files = glob(base_path() . '/plugin/*/db/menu.php') ?: [];
+        $cccms = self::path();
+        usort($files, static function (string $a, string $b) use ($cccms): int {
+            if ($a === $cccms) {
+                return -1;
+            }
+            if ($b === $cccms) {
+                return 1;
+            }
+            return strcmp($a, $b);
+        });
+        return $files;
+    }
+
+    /**
+     * 同步所有插件的菜单声明（cccms + 各业务插件）。
+     *
+     * @return array{created:int,updated:int,removed:int,perPlugin:array<string,array{created:int,updated:int,removed:int}>}
+     */
+    public static function syncAll(): array
+    {
+        $total = ['created' => 0, 'updated' => 0, 'removed' => 0, 'perPlugin' => []];
+
+        foreach (self::menuFiles() as $file) {
+            $plugin = self::pluginNameOf($file);
+            $result = self::sync($file);
+
+            $total['created'] += $result['created'];
+            $total['updated'] += $result['updated'];
+            $total['removed'] += $result['removed'];
+            $total['perPlugin'][$plugin] = $result;
+        }
+
+        return $total;
+    }
+
+    /** 由菜单文件路径推断插件名（.../plugin/{插件}/db/menu.php → {插件}） */
+    private static function pluginNameOf(string $file): string
+    {
+        $normalized = str_replace('\\', '/', $file);
+        if (preg_match('#/plugin/([^/]+)/db/menu\.php$#', $normalized, $m) === 1) {
+            return $m[1];
+        }
+
+        return 'unknown';
+    }
+
+    /**
      * @param  string|null $file 自定义源文件（测试用）
      * @return array{created:int,updated:int,removed:int}
      */

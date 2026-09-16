@@ -123,7 +123,16 @@ final class DataScopeTableLogic
         return $rules;
     }
 
-    /** 库中所有表（不含前缀表名 => 元信息） */
+    /**
+     * 库中所有表（标识 => 元信息）。
+     *
+     * 标识规则：
+     *   - 带全局前缀的表（sys_*）：标识 = 去掉前缀的名字（保持既有语义）；
+     *   - 不带前缀的表（业务插件表，如 ks_*）：标识 = **完整表名**。
+     *
+     * 业务插件（如 plugin/kuaishou 的 ks_* 表，连接前缀不适用）由此可纳入数据权限，
+     * 规则只需把 `table_name` 写成完整表名，Logic 层 `DataScope::row(..., ['table' => 'ks_xxx'])` 即可命中。
+     */
     private static function dbTables(): array
     {
         $prefix = (string)Db::connect()->getConfig('prefix');
@@ -132,16 +141,16 @@ final class DataScopeTableLogic
                FROM information_schema.TABLES t
                LEFT JOIN information_schema.COLUMNS c
                  ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
-              WHERE t.TABLE_SCHEMA = DATABASE() AND t.TABLE_NAME LIKE ?
+              WHERE t.TABLE_SCHEMA = DATABASE()
               GROUP BY t.TABLE_NAME, t.TABLE_COMMENT
-              ORDER BY t.TABLE_NAME',
-            [$prefix . '%']
+              ORDER BY t.TABLE_NAME'
         );
 
         $out = [];
         foreach ($rows as $row) {
             $full = (string)$row['TABLE_NAME'];
-            $bare = substr($full, strlen($prefix));
+            $hasPrefix = $prefix !== '' && str_starts_with($full, $prefix);
+            $bare = $hasPrefix ? substr($full, strlen($prefix)) : $full;
             if ($bare === '') {
                 continue;
             }
@@ -150,6 +159,7 @@ final class DataScopeTableLogic
                 'full'        => $full,
                 'comment'     => trim((string)$row['TABLE_COMMENT']),
                 'field_count' => (int)$row['field_count'],
+                'has_prefix'  => $hasPrefix,
             ];
         }
 
