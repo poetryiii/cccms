@@ -4,19 +4,24 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\Dept;
+use plugin\cccms\app\model\Role;
+use plugin\cccms\app\model\User;
+use plugin\cccms\app\model\UserDept;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
 use plugin\cccms\support\PasswordPolicy;
-use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\UserContext;
-use think\facade\Db;
 
 /**
  * 个人中心：登录用户查看 / 维护**自己**的资料。
  *
  * 与 UserLogic 的区别：这里始终以 `$user->id` 为目标，不接受外部传入的 id，
- * 因此不需要数据权限判定（不会出现「自定义规则把自己也挡掉」的尴尬），
- * 也不会因为误传 id 改到别人。
+ * 因此不需要数据权限判定，也不会因为误传 id 改到别人。
+ *
+ * 这里**统一用 `User::withoutGlobalScope()` 显式跳出数据权限**：
+ * 「本部门」档且自己没被分配任何部门时，预设基线是 fail-closed（查不到任何用户），
+ * 若走作用域，用户会连自己的资料都读不到、改不了。
  */
 final class ProfileLogic
 {
@@ -30,7 +35,7 @@ final class ProfileLogic
 
     public static function read(UserContext $user): array
     {
-        $row = SoftDelete::apply(Db::name('user'))
+        $row = User::withoutGlobalScope()
             ->where('id', $user->id)
             ->field('id,username,nickname,avatar,email,phone,status,remark,login_time,login_ip,create_time')
             ->find();
@@ -39,10 +44,11 @@ final class ProfileLogic
             throw new ApiException('账号不存在或已失效', 404);
         }
 
-        $row['roles'] = self::roleNames($user->id);
-        $row['depts'] = self::deptNames($user->id);
+        $data          = $row->toArray();
+        $data['roles'] = self::roleNames($user->id);
+        $data['depts'] = self::deptNames($user->id);
 
-        return $row;
+        return $data;
     }
 
     public static function update(UserContext $user, array $data): void
@@ -81,7 +87,7 @@ final class ProfileLogic
             return;
         }
 
-        Db::name('user')->where('id', $user->id)->update($data);
+        User::withoutGlobalScope()->where('id', $user->id)->update($data);
     }
 
     public static function changePassword(UserContext $user, string $old, string $new): void
@@ -91,7 +97,7 @@ final class ProfileLogic
         }
         PasswordPolicy::assertValid($new);
 
-        $hash = (string)Db::name('user')->where('id', $user->id)->value('password');
+        $hash = (string)User::withoutGlobalScope()->where('id', $user->id)->value('password');
         if ($hash === '' || !password_verify($old, $hash)) {
             throw new ApiException('原密码不正确', 422);
         }
@@ -99,7 +105,7 @@ final class ProfileLogic
             throw new ApiException('新密码不能与原密码相同', 422);
         }
 
-        Db::name('user')->where('id', $user->id)->update([
+        User::withoutGlobalScope()->where('id', $user->id)->update([
             'password' => password_hash($new, PASSWORD_BCRYPT),
         ]);
     }
@@ -112,20 +118,19 @@ final class ProfileLogic
             return [];
         }
 
-        return array_values(SoftDelete::apply(Db::name('role'))
-            ->whereIn('id', $ids)
-            ->order('sort', 'asc')
-            ->column('name'));
+        return array_values(Role::whereIn('id', $ids)->order('sort', 'asc')->column('name'));
     }
 
+    /** 我所属的部门名 */
     private static function deptNames(int $userId): array
     {
-        $ids = array_map('intval', Db::name('user_dept')->where('user_id', $userId)->column('dept_id'));
+        $ids = array_map('intval', UserDept::where('user_id', $userId)->column('dept_id'));
         if ($ids === []) {
             return [];
         }
 
-        return array_values(SoftDelete::apply(Db::name('dept'))
+        // 部门模型参与数据权限：这里必须显式跳出（否则「本部门」档未分配部门时读不到自己的部门名）
+        return array_values(Dept::withoutGlobalScope()
             ->whereIn('id', $ids)
             ->order('sort', 'asc')
             ->column('name'));

@@ -45,10 +45,12 @@
       </template>
 
       <!-- 本地树（岗位 / 角色 / 部门） -->
+      <!-- default-expand-all 必须绑上：它只在初始化生效，靠上面的 :key 重挂载来切换展开状态 -->
       <el-tree
         v-else
         ref="treeRef"
         :key="treeKey"
+        :default-expand-all="expanded"
         class="art-node-picker-tree"
         :data="data"
         :props="treeProps"

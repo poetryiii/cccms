@@ -167,25 +167,132 @@ final class GeneratorLogic
         ];
     }
 
-    /** @param array<string,mixed> $c */
-    private static function tplModel(array $c): string
+    /**
+     * 数据权限声明（按表结构生成）。
+     *
+     * 生成器决定的是「新插件的默认路径」，所以必须给出一个**可用**的声明，
+     * 而不是留空：留空会退化成「按 create_by / dept_id 走基线」，
+     * 表里没有这两列就会拼出不存在的列、查询直接报错。
+     *
+     * @param array<string,mixed> $c 生成上下文（含 columns）
+     * @return array{decl:array<int,string>,extra:array<int,string>,needsDb:bool}
+     */
+    private static function dataScopeSnippet(array $c): array
     {
-        return <<<PHP
-        <?php
+        $hasOwner = self::hasColumn($c, 'create_by');
+        $hasDept  = self::hasColumn($c, 'dept_id');
 
-        declare(strict_types=1);
-
-        namespace plugin\\{$c['plugin']}\\app\\model;
-
-        use plugin\\cccms\\app\\model\\BaseModel;
-
-        /** {$c['title']}（代码生成器生成） */
-        class {$c['Module']} extends BaseModel
-        {
-            protected \$name = '{$c['table']}';
+        if ($hasOwner && $hasDept) {
+            return [
+                'decl' => [
+                    '',
+                    '    /**',
+                    '     * 数据权限：表里有 create_by 与 dept_id，按默认语义即可。',
+                    '     *   - 仅本人 = create_by 是我；',
+                    '     *   - 本部门 = dept_id 落在我可见的部门集合里。',
+                    '     */',
+                    "    protected \$dataScope = ['owner' => 'create_by'];",
+                ],
+                'extra'   => [],
+                'needsDb' => false,
+            ];
         }
 
-        PHP;
+        if ($hasOwner) {
+            return [
+                'decl' => [
+                    '',
+                    '    /**',
+                    '     * 数据权限：有 create_by 但没有 dept_id，',
+                    '     * 「本部门」需要把 create_by 落到「可见部门下的用户」。',
+                    '     */',
+                    '    protected $dataScope = [',
+                    "        'owner' => 'create_by',",
+                    "        'dept'  => [self::class, 'deptScope'],",
+                    '    ];',
+                ],
+                'extra' => [
+                    '',
+                    '    /** 「本部门 / 及以下」：把 create_by 落到「可见部门下的用户」 */',
+                    '    public static function deptScope($query, array $deptIds): void',
+                    '    {',
+                    '        $userIds = $deptIds === []',
+                    '            ? []',
+                    "            : Db::name('user_dept')->whereIn('dept_id', \$deptIds)->column('user_id');",
+                    '',
+                    '        // fail-closed：没有可匹配的成员时不能放行任何数据',
+                    "        \$query->whereIn('create_by', \$userIds ?: [0]);",
+                    '    }',
+                ],
+                'needsDb' => true,
+            ];
+        }
+
+        return [
+            'decl' => [
+                '',
+                '    /**',
+                '     * 数据权限：表里没有 create_by（无法判定归属），已跳过预设基线。',
+                '     * TODO 需要按人 / 部门隔离时：补一个归属字段并改成对应声明，或登记为受控表后用自定义规则。',
+                '     */',
+                "    protected \$dataScope = ['no_baseline' => true];",
+            ],
+            'extra'   => [],
+            'needsDb' => false,
+        ];
+    }
+
+    /** @param array<string,mixed> $c */
+    private static function hasColumn(array $c, string $name): bool
+    {
+        foreach ((array)($c['columns'] ?? []) as $column) {
+            if (($column['name'] ?? '') === $name) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 模型模板。
+     *
+     * 用「逐行拼接」而不是 heredoc：数据权限声明是按表结构拼出来的多行代码，
+     * 插进 heredoc 的缩进很难对齐。
+     *
+     * @param array<string,mixed> $c
+     */
+    private static function tplModel(array $c): string
+    {
+        $scope = self::dataScopeSnippet($c);
+
+        $lines = [
+            '<?php',
+            '',
+            'declare(strict_types=1);',
+            '',
+            "namespace plugin\\{$c['plugin']}\\app\\model;",
+            '',
+            'use plugin\\cccms\\app\\model\\BaseModel;',
+        ];
+        if ($scope['needsDb']) {
+            $lines[] = 'use think\\facade\\Db;';
+        }
+
+        $lines[] = '';
+        $lines[] = "/** {$c['title']}（代码生成器生成） */";
+        $lines[] = "class {$c['Module']} extends BaseModel";
+        $lines[] = '{';
+        $lines[] = "    protected \$name = '{$c['table']}';";
+
+        foreach ([...$scope['decl'], ...$scope['extra']] as $line) {
+            $lines[] = $line;
+        }
+
+        $lines[] = '}';
+        $lines[] = '';
+
+        return implode("\n", $lines);
     }
 
     /** @param array<string,mixed> $c */
@@ -194,6 +301,17 @@ final class GeneratorLogic
         $f = $c['plugin'];
         $M = $c['Module'];
 
+        // 有软删列才生成「回收站」数据源开关，否则退化成普通查询 / 物理删除
+        $soft      = self::hasColumn($c, 'delete_time');
+        // 插值点位于行首，末尾补一个换行即可让下一条 import 回到行首
+        $softUse   = $soft ? "use plugin\\cccms\\support\\SoftDelete;\n" : '';
+        $listQuery = $soft
+            ? "SoftDelete::scope({$M}::newScopedQuery(), !empty(\$params['trashed']))"
+            : "{$M}::newScopedQuery()";
+        $delete    = $soft
+            ? "SoftDelete::remove({$M}::newScopedQuery(), \$id);"
+            : "{$M}::newScopedQuery()->where('{$c['pk']}', \$id)->delete();";
+
         return <<<PHP
         <?php
 
@@ -201,15 +319,21 @@ final class GeneratorLogic
 
         namespace plugin\\{$f}\\app\\logic;
 
-        use plugin\\cccms\\support\\ApiException;
-        use think\\facade\\Db;
+        use plugin\\{$f}\\app\\model\\{$M};
+        {$softUse}use plugin\\cccms\\support\\ApiException;
 
-        /** {$c['title']}逻辑（代码生成器生成，请按需补充业务规则） */
+        /**
+         * {$c['title']}逻辑（代码生成器生成，请按需补充业务规则）。
+         *
+         * 数据权限由 `{$M}` 模型的全局作用域自动注入（见模型里的 `\$dataScope` 声明），
+         * 所以这里**不要**再用 `Db::name('{$c['table']}')` —— 那条查询会绕过数据权限，
+         * `cccms:data-scope-check` 会直接报错。
+         */
         final class {$M}Logic
         {
             public static function paginate(array \$params): array
             {
-                \$query = Db::name('{$c['table']}');
+                \$query = {$listQuery};
                 // TODO: 按需补充筛选条件
                 \$page  = max(1, (int)(\$params['page'] ?? 1));
                 \$limit = max(1, (int)(\$params['limit'] ?? 15));
@@ -222,25 +346,28 @@ final class GeneratorLogic
             public static function create(array \$data): int
             {
                 unset(\$data['{$c['pk']}']);
-                return (int)Db::name('{$c['table']}')->insertGetId(\$data);
+                // 新增的数据还没有归属，插入语句不需要数据权限条件
+                return (int){$M}::withoutGlobalScope()->insertGetId(\$data);
             }
 
             public static function update(int \$id, array \$data): void
             {
                 self::assertExists(\$id);
                 unset(\$data['{$c['pk']}']);
-                Db::name('{$c['table']}')->where('{$c['pk']}', \$id)->update(\$data);
+                // 作用域随模型自动生效：改范围外的行时不会更新到任何数据
+                {$M}::newScopedQuery()->where('{$c['pk']}', \$id)->update(\$data);
             }
 
             public static function delete(int \$id): void
             {
                 self::assertExists(\$id);
-                Db::name('{$c['table']}')->where('{$c['pk']}', \$id)->delete();
+                {$delete}
             }
 
+            /** 存在性校验要看全量数据（含范围外的行），显式跳出作用域 */
             private static function assertExists(int \$id): void
             {
-                if (!Db::name('{$c['table']}')->where('{$c['pk']}', \$id)->find()) {
+                if (!{$M}::withoutGlobalScope()->where('{$c['pk']}', \$id)->find()) {
                     throw new ApiException('{$c['title']}不存在', 404);
                 }
             }

@@ -178,13 +178,13 @@ CREATE TABLE IF NOT EXISTS `sys_data_rule` (
   `post_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '绑定岗位 0=不限',
   `dept_ids`    json         DEFAULT NULL COMMENT '绑定部门(多选,跨部门)',
   `role_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '绑定角色 0=不限',
+  `bind_mode`   varchar(8)   NOT NULL DEFAULT 'or' COMMENT '绑定组合方式 or=任一命中 and=已填写的全部命中',
   `table_name`  varchar(64)  NOT NULL DEFAULT '' COMMENT '目标表(不含前缀)，空=不限表',
   `field`       varchar(64)  NOT NULL DEFAULT '' COMMENT '字段名',
   `action`      varchar(16)  NOT NULL DEFAULT 'row' COMMENT 'row/hidden/readonly/mask/encrypt',
   `operator`    varchar(16)  NOT NULL DEFAULT '=' COMMENT '行级操作符 = != in like > >= < <= between',
   `value`       varchar(255) NOT NULL DEFAULT '' COMMENT '行级取值(逗号分隔；动态变量如 {dept.subtree})',
   `value_type`  varchar(16)  NOT NULL DEFAULT 'static' COMMENT '取值类型 static静态 dynamic动态变量',
-  `sort`        int          NOT NULL DEFAULT 0,
   `remark`      varchar(255) NOT NULL DEFAULT '',
   `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
   `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -196,8 +196,9 @@ CREATE TABLE IF NOT EXISTS `sys_data_rule` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据权限规则';
 
 -- ---------------------------------------------------------------------
--- 数据权限受控表（哪些表可以配数据权限；未列入的表在规则页被隐藏）
--- 只有业务 Logic 真正调用了 DataScope 的表才有意义，因此这里是一份「登记表」
+-- 数据权限受控表（哪些表可以配「自定义规则」；未列入的表在规则页被隐藏）
+-- 登记的前提是该表已接入数据权限（模型声明参与 + 查询走模型），否则规则不会生效；
+-- 未登记不代表没有数据权限：预设基线（仅本人/本部门）由模型声明决定，与登记无关
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_data_scope_table` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,

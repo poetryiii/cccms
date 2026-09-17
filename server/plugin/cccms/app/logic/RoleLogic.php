@@ -4,16 +4,25 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\Role;
+use plugin\cccms\app\model\RoleNode;
 use plugin\cccms\support\ApiException;
-use plugin\cccms\support\SoftDelete;
-use think\facade\Db;
 
-/** 角色管理逻辑（含继承与节点授权）。 */
+/**
+ * 角色管理逻辑（含继承与节点授权）。
+ *
+ * 查询统一走 `Role` / `RoleNode` 模型；角色表当前声明为**不参与**数据权限
+ * （组织架构数据，见 `app/model/Role.php`），因此作用域是空操作 ——
+ * 但入口统一后，将来若要给角色加隔离，只改模型声明即可生效。
+ *
+ * 需要看到全量数据的判定（存在性、唯一性）一律显式 `withoutGlobalScope()`。
+ */
 final class RoleLogic
 {
     public static function paginate(array $params): array
     {
-        $query = SoftDelete::listQuery('role', $params);
+        // trashed=1 → 回收站视图（只看已删除）；软删除过滤由模型层承担
+        $query = !empty($params['trashed']) ? Role::onlyTrashed() : Role::newScopedQuery();
         if (!empty($params['name'])) {
             $query->where('name', 'like', '%' . $params['name'] . '%');
         }
@@ -32,7 +41,7 @@ final class RoleLogic
     /** 角色自身 + 所有下级角色 id */
     public static function subtreeIds(int $id): array
     {
-        $parents = SoftDelete::apply(Db::name('role'))->column('parent_id', 'id');
+        $parents = Role::withoutGlobalScope()->column('parent_id', 'id');
         $ids     = [$id];
         $stack   = [$id];
 
@@ -52,7 +61,8 @@ final class RoleLogic
     /** 角色树（含继承，供选择器）。 */
     public static function tree(): array
     {
-        $all = SoftDelete::apply(Db::name('role'))->order('sort', 'asc')->select()->toArray();
+        $all = Role::withoutGlobalScope()->order('sort', 'asc')->select()->toArray();
+
         return self::buildTree($all, 0);
     }
 
@@ -60,6 +70,7 @@ final class RoleLogic
     {
         $role = self::assertExists($id);
         $nodes = self::nodes($id);
+
         return array_merge($role, $nodes);
     }
 
@@ -68,7 +79,8 @@ final class RoleLogic
         self::assertUniqueCode((string)($data['code'] ?? ''), 0);
 
         $nodes = self::pullNodes($data);
-        $id    = (int)Db::name('role')->insertGetId($data);
+        // 新增还没有归属，插入语句不需要数据权限条件
+        $id = (int)Role::withoutGlobalScope()->insertGetId($data);
         self::assignNodes($id, $nodes);
 
         return $id;
@@ -89,7 +101,7 @@ final class RoleLogic
         $nodes    = self::pullNodes($data);
 
         if ($data) {
-            Db::name('role')->where('id', $id)->update($data);
+            Role::where('id', $id)->update($data);
         }
         if ($hasNodes) {
             self::assignNodes($id, $nodes);
@@ -103,27 +115,28 @@ final class RoleLogic
             throw new ApiException('不能删除超管角色', 422);
         }
         // 有子角色则禁止删除（避免继承链断裂）
-        if (SoftDelete::apply(Db::name('role'))->where('parent_id', $id)->count() > 0) {
+        if (Role::withoutGlobalScope()->where('parent_id', $id)->count() > 0) {
             throw new ApiException('存在子角色，无法删除', 422);
         }
         // 软删除：进回收站；role_node / user_role 保留，恢复后授权与分配原样回来。
         // 已软删的角色在 AuthService（登录/鉴权）与 DataScope（数据范围）里都会被过滤，
         // 因此不会继续授予任何权限。
-        SoftDelete::remove(Db::name('role'), $id);
+        Role::destroy($id);
     }
 
     /** 角色的节点（含继承标记）。 */
     public static function nodes(int $id): array
     {
         self::assertExists($id);
-        $own = Db::name('role_node')->where('role_id', $id)->column('node');
+        $own = RoleNode::where('role_id', $id)->column('node');
         $inherited = [];
-        $parent = (int)SoftDelete::apply(Db::name('role'))->where('id', $id)->value('parent_id');
+        $parent = (int)Role::withoutGlobalScope()->where('id', $id)->value('parent_id');
         $guard = 0;
         while ($parent > 0 && $guard++ < 5) {
-            $inherited = array_merge($inherited, Db::name('role_node')->where('role_id', $parent)->column('node'));
-            $parent = (int)SoftDelete::apply(Db::name('role'))->where('id', $parent)->value('parent_id');
+            $inherited = array_merge($inherited, RoleNode::where('role_id', $parent)->column('node'));
+            $parent = (int)Role::withoutGlobalScope()->where('id', $parent)->value('parent_id');
         }
+
         return [
             'own'       => array_values(array_unique($own)),
             'inherited' => array_values(array_unique($inherited)),
@@ -156,21 +169,22 @@ final class RoleLogic
 
     private static function assignNodes(int $roleId, array $nodes): void
     {
-        Db::name('role_node')->where('role_id', $roleId)->delete();
+        RoleNode::where('role_id', $roleId)->delete();
         foreach (array_unique(array_map('strval', $nodes)) as $node) {
             if ($node !== '') {
-                Db::name('role_node')->insert(['role_id' => $roleId, 'node' => $node]);
+                RoleNode::insert(['role_id' => $roleId, 'node' => $node]);
             }
         }
     }
 
     private static function assertExists(int $id): array
     {
-        $role = SoftDelete::apply(Db::name('role'))->where('id', $id)->find();
+        $role = Role::withoutGlobalScope()->where('id', $id)->find();
         if (!$role) {
             throw new ApiException('角色不存在', 404);
         }
-        return $role;
+
+        return $role->toArray();
     }
 
     private static function assertUniqueCode(string $code, int $excludeId): void
@@ -178,15 +192,15 @@ final class RoleLogic
         if ($code === '') {
             throw new ApiException('角色标识不能为空', 422);
         }
-        // 唯一索引不做软删特例：回收站里的角色仍占用标识
-        $q = Db::name('role')->where('code', $code);
+        // 唯一索引不做软删特例：回收站里的角色仍占用标识（withTrashed 才看得到）
+        $q = Role::withoutGlobalScope()->withTrashed()->where('code', $code);
         if ($excludeId > 0) {
             $q->where('id', '<>', $excludeId);
         }
         $exist = $q->find();
         if ($exist) {
             throw new ApiException(
-                SoftDelete::isTrashed($exist)
+                !empty($exist->delete_time)
                     ? "角色标识 {$code} 在回收站中，请先恢复或彻底删除"
                     : '角色标识已存在',
                 422
@@ -203,6 +217,7 @@ final class RoleLogic
                 $tree[] = $item;
             }
         }
+
         return $tree;
     }
 }

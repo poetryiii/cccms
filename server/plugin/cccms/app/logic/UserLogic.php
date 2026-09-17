@@ -4,26 +4,36 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\Role;
+use plugin\cccms\app\model\User;
+use plugin\cccms\app\model\UserDept;
+use plugin\cccms\app\model\UserPost;
+use plugin\cccms\app\model\UserRole;
 use plugin\cccms\support\ApiException;
-use plugin\cccms\support\DataScope;
 use plugin\cccms\support\PasswordPolicy;
-use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\UserContext;
-use think\facade\Db;
 
-/** 用户管理逻辑。 */
+/**
+ * 用户管理逻辑。
+ *
+ * 数据权限**全部由模型层承担**，这里不再出现任何手写判定：
+ *   - 行级范围：「仅本人」= id、「本部门」走 sys_user_dept → `BaseModel::scopeDataScope()`；
+ *   - 出参字段规则（hidden / mask / encrypt）→ `BaseModel::toArray()`；
+ *   - 入参字段剔除（不可见 / 不可改）→ `ScopedQuery` 在写库前统一处理。
+ *
+ * 需要看到**全量**数据的地方（唯一性、存在性判断）显式用 `User::withoutGlobalScope()`
+ * 跳出作用域，否则会出现「因为看不见，所以当成没重复」这种脏数据。
+ */
 final class UserLogic
 {
     /** 对外安全字段（不含 password）。 */
     private const SAFE_FIELDS = 'id,username,nickname,avatar,email,phone,status,remark,login_time,login_ip,create_time,update_time';
 
-    /** 本模块对应的表（不含前缀），用于只取「不限表」或「指定了本表」的数据权限规则 */
-    private const TABLE = 'user';
-
-    public static function paginate(array $params, UserContext $user): array
+    public static function paginate(array $params): array
     {
-        // trashed=1 → 回收站视图（只看已删除），与正常列表共用同一套列
-        $query = SoftDelete::listQuery('user', $params);
+        // trashed=1 → 回收站视图（只看已删除），与正常列表共用同一套列。
+        // 软删除过滤与行级数据范围都由模型层提供，这里只切换数据源。
+        $query = !empty($params['trashed']) ? User::onlyTrashed() : User::newScopedQuery();
         if (!empty($params['username'])) {
             $query->where('username', 'like', '%' . $params['username'] . '%');
         }
@@ -34,34 +44,37 @@ final class UserLogic
             $query->where('status', (int)$params['status']);
         }
 
-        self::applyDataScope($query, $user);
-
         $page  = max(1, (int)($params['page'] ?? 1));
         $limit = max(1, (int)($params['limit'] ?? 15));
         $total = $query->count();
-        $list  = $query->field(self::SAFE_FIELDS)->page($page, $limit)->order('id', 'desc')->select()->toArray();
-
-        // 字段级规则（hidden / mask / encrypt）作用在出参上
-        DataScope::field($list, $user, self::TABLE);
+        // 字段级规则（hidden / mask / encrypt）已由 User::toArray() 统一处理
+        $list = $query->field(self::SAFE_FIELDS)->page($page, $limit)->order('id', 'desc')->select()->toArray();
 
         return ['total' => $total, 'list' => $list];
     }
 
-    public static function read(int $id, UserContext $operator): array
+    public static function read(int $id): array
     {
-        $user = SoftDelete::apply(Db::name('user'))->where('id', $id)->field(self::SAFE_FIELDS)->find();
+        // 数据权限已由模型作用域生效：越权时这里直接查不到
+        $user = User::newScopedQuery()->where('id', $id)->field(self::SAFE_FIELDS)->find();
         if (!$user) {
-            throw new ApiException('用户不存在', 404);
+            // 区分「真不存在」（404）与「存在但越权」（403）
+            self::assertExists($id);
+            throw new ApiException('无权查看该用户', 403);
         }
-        self::assertInScope($id, $operator);
 
-        $user['role_ids']  = array_map('intval', Db::name('user_role')->where('user_id', $id)->column('role_id'));
-        $user['dept_ids']  = array_map('intval', Db::name('user_dept')->where('user_id', $id)->column('dept_id'));
-        $user['post_ids']  = array_map('intval', Db::name('user_post')->where('user_id', $id)->column('post_id'));
-        return $user;
+        // toArray() 里已统一应用字段级规则（hidden 不下发 / mask 掩码 / encrypt 密文），
+        // 掩码值被表单回写的问题由 ScopedQuery 在写入侧剔除兜住
+        $row = $user->toArray();
+
+        $row['role_ids'] = array_map('intval', UserRole::where('user_id', $id)->column('role_id'));
+        $row['dept_ids'] = array_map('intval', UserDept::where('user_id', $id)->column('dept_id'));
+        $row['post_ids'] = array_map('intval', UserPost::where('user_id', $id)->column('post_id'));
+
+        return $row;
     }
 
-    public static function create(array $data, UserContext $operator): int
+    public static function create(array $data): int
     {
         self::assertUniqueUsername((string)($data['username'] ?? ''), 0);
         if (empty($data['password'])) {
@@ -70,22 +83,22 @@ final class UserLogic
         self::assertPassword((string)$data['password']);
         $data['password'] = password_hash((string)$data['password'], PASSWORD_BCRYPT);
 
-        // readonly 字段级规则：强制剔除，防止前端提交越权修改
-        DataScope::stripReadonly($data, $operator, self::TABLE);
+        // 字段级规则的入参剔除由 ScopedQuery 在写库前统一完成（见 app/model/ScopedQuery.php）
 
         $roleIds = self::pull($data, 'role_ids');
         $deptIds = self::pull($data, 'dept_ids');
         $postIds = self::pull($data, 'post_ids');
 
-        $id = (int)Db::name('user')->insertGetId($data);
+        // 新增还没有「归属」，插入语句不需要数据权限条件
+        $id = (int)User::withoutGlobalScope()->insertGetId($data);
         self::assign($id, $roleIds, $deptIds, $postIds);
         return $id;
     }
 
-    public static function update(int $id, array $data, UserContext $operator): void
+    public static function update(int $id, array $data): void
     {
         self::assertExists($id);
-        self::assertInScope($id, $operator);
+        self::assertInScope($id);
         if (!empty($data['username'])) {
             self::assertUniqueUsername((string)$data['username'], $id);
         }
@@ -95,13 +108,11 @@ final class UserLogic
             unset($data['password']);
         }
 
-        DataScope::stripReadonly($data, $operator, self::TABLE);
-
         $roleIds = self::pull($data, 'role_ids');
         $deptIds = self::pull($data, 'dept_ids');
         $postIds = self::pull($data, 'post_ids');
 
-        Db::name('user')->where('id', $id)->update($data);
+        User::newScopedQuery()->where('id', $id)->update($data);
         self::assign($id, $roleIds, $deptIds, $postIds);
     }
 
@@ -111,62 +122,51 @@ final class UserLogic
             throw new ApiException('不能删除自己', 422);
         }
         self::assertExists($id);
-        self::assertInScope($id, $operator);
-        $isSuper = Db::name('user_role')
-            ->alias('ur')
-            ->join('role r', 'r.id = ur.role_id')
-            ->where('ur.user_id', $id)
-            ->where('r.code', 'super_admin')
-            ->count();
-        if ($isSuper > 0) {
+        self::assertInScope($id);
+
+        $roleIds = array_map('intval', UserRole::where('user_id', $id)->column('role_id'));
+        $isSuper = $roleIds !== []
+            && Role::whereIn('id', $roleIds)->where('code', 'super_admin')->count() > 0;
+        if ($isSuper) {
             throw new ApiException('不能删除超管账号', 422);
         }
-        // 软删除：进回收站；关联表刻意保留，恢复后角色/部门/岗位原样回来
-        SoftDelete::remove(Db::name('user'), $id);
+
+        // 软删除：进回收站；关联表刻意保留，恢复后角色/部门/岗位原样回来。
+        // destroy() 由 SoftDelete trait 提供，作用域仍然生效（越权 id 匹配不到行）
+        User::destroy($id);
     }
 
-    public static function resetPassword(int $id, string $password, UserContext $operator): void
+    public static function resetPassword(int $id, string $password): void
     {
         self::assertPassword($password);
         self::assertExists($id);
-        self::assertInScope($id, $operator);
-        Db::name('user')->where('id', $id)->update(['password' => password_hash($password, PASSWORD_BCRYPT)]);
-    }
+        self::assertInScope($id);
 
-    /**
-     * 用户表的数据范围适配。
-     *
-     * sys_user 既没有 create_by 也没有 dept_id，所以要显式说明：
-     *   - 「仅本人」= 只看自己这个账号（id = 我），而不是「我创建的账号」
-     *   - 「本部门 / 及以下」= 所属部门（走 sys_user_dept）落在我可见的部门集合里
-     */
-    private static function applyDataScope($query, UserContext $user): void
-    {
-        DataScope::row($query, $user, [
-            'owner' => 'id',
-            'table' => self::TABLE,
-            'dept'  => static function ($q, array $deptIds): void {
-                $userIds = $deptIds === []
-                    ? []
-                    : Db::name('user_dept')->whereIn('dept_id', $deptIds)->column('user_id');
-                // fail-closed：没有可匹配的部门时不能放行任何数据
-                $q->whereIn('id', $userIds ?: [0]);
-            },
-        ]);
+        User::newScopedQuery()
+            ->where('id', $id)
+            ->update(['password' => password_hash($password, PASSWORD_BCRYPT)]);
     }
 
     /**
      * 单条记录的数据范围校验。
      *
-     * 只过滤列表是不够的：详情 / 编辑 / 删除 / 重置密码都能按 id 直接命中，
-     * 必须在单条入口再校验一次，否则越权只是「看不见」而不是「做不到」。
+     * 「查不到」与「不存在」在响应上要区分开：越权给 403，而不是伪装成 404。
+     * 范围本身由 User 模型的全局作用域注入（与控制器传入的 `$request->user` 一致）。
      */
-    private static function assertInScope(int $id, UserContext $user): void
+    private static function assertInScope(int $id): void
     {
-        $query = SoftDelete::apply(Db::name('user'))->where('id', $id);
-        self::applyDataScope($query, $user);
-        if ($query->count() === 0) {
+        if (User::newScopedQuery()->where('id', $id)->count() === 0) {
             throw new ApiException('无权操作该用户', 403);
+        }
+    }
+
+    /**
+     * 存在性校验：必须看到**全量**数据（含其他部门、含回收站），显式跳出数据权限。
+     */
+    private static function assertExists(int $id): void
+    {
+        if (!User::withoutGlobalScope()->where('id', $id)->find()) {
+            throw new ApiException('用户不存在', 404);
         }
     }
 
@@ -178,30 +178,23 @@ final class UserLogic
 
     private static function assign(int $userId, array $roleIds, array $deptIds, array $postIds): void
     {
-        Db::name('user_role')->where('user_id', $userId)->delete();
+        UserRole::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $roleIds)) as $rid) {
             if ($rid > 0) {
-                Db::name('user_role')->insert(['user_id' => $userId, 'role_id' => $rid]);
+                UserRole::insert(['user_id' => $userId, 'role_id' => $rid]);
             }
         }
-        Db::name('user_dept')->where('user_id', $userId)->delete();
+        UserDept::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $deptIds)) as $did) {
             if ($did > 0) {
-                Db::name('user_dept')->insert(['user_id' => $userId, 'dept_id' => $did]);
+                UserDept::insert(['user_id' => $userId, 'dept_id' => $did]);
             }
         }
-        Db::name('user_post')->where('user_id', $userId)->delete();
+        UserPost::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $postIds)) as $pid) {
             if ($pid > 0) {
-                Db::name('user_post')->insert(['user_id' => $userId, 'post_id' => $pid]);
+                UserPost::insert(['user_id' => $userId, 'post_id' => $pid]);
             }
-        }
-    }
-
-    private static function assertExists(int $id): void
-    {
-        if (!SoftDelete::apply(Db::name('user'))->where('id', $id)->find()) {
-            throw new ApiException('用户不存在', 404);
         }
     }
 
@@ -210,15 +203,18 @@ final class UserLogic
         if ($username === '') {
             throw new ApiException('用户名不能为空', 422);
         }
-        // 唯一索引不做软删特例：回收站里的用户仍占用用户名，这里给出可读提示
-        $q = Db::name('user')->where('username', $username);
+
+        // 唯一索引不做软删特例：回收站里的用户仍占用用户名，这里给出可读提示。
+        // 唯一性判断必须看全量数据，否则「看不见就当没重复」会写出脏索引；
+        // withTrashed() 才能把回收站里的账号也算进来。
+        $q = User::withoutGlobalScope()->withTrashed()->where('username', $username);
         if ($excludeId > 0) {
             $q->where('id', '<>', $excludeId);
         }
         $exist = $q->find();
         if ($exist) {
             throw new ApiException(
-                SoftDelete::isTrashed($exist)
+                !empty($exist->delete_time)
                     ? "账号 {$username} 在回收站中，请先恢复或彻底删除"
                     : '用户名已存在',
                 422

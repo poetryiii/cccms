@@ -26,10 +26,16 @@ INSERT IGNORE INTO `sys_user` (`id`, `username`, `password`, `nickname`, `status
 INSERT IGNORE INTO `sys_user_role` (`user_id`, `role_id`) VALUES (1, 1);
 
 -- ---------------------------------------------------------------------
--- 数据权限受控表（默认只登记已接入的数据权限的表：用户管理）
+-- 数据权限受控表（默认登记基础系统里已接入数据权限的表）
+--
+-- 登记 = 可以在规则页给它配「自定义规则」；未登记的表仍受预设基线保护。
+-- 新增业务插件接入数据权限后，在自己的 seed 里登记即可（有唯一键，可重复执行）。
 -- ---------------------------------------------------------------------
 INSERT IGNORE INTO `sys_data_scope_table` (`table_name`, `label`, `status`, `remark`, `create_time`, `update_time`) VALUES
-('user', '', 1, '已接入：用户管理', NOW(), NOW());
+('user',    '',       1, '已接入：用户管理', NOW(), NOW()),
+('file',    '附件',    1, '模型声明参与：owner=create_by，本部门落到可见部门成员', NOW(), NOW()),
+('log',     '操作日志', 1, '模型声明参与：owner=user_id，本部门落到可见部门成员', NOW(), NOW()),
+('crontab', '定时任务', 1, '模型声明 no_baseline（无归属列），隔离依赖自定义规则', NOW(), NOW());
 
 -- ---------------------------------------------------------------------
 -- 系统配置默认值

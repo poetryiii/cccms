@@ -4,21 +4,29 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\Crontab;
+use plugin\cccms\app\model\CrontabLog;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\CronMatcher;
 use plugin\cccms\support\CrontabRunner;
 use plugin\cccms\support\CrontabTask;
-use plugin\cccms\support\SoftDelete;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use think\facade\Db;
 
-/** 定时任务逻辑。 */
+/**
+ * 定时任务逻辑。
+ *
+ * 查询统一走 `Crontab` 模型：该表既无归属列也无部门列，模型里声明了 `no_baseline`
+ * （见 `app/model/Crontab.php`），隔离完全交给自定义行级规则；
+ * 同时它也是**调度进程**的数据源，CLI 下没有当前用户，作用域自动跳过。
+ */
 final class CrontabLogic
 {
     public static function paginate(array $params): array
     {
-        $query = SoftDelete::listQuery('crontab', $params);
+        // trashed=1 → 回收站视图（只看已删除）
+        $query = !empty($params['trashed']) ? Crontab::onlyTrashed() : Crontab::newScopedQuery();
         if (!empty($params['name'])) {
             $query->where('name', 'like', '%' . $params['name'] . '%');
         }
@@ -77,12 +85,13 @@ final class CrontabLogic
         $next = CronMatcher::nextRunTime((string)$data['expression'], time());
         $data['next_run_time'] = $next ? date('Y-m-d H:i:s', $next) : null;
 
-        return (int)Db::name('crontab')->insertGetId($data);
+        // 新增还没有归属，插入语句不需要数据权限条件
+        return (int)Crontab::withoutGlobalScope()->insertGetId($data);
     }
 
     public static function update(int $id, array $data): void
     {
-        self::assertExists($id);
+        self::assertInScope($id);
         self::assertValid($data);
         if (array_key_exists('params', $data)) {
             $data['params'] = self::encodeParams($data['params']);
@@ -90,20 +99,20 @@ final class CrontabLogic
         $next = CronMatcher::nextRunTime((string)$data['expression'], time());
         $data['next_run_time'] = $next ? date('Y-m-d H:i:s', $next) : null;
 
-        Db::name('crontab')->where('id', $id)->update($data);
+        Crontab::newScopedQuery()->where('id', $id)->update($data);
     }
 
     public static function delete(int $id): void
     {
-        self::assertExists($id);
-        // 软删除：进回收站。执行日志是历史记录，刻意保留（调度进程已按软删过滤，不会继续跑）
-        SoftDelete::remove(Db::name('crontab'), $id);
+        self::assertInScope($id);
+        // 软删除：进回收站。执行日志是历史记录，刻意保留（调度进程查询已自动排除已删任务）
+        Crontab::destroy($id);
     }
 
     /** 立即执行一次（不改变调度周期）。 */
     public static function runOnce(int $id): array
     {
-        $task = self::assertExists($id);
+        $task = self::assertInScope($id);
         $now = time();
         $result = CrontabRunner::run($task);
         CrontabRunner::writeLog($task, $result, $now);
@@ -112,7 +121,8 @@ final class CrontabLogic
 
     public static function logs(array $params): array
     {
-        $query = Db::name('crontab_log');
+        // 执行日志随任务归属（模型声明为不参与数据权限），不单独做范围判定
+        $query = CrontabLog::newScopedQuery();
         if (!empty($params['crontab_id'])) {
             $query->where('crontab_id', (int)$params['crontab_id']);
         }
@@ -154,13 +164,25 @@ final class CrontabLogic
         return (string)json_encode($params ?: new \stdClass(), JSON_UNESCAPED_UNICODE);
     }
 
-    /** @return array<string,mixed> */
-    private static function assertExists(int $id): array
+    /**
+     * 数据范围校验：在范围内才返回任务实体（越权 403、不存在 404）。
+     *
+     * 范围由 `Crontab` 模型的全局作用域注入；`withoutGlobalScope()` 那次查库只用于
+     * 区分「不存在」与「越权」，不参与业务。
+     *
+     * @return array<string,mixed>
+     */
+    private static function assertInScope(int $id): array
     {
-        $task = SoftDelete::apply(Db::name('crontab'))->where('id', $id)->find();
-        if (!$task) {
+        $task = Crontab::newScopedQuery()->where('id', $id)->find();
+        if ($task) {
+            return $task->toArray();
+        }
+
+        if (!Crontab::withoutGlobalScope()->where('id', $id)->find()) {
             throw new ApiException('定时任务不存在', 404);
         }
-        return $task;
+
+        throw new ApiException('无权操作该定时任务', 403);
     }
 }

@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\User;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
 use plugin\cccms\support\Captcha;
 use plugin\cccms\support\Cipher;
 use plugin\cccms\support\LoginThrottle;
-use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\SysConfig;
 use plugin\cccms\support\TokenService;
 use plugin\cccms\support\UserContext;
-use think\facade\Db;
 
 /** 登录认证逻辑。 */
 final class AuthLogic
@@ -37,8 +36,9 @@ final class AuthLogic
             throw new ApiException('验证码错误或已过期', 422);
         }
 
-        // 已进回收站的账号不能登录（用户名仍被占用，但登录入口直接当作不存在）
-        $user = SoftDelete::apply(Db::name('user'))->where('username', $username)->find();
+        // 已进回收站的账号不能登录（用户名仍被占用，但登录入口直接当作不存在）。
+        // 显式跳出数据权限：此时还没有当前用户，数据范围本身就要靠这行数据算出来。
+        $user = User::withoutGlobalScope()->where('username', $username)->find();
         if (!$user || !password_verify($password, (string)$user['password'])) {
             LoginThrottle::recordFailure($username);
             throw new ApiException('用户名或密码错误' . self::attemptTip($username), 422);
@@ -59,8 +59,8 @@ final class AuthLogic
 
         LoginThrottle::clear($username);
 
-        // 更新登录信息
-        Db::name('user')->where('id', $user['id'])->update([
+        // 更新登录信息（登录链路同样没有当前用户上下文，显式跳出作用域）
+        User::withoutGlobalScope()->where('id', $user['id'])->update([
             'login_time' => date('Y-m-d H:i:s'),
             'login_ip'   => request()->getRealIp() ?: '',
         ]);

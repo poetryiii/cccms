@@ -8,4 +8,10 @@ namespace plugin\cccms\app\model;
 class DataScopeTable extends BaseModel
 {
     protected $name = 'data_scope_table';
+
+    /** 数据权限自身的元数据，不参与数据权限 */
+    protected $dataScope = false;
+
+    /** 没有 delete_time 列 */
+    protected $deleteTime = false;
 }

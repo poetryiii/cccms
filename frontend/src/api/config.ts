@@ -1,7 +1,7 @@
 import { http } from './request'
 
-/** 支持的控件类型，与 sys_config.type 一一对应 */
-export type ConfigType = 'input' | 'switch' | 'select' | 'input-number' | 'textarea' | 'radio'
+/** 支持的控件类型，与 sys_config.type 一一对应（password = 敏感项，后端加密存储、读取时脱敏） */
+export type ConfigType = 'input' | 'switch' | 'select' | 'input-number' | 'textarea' | 'radio' | 'password'
 
 export interface ConfigOption {
   label: string
@@ -17,6 +17,8 @@ export interface ConfigItem {
   value: string | null
   /** select / radio 的候选值，后端按 JSON 返回 */
   options: ConfigOption[] | string | null
+  /** 仅 type=password 返回：敏感项是否已配置过（密文本身不下发） */
+  has_value?: boolean
   group: string
   sort: number
   status: number

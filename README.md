@@ -28,7 +28,7 @@ CCCMS 是一套基于 **Webman 2.x（PHP 常驻内存框架）+ Vue 3** 的中�
 | 认证 | 账号密码登录、登出、图形验证码、JWT 签发/校验、登录失败限流 |
 | RBAC | 用户、角色（含继承）、菜单（节点）管理；用户↔角色、角色↔节点 |
 | 组织 | 部门（无限级，用户可多部门）、岗位；用户↔部门、部门↔角色、用户↔岗位 |
-| 数据权限 | 角色 `data_scope`（5 档）+ `sys_data_rule`（行级 / 字段级，多维绑定）；已接入用户管理 |
+| 数据权限 | 角色 `data_scope`（5 档）+ `sys_data_rule`（行级 / 字段级，多维绑定）；**模型层自动生效**，已接入 user / dept / file / crontab / log |
 | 鉴权 | 4 个属性 + 中间件 + `perm-scan` 校验命令 |
 | 响应 | 统一出口 `Result`，支持 json / jsonp / xml / view |
 | 菜单 | `db/menu.php` 声明目录/菜单，按钮由注解生成；菜单管理界面 |
@@ -185,7 +185,7 @@ docker compose up -d --build   # 容器暴露 8787，映射 ./ 源码
  └─ CheckAuth            ① 认证 401 → ② 授权 403 → ③ 方法 405
  └─ ResponseEncode       ④ 编码白名单 406，确定本次响应编码
  └─ Controller
-     └─ Logic            业务逻辑 + 数据权限（行级 where / 字段级出入参过滤）
+     └─ Logic            业务逻辑（数据权限已下沉到 Model 层，见 6.4）
          └─ Model        数据访问
  └─ OperationLog         操作日志（写操作记录）
  └─ Result               按编码渲染 json / jsonp / xml / view
@@ -248,7 +248,23 @@ public function login(Request $request): Response {}
 
 ### 6.4 数据权限
 
-在 **Logic 层**由 `DataScope` 统一注入。
+**由模型层自动注入**：`BaseModel` 挂了全局查询作用域（`$globalScope = ['dataScope']`），
+只要查询走模型，行级范围就自动生效 —— 列表、详情、`count()`、以及按 id 直调的编辑 / 删除都被覆盖，
+业务层不需要（也不应该）再手写判定。
+
+每张表的「数据范围怎么算」写在模型里（`$dataScope`）：
+
+| 模型 | 声明 | 语义 |
+|------|------|------|
+| `User` | `owner = id`、`dept` 走 `sys_user_dept` | 仅本人 = 自己这个账号；本部门 = 所属部门成员 |
+| `Dept` | `owner` / `dept` = 我所属部门（及子树） | 部门页按范围收窄 |
+| `File` | `owner = create_by`、`dept` 落到可见部门成员 | 我上传 / 本部门上传的附件 |
+| `OperationLog` | `owner = user_id`、`dept` 落到可见部门成员 | 自己的 / 本部门的操作日志 |
+| `Crontab` | `no_baseline` | 无归属列，隔离交给自定义规则 |
+| 其余（角色 / 岗位 / 菜单 / 配置 / 字典 / 分类 / 规则 / 关联表） | `false` | 不参与（基础设施与组织架构数据） |
+
+不声明又确实没有 `create_by` / `dept_id` 的表会直接报「列不存在」——**这是有意的**：
+逼你把「这张表的数据范围怎么算」写清楚，而不是静默放行。
 
 **角色级预置范围**（`sys_role.data_scope`）：
 
@@ -262,15 +278,69 @@ public function login(Request $request): Response {}
 
 **`sys_data_rule` 行级 + 字段级规则**：
 
-- 绑定维度（任一命中即生效，**或**）：用户 / 岗位 / 部门（含下级）/ 角色；四个都空 = 全局规则；多维度按 `sort` 升序全部叠加（AND）
+- **绑定维度**：用户 / 岗位 / 部门（含下级）/ 角色；四项都空 = 全局规则
+- **单条规则内部的组合方式**由 `bind_mode` 决定：`or`（默认）= 命中**任意一项**即生效；
+  `and` = **所有已填写**的维度都要命中（未填写的维度不参与判断 —— 否则只填一项时永远不会命中）
+- ⚠️ `or` 比直觉更宽：同时选「用户 A」+「岗位 P」是「A」**或**「所有 P 的人」，
+  不是「A 且 处于 P」。要后者请把「绑定关系」改为「全部命中（且）」
+- **多条规则之间是「与」**：命中当前用户的每条行级规则各往查询里加一个条件，所以多条收窄规则叠加只会更窄；
+  某条不命中的规则不参与，也不会放宽其它规则（行级规则是 AND，**先后顺序没有影响**）
+- **字段级动作是按顺序依次处理**的：同一字段被多条字段级规则命中时结果取决于处理顺序，
+  运行时固定按规则 **id 升序**（创建顺序）执行，因此可复现；这类组合会被规则体检的
+  「同字段多动作」提示（`mask` + `encrypt` 叠加会产出「被掩码的密文」）
+- 规则**没有排序字段**：它不影响规则如何生效，只影响列表行序，列表里也不展示 —— 去掉以免被误当权重
+  （列表固定按 id 升序输出）
+- 角色绑定是**精确匹配**：只看 `sys_user_role` 里的直接分配，既不带上子角色，也不继承上级角色
+  （与鉴权用的 `AuthService::effectiveRoleIds()`「含祖先」口径不同，属已知差异，见 `待办.md`）
 - 目标表：`table_name` 指定规则作用于哪张表（空 = 不限表）；受控表由 `sys_data_scope_table` 维护（规则页「受控表」可视化增删/停用）
 - 行级操作符白名单：`=` `!=` `<>` `>` `>=` `<` `<=` `like` `in` `between`；字段名正则限 `[A-Za-z_][A-Za-z0-9_]*`，取值全部参数化
 - 字段级动作：`hidden`（不出参）/ `readonly`（入参强制剔除）/ `mask`（掩码如 `138****8888`）/ `encrypt`（AES-256-GCM 密文，前端解密）
+- 字段级规则的落点也在模型层：**出参**由 `BaseModel::toArray()` 统一处理，**入参**由 `ScopedQuery`（`BaseModel::$query`）在写库前剔除全部四种动作 —— 所以「掩码值被表单原样回填」不会污染数据，而「看不见真实值 ⇒ 一定改不了」
 - 动态取值：`value_type = dynamic` 的 `{变量}` 按当前用户解析（`{user.id}` / `{dept.ids}` / `{dept.subtree}` / `{post.ids}` / `{role.ids}`）
-- 自定义档（data_scope=5）无任何命中 → 看不到任何数据（fail-closed）
+- 自定义档（data_scope=5）：**没配规则 / 一条都没命中 ⇒ 看不到任何数据**（fail-closed，无条件成立）。
+  「自定义规则没填 = 没有任何权限」是刻意语义：模型参与数据权限就说明这张表按范围隔离，
+  此时「没有规则」只能是「无权限」。某张表压根不该隔离的正确做法是模型声明 `$dataScope = false`
+- **多条规则之间是「与」**：命中同一个人的每条行级规则各加一个条件，因此两条语义相反的规则
+  会把人过滤成「什么都看不到」（`WHERE id = 1 AND id != 1`）—— 安全但静默，
+  用 `cccms:data-rule-check` 或列表的「检测」列可以发现
+- **规则体检**（`support/RuleConflict.php`）：条件互斥 / 同字段多动作 / 恒不生效 / 表未受控；
+  只报「可证明为空」的组合（同绑定项或含全局规则、静态取值、可判定的操作符），判不了就不下结论
 - 超管不受数据权限限制；数据权限变更 → 版本号 `INCR` 失效所有相关缓存
 
-**当前已接入：仅 `user` 表**（`DataScope::DEFAULT_TABLES = ['user']`），其余模块待逐步铺开。
+**性能**：每次请求只解析一次用户维度数据（角色 / 岗位 / 部门 / 规则 / 受控表），
+缓存键是 `UserContext` 实例（`WeakMap`），随请求销毁 —— 权限变更下一个请求即生效。
+实测同一请求内 10 次模型查询：数据权限相关 SQL **0 条**（去掉缓存对照为 50 条）。
+
+**边界与逃生口**：
+
+- 超管不受限；CLI（定时任务 / 命令 / 迁移）、登录链路、`#[NoLogin]` 路由没有当前用户 → 自动跳过；
+- 需要看**全量**数据的地方显式跳出：唯一性 / 存在性校验用 `Model::withoutGlobalScope()`，
+  回收站与「已删行也要同步」的场景用 `Model::withTrashed()`，配置界面的候选项同理。
+  显式写出来，好过隐式生效。
+
+**已接入**：
+
+| 表 | 预设基线 | 登记受控表（可配自定义规则） |
+|---|---|---|
+| `user` / `file` / `log` / `crontab` | ✓ | ✓ |
+| `dept` | ✓（部门页按「本部门及以下」收窄） | ✓（可选：登记后才可配自定义规则） |
+
+- `dept` 是**可登记可不登记**的典型：不登记也受预设基线保护，登记后才会出现在「目标表」下拉里。
+  给它配字段级规则（如隐藏 `name`）会让部门树显示空白名，配之前想清楚。
+
+- **登记受控表**只影响「能不能给它写自定义规则」：不登记的表仍受预设基线保护，
+  只是「目标表」下拉里不出现它（避免给未接入的表配出永远不生效的规则）。
+  入口：数据权限规则页 →「受控表」按钮；`php webman cccms:data-scope-check` 会验证登记的表确实接入了。
+- 工作台统计与各自列表页口径一致（`user` / `dept` / `log` / `file` 的计数按当前用户范围聚合），
+  否则会出现「列表只能看到 3 条、工作台显示 1000 条」的绕行泄漏。
+- `sys_data_scope_table` 中其余已登记的表由对应插件自行接入。
+
+**新插件接入（三步）**：
+
+1. **模型声明**：代码生成器产出的模型已自带声明；手写模型要么参与，要么显式 `protected $dataScope = false;`
+2. **登记受控表**（只有需要配自定义规则时才要）：数据权限规则页 →「受控表」→ 添加
+3. **跑检查**：`php webman cccms:data-scope-check` —— 控制器直连库、受控表未模型化、
+   Logic 里裸查受控表都会报错；接入部署 / CI 流程就不会漏
 
 ### 6.5 统一响应 `Result`
 
@@ -278,8 +348,17 @@ public function login(Request $request): Response {}
 
 ### 6.6 软删除与回收站
 
-业务主数据软删除（写 `delete_time`），回收站入口是各模块页面表格右上角图标，点一下同一张表切换查已删数据（列表接口带 `trashed=1`），操作列变「还原 / 彻底删除」。后端只在 `SoftDelete::listQuery()` 一处收口。
+业务主数据的删除都是软删除（写 `delete_time`），**过滤由模型层自动完成**：
+`BaseModel` 用了 think-orm 的 `SoftDelete` trait，模型查询自动排除已删行，
+不再依赖「每个读取入口记得调用过滤」这种约定。
 
+- 回收站视图：`Model::onlyTrashed()`（列表接口带 `trashed=1` 切换数据源）
+- **要操作已删行必须 `Model::withTrashed()`**：恢复、彻底删除、菜单同步里「复用已删节点」都属此类；
+  漏了会静默变成 0 行（模型默认条件是 `delete_time IS NULL`，与 `whereNotNull('delete_time')` 自相矛盾）
+- 软删 / 恢复：`Model::destroy($ids)` / `$model->restore()`；表里没有 `delete_time` 的模型声明 `$deleteTime = false`
+- 前端入口：各模块页面表格右上角图标，操作列变「还原 / 彻底删除」
+- `support/SoftDelete.php` 只服务**查询构造器直查**（`Db::name()`）：回收站模块要跨表操作已删数据，
+  `AuthService` / `DataScope` / 调度进程等基础设施同理 —— 能用模型的地方优先用模型
 - 软删除 + 回收站：user / role / dept / post / dict_type / dict_data / category / crontab / data_rule / file / menu
 - 不软删：关联表、log（保留天数清理）、config
 - 唯一键不做特例（软删后仍占用，新增给可读提示）；附件彻底删除才清物理文件；树结构防御孤儿节点
@@ -401,6 +480,9 @@ php webman cccms:perm-scan            # 扫描属性 → 校验 + 同步 sys_men
 php webman cccms:perm-scan --check    # 只校验不写库（CI 用）
 php webman cccms:menu-sync            # 同步 db/menu.php 的目录/菜单节点
 php webman cccms:db-upgrade           # 已有库补新增表/列/索引（幂等，可重复执行）
+php webman cccms:data-scope-check     # 校验数据权限接入（控制器直连库 / 受控表未模型化）
+php webman cccms:data-rule-check      # 体检数据权限规则（条件互斥 / 同字段多动作 / 恒不生效 / 表未受控）
+                                      # 有「条件互斥」时退出码为 1，可接 CI
 ```
 
 后台顶栏「系统同步 / 清理缓存」按钮（`cccms:config:refresh`）提供 `menu` / `perm` / `cache` / `all` 四种范围，与 CLI **共用同一份实现**，同步完自动重挂前端动态路由并刷新当前用户权限。
@@ -409,8 +491,15 @@ php webman cccms:db-upgrade           # 已有库补新增表/列/索引（幂�
 
 ## 十二、项目状态
 
-- **一期（P0）全部完成**：Webman 插件骨架、4 注解 + 中间件链、统一响应、15+ 表与种子、`perm-scan` / `menu-sync` 校验、RBAC（含继承）+ 组织、数据权限（已接入用户管理）、附件管理、操作日志、基础防护、前端 11+ 模块页面（Element Plus + Tailwind 4 重做 UI）、工作台统计。
+- **一期（P0）全部完成**：Webman 插件骨架、4 注解 + 中间件链、统一响应、15+ 表与种子、`perm-scan` / `menu-sync` 校验、RBAC（含继承）+ 组织、附件管理、操作日志、基础防护、前端 11+ 模块页面（Element Plus + Tailwind 4 重做 UI）、工作台统计。
 - **二期（P1）全部完成**：定时任务、代码生成器、多存储驱动、前台 `plugin/index`。
-- **遗留**：数据权限目前仅 `user` 表接通，其余模块需在 Logic 层接入 `DataScope::row()` 并登记到 `sys_data_scope_table`；树形/回收站平铺逻辑如有渲染或数据缺陷待排查。
+- **数据权限已下沉到模型层**：行级范围（`BaseModel::$globalScope`）、字段级出参（`toArray()`）、
+  字段级入参（`ScopedQuery`）三处自动生效；`user` / `dept` / `file` / `crontab` / `log` 已接入，
+  其余表按需登记受控表即可配自定义规则。
+- **软删除已下沉到模型层**：think-orm 的 `SoftDelete` trait，查询自动排除已删数据；
+  `support/SoftDelete.php` 仅服务查询构造器直查（回收站模块与基础设施）。
+- **遗留**：`config` / `menu` / `category` / `dict` / `recycle` / `generator` 几个模块仍是查询构造器直查 ——
+  它们**不参与数据权限**（模型声明 `false`），迁移只统一查询入口，可按需再做。
+  另：受控表里登记的下游插件表（`ks_*`）由对应插件自行接入，本仓库不负责。
 
 > 本仓库为全新工程，不迁移、不兼容老 cccms（ThinkPHP 8）数据；鉴权全面采用 PHP 8 原生属性，仅有一种声明机制。

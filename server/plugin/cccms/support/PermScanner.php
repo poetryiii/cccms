@@ -171,7 +171,7 @@ final class PermScanner
 
         // 现有菜单节点（目录/菜单）的 node 列表：只用未删除的，
         // 否则新按钮会被挂到一个躺在回收站里的目录下（挂上了也看不见）
-        $menuNodes = SoftDelete::apply(Menu::where('type', 'in', [1, 2]))->column('node');
+        $menuNodes = Menu::where('type', 'in', [1, 2])->column('node');
         // 按钮节点则要含回收站：撞上唯一键前先识别出来（见下方恢复逻辑）
         $existingNodes = Menu::where('type', 3)->column('node');
 
@@ -186,12 +186,21 @@ final class PermScanner
             $parentId = (int)Menu::where('node', $parentNode)->value('id');
 
             if (in_array($item['slug'], $existingNodes, true)) {
-                // 代码里仍声明该按钮 → 若它躺在回收站里，说明被重新启用，恢复之（不覆盖 title/sort）
-                Menu::where('node', $item['slug'])->whereNotNull('delete_time')->update(['delete_time' => null]);
+                // 代码里仍声明该按钮 → 若它躺在回收站里，说明被重新启用，恢复之（不覆盖 title/sort）。
+                // 这两句就是要在**已删行**上操作，必须 withTrashed()：
+                // 模型默认排除已删数据，不加的话 whereNotNull(delete_time) 会与默认条件自相矛盾，
+                // 更新静默变成 0 行 —— 表现为「菜单同步了但权限还是没恢复」，很难排查。
+                Menu::withTrashed()
+                    ->where('node', $item['slug'])
+                    ->whereNotNull('delete_time')
+                    ->update(['delete_time' => null]);
                 // 归属菜单以代码为准：菜单节点被挪走或删除后（例如「回收站」并进了各模块页面），
                 // 按钮要跟着换父节点。否则它会挂在一个已删除的节点下 —— 行还在，
                 // 但在角色授权树里根本看不见，管理员无法勾选，表现为「权限静默失效」。
-                Menu::where('node', $item['slug'])->where('parent_id', '<>', $parentId)->update(['parent_id' => $parentId]);
+                Menu::withTrashed()
+                    ->where('node', $item['slug'])
+                    ->where('parent_id', '<>', $parentId)
+                    ->update(['parent_id' => $parentId]);
                 $skipped++;
                 continue;
             }
@@ -248,7 +257,7 @@ final class PermScanner
         }
         $zombies = [];
         // 回收站里的节点不算僵尸（它是被主动删掉的）
-        foreach (SoftDelete::apply(Menu::where('type', 3))->column('node') as $node) {
+        foreach (Menu::where('type', 3)->column('node') as $node) {
             if (!isset($codeSlugs[$node])) {
                 $zombies[] = $node;
             }

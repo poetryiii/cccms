@@ -7,23 +7,30 @@ namespace plugin\cccms\support;
 use think\facade\Db;
 
 /**
- * 软删除（查询构造器版）。
+ * 软删除（**查询构造器**版）。
  *
- * 项目业务层统一用 `Db::name()` 查询构造器，不经过模型，因此用不了 think-orm 的
- * `SoftDelete` trait；但 Query 本身支持 `useSoftDelete` 选项——Builder 会自动补上
- * 过滤条件，`BaseQuery::delete()` 会把 DELETE 改写成 UPDATE。这里封成一组语义化方法：
+ * 走模型的业务查询**已经不需要它**：`BaseModel` 用了 think-orm 的 `SoftDelete` trait，
+ * 模型查询自动排除已删数据，回收站视图用 `Model::onlyTrashed()`、含已删行用
+ * `Model::withTrashed()`、软删/恢复用 `Model::destroy()` / `$model->restore()`。
+ *
+ * 这里保留的是**查询构造器直查**（`Db::name()` / `Db::table()`）场景所需的显式条件：
+ *   - `RecycleLogic`：回收站要跨表操作「用户不可见的已删数据」，是天然的显式场景；
+ *   - `support/` 基础设施：`AuthService`（登录校验）、`DataScope`（规则/部门树）、
+ *     `process/Crontab`（调度进程）、`CategoryLogic` / `DictLogic` / `MenuLogic` /
+ *     `DashboardLogic`（尚未模型化，属 §3.9 的后续项）。
  *
  *   SoftDelete::apply($q)           普通查询：排除已删除
  *   SoftDelete::onlyTrashed($q)     回收站：只看已删除
  *   SoftDelete::listQuery($t, $p)   列表入口：按请求参数 trashed 自动选上面两者
- *   SoftDelete::remove($q, $ids)    软删除
+ *   SoftDelete::listQueryFull($t,$p) 同上，但表名不套连接前缀（业务插件表）
+ *   SoftDelete::remove($q, $ids)    软删除（批量 UPDATE）
  *   SoftDelete::restore($q, $ids)   恢复
  *   SoftDelete::force($q, $ids)     彻底删除（真 DELETE）
  *
  * 约定：`delete_time IS NULL` = 未删除；非 NULL = 已删除。
  *
- * 注意：软删除是「显式」的——**每个读取入口都要记得调用 apply()**（或 listQuery()），
- * 漏掉的地方会把已删除数据重新暴露出来（下拉、树、登录校验尤其容易漏）。
+ * 注意：构造器直查是「显式」的——**每个读取入口都要记得调用 apply()**；
+ * 能走模型的地方请优先走模型（自动过滤，不会漏）。
  */
 final class SoftDelete
 {

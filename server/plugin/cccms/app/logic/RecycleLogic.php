@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\File;
+use plugin\cccms\app\model\Menu;
+use plugin\cccms\app\model\RoleNode;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FileStorage;
 use plugin\cccms\support\SoftDelete;
@@ -55,6 +58,52 @@ final class RecycleLogic
         'menu'      => ['column' => 'parent_id', 'table' => 'menu'],
     ];
 
+    /** 业务插件声明的回收站类型缓存（plugin/{插件}/db/recycle.php） */
+    private static ?array $pluginTypes = null;
+
+    /**
+     * 业务插件声明的回收站类型。
+     *
+     * 与 `db/menu.php` 同一约定：插件在 `db/recycle.php` 里声明
+     * `['ks_subject' => ['table' => 'ks_subject', 'label' => '主体', 'name' => 'name', 'sub' => 'credit_code']]`。
+     *
+     * 这类表的表名是**完整表名**（如 `ks_*`，不走全局 `sys_` 前缀），
+     * 因此取查询构造器时走 `Db::table()` 而非 `Db::name()`。
+     *
+     * @return array<string,array{table:string,label:string,name:string,sub:string,full:bool}>
+     */
+    private static function pluginTypes(): array
+    {
+        if (self::$pluginTypes !== null) {
+            return self::$pluginTypes;
+        }
+
+        $types = [];
+        foreach (glob(base_path() . '/plugin/*/db/recycle.php') ?: [] as $file) {
+            $declared = (array)(include $file);
+            foreach ($declared as $type => $meta) {
+                if (!is_array($meta) || empty($meta['table'])) {
+                    continue;
+                }
+                $types[(string)$type] = [
+                    'table' => (string)$meta['table'],
+                    'label' => (string)($meta['label'] ?? $type),
+                    'name'  => (string)($meta['name'] ?? 'name'),
+                    'sub'   => (string)($meta['sub'] ?? ''),
+                    'full'  => true,
+                ];
+            }
+        }
+
+        return self::$pluginTypes = $types;
+    }
+
+    /** 按类型取查询构造器：内置表走前缀（Db::name），插件表走完整表名（Db::table） */
+    private static function query(array $meta)
+    {
+        return !empty($meta['full']) ? Db::table($meta['table']) : Db::name($meta['table']);
+    }
+
     public static function restore(string $type, array $ids): int
     {
         $meta = self::meta($type);
@@ -62,7 +111,7 @@ final class RecycleLogic
 
         self::assertRestorable($type, $meta, $ids);
 
-        return SoftDelete::restore(Db::name($meta['table']), $ids);
+        return SoftDelete::restore(self::query($meta), $ids);
     }
 
     /** 彻底删除（附件连同物理文件一起删） */
@@ -72,8 +121,9 @@ final class RecycleLogic
         $ids  = self::ids($ids);
 
         if ($type === 'file') {
-            // 软删阶段刻意保留物理文件，只有「彻底删除」才真正落盘删除
-            $paths = Db::name('file')->whereIn('id', $ids)->column('path');
+            // 软删阶段刻意保留物理文件，只有「彻底删除」才真正落盘删除。
+            // withTrashed()：要读的正是回收站里的行，模型默认会排除它们
+            $paths = File::withTrashed()->whereIn('id', $ids)->column('path');
             foreach ($paths as $path) {
                 FileStorage::delete((string)$path);
             }
@@ -81,15 +131,15 @@ final class RecycleLogic
 
         if ($type === 'menu') {
             // 软删阶段刻意保留 role_node 授权（便于恢复）；彻底删除时一并清掉，避免残留孤儿授权
-            $nodes = SoftDelete::onlyTrashed(Db::name('menu'))->whereIn('id', $ids)->column('node');
+            $nodes = Menu::onlyTrashed()->whereIn('id', $ids)->column('node');
             foreach ($nodes as $node) {
                 if ((string)$node !== '') {
-                    Db::name('role_node')->where('node', (string)$node)->delete();
+                    RoleNode::where('node', (string)$node)->delete();
                 }
             }
         }
 
-        return SoftDelete::force(Db::name($meta['table']), $ids);
+        return SoftDelete::force(self::query($meta), $ids);
     }
 
     /** 恢复前的约束检查 */
@@ -98,11 +148,13 @@ final class RecycleLogic
         // ① 唯一值是否被新数据占用
         $unique = self::UNIQUE_COLUMN[$type] ?? null;
         if ($unique !== null) {
-            $values = SoftDelete::onlyTrashed(Db::name($meta['table']))
+            $values = SoftDelete::onlyTrashed(self::query($meta))
                 ->whereIn('id', $ids)
                 ->column($unique);
             foreach ($values as $value) {
-                $taken = Db::name($meta['table'])->where($unique, $value)->count();
+                // 必须是「活着的行」里查重：待恢复的这行本身也在库里，
+                // 不过滤已删数据的话会把自己算成「已被占用」，恢复永远失败
+                $taken = SoftDelete::apply(self::query($meta))->where($unique, $value)->count();
                 if ($taken > 0) {
                     throw new ApiException("「{$value}」已被新数据占用，请先改名或彻底删除新数据", 422);
                 }
@@ -114,7 +166,7 @@ final class RecycleLogic
         if ($parent !== null) {
             $parentIds = array_values(array_filter(array_map(
                 'intval',
-                SoftDelete::onlyTrashed(Db::name($meta['table']))->whereIn('id', $ids)->column($parent['column'])
+                SoftDelete::onlyTrashed(self::query($meta))->whereIn('id', $ids)->column($parent['column'])
             )));
             if ($parentIds !== []) {
                 $trashed = SoftDelete::onlyTrashed(Db::name($parent['table']))->whereIn('id', $parentIds)->count();
@@ -125,14 +177,19 @@ final class RecycleLogic
         }
     }
 
-    /** @return array{table:string,label:string,name:string,sub:string} */
+    /** @return array{table:string,label:string,name:string,sub:string,full:bool} */
     private static function meta(string $type): array
     {
-        if (!isset(self::TYPES[$type])) {
-            throw new ApiException('未知的回收站类型：' . $type, 422);
+        if (isset(self::TYPES[$type])) {
+            return self::TYPES[$type] + ['full' => false];
         }
 
-        return self::TYPES[$type];
+        $plugin = self::pluginTypes();
+        if (isset($plugin[$type])) {
+            return $plugin[$type];
+        }
+
+        throw new ApiException('未知的回收站类型：' . $type, 422);
     }
 
     /** @return int[] */

@@ -6,29 +6,74 @@ namespace plugin\cccms\support;
 
 use think\facade\Db;
 use Throwable;
+use WeakMap;
 
 /**
  * 数据权限：行级（where 注入）+ 字段级（hidden/readonly/mask/encrypt）。
  *
- * 绑定维度：用户 / 岗位 / 部门 / 角色，**任一命中即生效（OR）**；
- * 四个绑定都为空 = 全局规则，对所有非超管生效。绑定越具体，命中的人越少。
+ * 绑定维度：用户 / 岗位 / 部门（含下级）/ 角色。**单条规则内部**的组合方式由规则的
+ * `bind_mode` 决定：`or`（默认）= 命中任一维度即生效；`and` = 所有**已填写**的维度都要命中
+ * （没填的维度不参与判断）。四个绑定都为空 = 全局规则，对所有非超管生效。
  *
- * 语义约定（已接通：用户管理）：
+ * 注意两条容易踩的线：
+ *   - `or` 是**更宽**，不是更严：同时选「用户 A」和「岗位 P」是「A 或 所有 P 的人」，
+ *     不是「A 且 处于 P」；要表达后者得用 `and`；
+ *   - `and` 里的「没填的维度不参与判断」是刻意的：否则只填一项时规则永远不会命中
+ *     （空维度意味着「不限」，而不是「必须为空」）。
+ *
+ * 语义约定：
  *   - 1 全部数据：不加任何行级条件，**自定义行级规则也不生效**（「全部」就是不受约束）
  *   - 2 本部门及以下 / 3 本部门 / 4 仅本人：先加预设基线条件，**再叠加**自定义行级规则（AND）
  *   - 5 自定义规则：不加预设基线，只用自定义行级规则（没有规则 = 等同全部）
  *   - 多角色取最宽松（min）；无角色退化为「仅本人」
  *   - 字段级规则与 data_scope 无关，只要绑定匹配就生效（超管除外）
  *
+ * 两个入口：
+ *   1. **模型全局作用域**（默认，见 `app/model/BaseModel::scopeDataScope`）：模型声明
+ *      自己如何参与（owner / dept / no_baseline），所有查询自动带上，无需业务层记得写；
+ *   2. **Logic 层显式调用**：模型未覆盖的场景（跨表 join、聚合、原生 SQL）仍可手工调 `row()`。
+ *
  * 各业务表的维度差异用 $options 适配：系统表没有 create_by / dept_id，
- * 需要由调用方说明「仅本人」看哪一列、「本部门」如何落到本表。
+ * 需要由调用方（模型声明或 Logic）说明「仅本人」看哪一列、「本部门」如何落到本表。
  *
  * 字段名白名单由调用方保证（各 Logic 层只对可信字段名调用），
  * 本类不做拼接字符串，全部走参数化 where。
  */
 final class DataScope
 {
+    /**
+     * 请求级 scope plan：一次请求内的所有查询共用一份用户维度数据。
+     *
+     * 此前每次 `row()` / `rules()` 调用都要查一遍角色、岗位、部门、规则（固定约 8 条 SQL）；
+     * Logic 层显式调用时每请求只有一两次，无感；但接入模型全局作用域后**每条模型查询都会触发**，
+     * 必须收敛为「每请求解析一次」。
+     *
+     * 键用 UserContext **实例**而不是用户 id：
+     *   - webman 常驻进程，静态数组键（用户 id）会跨请求存活，权限变更后不生效；
+     *   - UserContext 每次请求由 CheckLogin 重建，WeakMap 随其被回收自动释放，
+     *     天然是请求级缓存；也不存在 spl_object_id 复用导致串数据的风险。
+     *
+     * @var WeakMap<UserContext,array<string,mixed>>|null
+     */
+    private static ?WeakMap $plans = null;
+
     public const FIELD_ACTIONS = ['hidden', 'readonly', 'mask', 'encrypt'];
+
+    /**
+     * 绑定维度的组合方式（`sys_data_rule.bind_mode`）。
+     *
+     *   - `or`（默认）：任一维度命中即生效 —— 更宽；
+     *   - `and`：所有**已填写**的维度都要命中 —— 更窄，用于表达「张三 且 在客服岗」。
+     *
+     * 只在「有绑定」时有意义：四个维度都空 = 全局规则，与 mode 无关。
+     */
+    public const BIND_MODES = ['or', 'and'];
+
+    /** 组合方式的中文名（界面展示用） */
+    public const BIND_MODE_LABELS = [
+        'or'  => '任一命中',
+        'and' => '全部命中',
+    ];
 
     /** 行级操作符白名单（供规则管理界面校验，避免 operator 被注入） */
     public const ROW_OPERATORS = ['=', '!=', '<>', '>', '>=', '<', '<=', 'like', 'in', 'between'];
@@ -72,15 +117,28 @@ final class DataScope
     /**
      * 受控表兜底名单（不含前缀）。
      *
-     * 「某张表能否做数据权限」本质上取决于业务 Logic 有没有调用本类，
+     * 「某张表能否做数据权限」本质上取决于两张表是否真的接了数据权限：
+     * 模型有没有参与（`BaseModel::$dataScope`）、业务层有没有调用本类。
      * 正式名单由 `sys_data_scope_table` 可视化维护；这里只在该表不存在 /
      * 没有任何启用行时兜底，避免升级过程中退化成「全部表都可配」。
-     * 只有受控表才会出现在规则页的「目标表」候选中，保存与执行时也才会放行。
+     *
+     * 受控表控制的是**自定义规则**：只有受控表才会出现在规则页的「目标表」候选中，
+     * 保存与执行时也才会放行。预设基线（仅本人 / 本部门）则由模型声明决定 ——
+     * 例如 `sys_dept` 不登记受控（不能配自定义规则），但部门页仍按「本部门及以下」收窄。
      */
     public const DEFAULT_TABLES = ['user'];
 
     /** 当前受控表（不含前缀，仅启用中的）；表不存在时回退 DEFAULT_TABLES */
     public static function guardedTables(): array
+    {
+        // 请求内复用 scope plan；CLI / 登录前没有用户上下文时直接查库
+        $user = self::currentUser();
+
+        return $user !== null ? self::plan($user)['tables'] : self::queryGuardedTables();
+    }
+
+    /** 受控表直查（构建 plan 时用，不做缓存） */
+    private static function queryGuardedTables(): array
     {
         try {
             $tables = Db::name('data_scope_table')->where('status', 1)->column('table_name');
@@ -96,7 +154,96 @@ final class DataScope
         return $tables ?: self::DEFAULT_TABLES;
     }
 
-    /** 该表是否已接入数据权限（受控表） */
+    /** 当前请求的用户上下文；CLI、登录前、公共路由返回 null */
+    public static function currentUser(): ?UserContext
+    {
+        $request = function_exists('request') ? request() : null;
+        $user    = $request?->user;
+
+        return $user instanceof UserContext ? $user : null;
+    }
+
+    /**
+     * 模型全局作用域入口（由 app/model/BaseModel::scopeDataScope 调用）。
+     *
+     * 与 Logic 层显式调用的区别只有「用户从哪来」：这里取当前请求的用户上下文，
+     * 取不到就不作用域 —— 覆盖 CLI（定时任务 / 命令 / 迁移）、登录链路
+     * （数据范围本身来自被查的这行数据）与公共路由三类场景。
+     *
+     * @param mixed      $query  模型查询对象
+     * @param string     $table  模型对应表名（不含前缀）
+     * @param array|bool $config 模型声明：false=不参与；数组=参与，可覆盖 owner / dept / no_baseline
+     */
+    public static function applyToModelQuery($query, string $table, array|bool $config): void
+    {
+        // 显式声明不参与（基础设施表：菜单 / 配置 / 字典 / 关联表…）
+        if ($config === false) {
+            return;
+        }
+
+        $user = self::currentUser();
+        if ($user === null) {
+            return;
+        }
+
+        // 表名以模型为准，避免声明与实际不符
+        self::row($query, $user, array_merge($config, ['table' => $table]));
+    }
+
+    /**
+     * 本次请求的 scope plan（惰性构建，一次请求只算一次）。
+     *
+     * @return array{
+     *     tables:array<int,string>,
+     *     roleScope:int,
+     *     roleIds:array<int,int>,
+     *     postIds:array<int,int>,
+     *     deptIds:array<int,int>,
+     *     deptParents:array<int|string,int>,
+     *     rules:array<int,array<string,mixed>>
+     * }
+     */
+    private static function plan(UserContext $user): array
+    {
+        self::$plans ??= new WeakMap();
+        if (isset(self::$plans[$user])) {
+            return self::$plans[$user];
+        }
+
+        $roleIds = array_map('intval', Db::name('user_role')->where('user_id', $user->id)->column('role_id'));
+
+        // 角色 data_scope 取并集（最宽松值最小者）；无角色 / 角色全禁用 → 退化为「仅本人」
+        $roleScope = 4;
+        if ($roleIds !== []) {
+            $scopes = SoftDelete::apply(Db::name('role'))
+                ->whereIn('id', $roleIds)
+                ->where('status', 1)
+                ->column('data_scope');
+            if ($scopes !== []) {
+                $roleScope = (int)min(array_map('intval', $scopes));
+            }
+        }
+
+        $plan = [
+            'tables'      => self::queryGuardedTables(),
+            'roleScope'   => $roleScope,
+            'roleIds'     => $roleIds,
+            'postIds'     => array_map('intval', Db::name('user_post')->where('user_id', $user->id)->column('post_id')),
+            'deptIds'     => array_map('intval', Db::name('user_dept')->where('user_id', $user->id)->column('dept_id')),
+            'deptParents' => SoftDelete::apply(Db::name('dept'))->column('parent_id', 'id'),
+            // 已进回收站的规则不能再生效；action / 目标表 / 绑定过滤在 rules() 里做（纯内存）。
+            // 显式按 id 排序：顺序对行级规则（AND 叠加）没有影响，但字段级动作是**按顺序依次处理**的
+            // （applyFieldRules 逐条 switch），不指定顺序时就取决于 DB 返回顺序 ——
+            // 同一字段被多个字段级规则命中时，结果会变成不可复现。这里固定为创建顺序。
+            'rules'       => SoftDelete::apply(Db::name('data_rule'))->order('id', 'asc')->select()->toArray(),
+        ];
+
+        self::$plans[$user] = $plan;
+
+        return $plan;
+    }
+
+    /** 该表是否登记为受控表（决定能不能配自定义规则、规则会不会生效） */
     public static function canGuard(string $table): bool
     {
         return in_array($table, self::guardedTables(), true);
@@ -106,12 +253,15 @@ final class DataScope
      * 行级：向查询注入 where。
      *
      * @param array{
-     *     owner?: string,
+     *     owner?: string|callable(mixed, UserContext): void,
      *     table?: string,
-     *     dept?: callable(mixed, array<int>): void
+     *     dept?: callable(mixed, array<int>): void,
+     *     no_baseline?: bool
      * } $options
      *   - owner：「仅本人」按哪个列判定，默认 `create_by`。
-     *     系统表（如 sys_user）没有 create_by，应传 `'id'`（"仅本人"= 只看自己这个账号）。
+     *     系统表（如 sys_user）没有 create_by，应传 `'id'`（"仅本人"= 只看自己这个账号）；
+     *     语义不是「某一列等于我」时（如部门表：仅本人 = 我所属的部门），传回调
+     *     `callable($query, UserContext $user)`，自行 fail-closed。
      *   - table：当前查询的表（不含前缀），用于只取「不限表」或「指定了这张表」的规则。
      *   - dept：「本部门 / 及以下」如何落到当前表，回调收到的是**已展开好的**部门 id 列表。
      *     不传则默认 `whereIn('dept_id', $ids)`（适用于带 dept_id 的业务表）。
@@ -126,7 +276,8 @@ final class DataScope
             return;
         }
 
-        $scope = self::roleDataScope($user);
+        $plan  = self::plan($user);
+        $scope = $plan['roleScope'];
         if ($scope === 1) {
             return;
         }
@@ -135,11 +286,16 @@ final class DataScope
         $noBaseline = !empty($options['no_baseline']);
 
         if (!$noBaseline && $scope === 4) {
-            $query->where($options['owner'] ?? 'create_by', $user->id);
+            $applyOwner = $options['owner'] ?? 'create_by';
+            if (is_callable($applyOwner)) {
+                $applyOwner($query, $user);
+            } else {
+                $query->where((string)$applyOwner, $user->id);
+            }
         } elseif (!$noBaseline && in_array($scope, [2, 3], true)) {
-            $ids = self::userDeptIds($user);
+            $ids = $plan['deptIds'];
             if ($scope === 2) {
-                $ids = self::deptAndChildren($ids);
+                $ids = self::deptAndChildren($ids, $plan['deptParents']);
             }
 
             $applyDept = $options['dept'] ?? null;
@@ -154,10 +310,17 @@ final class DataScope
         }
 
         // 自定义行级规则（action=row），在预设基线之上叠加
-        $rules = self::rules($user, 'row', (string)($options['table'] ?? ''));
+        $table = (string)($options['table'] ?? '');
+        $rules = self::rules($user, 'row', $table);
 
-        // 自定义档没有预设基线，完全依赖规则：一条都没命中时必须 fail-closed。
-        // 否则「绑错对象 / 忘了配规则」会静默变成「看全部」，比不配还危险。
+        // 自定义档没有预设基线，完全依赖规则：一条都没命中就必须 fail-closed ——
+        // 「自定义规则没填 = 没有任何权限」。否则「绑错对象 / 忘了配规则」会静默变成
+        // 「看全部」，比不配还危险。
+        //
+        // 无条件成立（不再限定受控表）：模型参与数据权限就说明这张表按范围隔离，
+        // 此时「没有规则」只能是「无权限」。若某张表压根不该隔离，正确做法是在模型上
+        // 声明 `$dataScope = false`，而不是靠它没登记受控表来兜住 —— 那反而会
+        // 留下「参与基线却没登记」的静默放行口子。
         if ($scope === 5 && $rules === []) {
             $query->whereRaw('1 = 0');
 
@@ -276,7 +439,7 @@ final class DataScope
         return match ($var) {
             '{user.id}'      => [$user->id],
             '{dept.ids}'     => self::userDeptIds($user),
-            '{dept.subtree}' => self::deptAndChildren(self::userDeptIds($user)),
+            '{dept.subtree}' => self::userDeptSubtreeIds($user),
             '{post.ids}'     => self::userPostIds($user),
             '{role.ids}'     => self::userRoleIds($user),
             default          => [],
@@ -284,83 +447,73 @@ final class DataScope
     }
 
     /**
-     * 字段级：过滤结果集。
+     * 出参字段级规则（模型层调用，见 `BaseModel::toArray()`）。
      *
-     * @param array<int,array<string,mixed>> $rows
-     * @param string                         $table 当前查询的表（不含前缀）；用于筛掉指定了别的表的规则
+     *   - hidden  → 不出参
+     *   - mask    → 掩码（如 138****8888）
+     *   - encrypt → 密文（前端解密）
+     *   - readonly→ 出参照常，写入侧剔除（见 applyWriteRules）
+     *
+     * 「掩码值被表单原样回写」的问题由 `applyWriteRules()` 兜住，所以列表与单条详情
+     * 可以用同一套出参语义，不需要再区分场景。
+     *
+     * @param array<string,mixed> $row
+     * @param string              $table 当前查询的表（不含前缀）；用于筛掉指定了别的表的规则
      */
-    public static function field(array &$rows, UserContext $user, string $table = ''): void
+    public static function applyFieldRules(array &$row, string $table): void
     {
-        if ($user->isSuperAdmin()) {
+        $user = self::currentUser();
+        if ($user === null || $user->isSuperAdmin()) {
             return;
         }
-        $rules = self::rules($user, 'field', $table);
-        if (!$rules) {
-            return;
-        }
-        foreach ($rows as &$row) {
-            if (!is_array($row)) {
+        foreach (self::rules($user, 'field', $table) as $rule) {
+            $field = (string)$rule['field'];
+            if (!array_key_exists($field, $row)) {
                 continue;
             }
-            foreach ($rules as $rule) {
-                $f = $rule['field'];
-                if (!array_key_exists($f, $row)) {
-                    continue;
-                }
-                switch ($rule['action']) {
-                    case 'hidden':
-                        unset($row[$f]);
-                        break;
-                    case 'mask':
-                        $row[$f] = self::mask((string)$row[$f], $f);
-                        break;
-                    case 'encrypt':
-                        $row[$f] = Cipher::encrypt((string)$row[$f]);
-                        break;
-                    // readonly：仅入参剔除（见 Logic 层），出参不处理
-                }
+            switch ($rule['action']) {
+                case 'hidden':
+                    unset($row[$field]);
+                    break;
+                case 'mask':
+                    $row[$field] = self::mask((string)$row[$field], $field);
+                    break;
+                case 'encrypt':
+                    $row[$field] = Cipher::encrypt((string)$row[$field]);
+                    break;
+                // readonly：出参照常，仅入参剔除
             }
         }
-        unset($row);
     }
 
     /**
-     * 入参剔除：readonly 字段强制移除，防止前端提交越权修改。
+     * 入参字段级规则（模型层调用，见 `app/model/ScopedQuery.php`）。
+     *
+     * 剔除全部四种动作：
+     *   - readonly：可见但不可改；
+     *   - hidden / mask / encrypt：操作者拿不到真实值，若允许提交，掩码 / 密文 / 空值会写库。
+     *
+     * 依赖「当前请求用户」，所以只能在**执行期**（查询构造器真正写库前）取，
+     * 无法像声明式配置那样在配置期生成。
      *
      * @param array<string,mixed> $data
      * @param string              $table 当前写入的表（不含前缀）
      */
-    public static function stripReadonly(array &$data, UserContext $user, string $table = ''): void
+    public static function applyWriteRules(array &$data, string $table): void
     {
-        if ($user->isSuperAdmin()) {
+        $user = self::currentUser();
+        if ($user === null || $user->isSuperAdmin()) {
             return;
         }
         foreach (self::rules($user, 'field', $table) as $rule) {
-            if ($rule['action'] === 'readonly') {
+            if (in_array($rule['action'], ['hidden', 'mask', 'encrypt', 'readonly'], true)) {
                 unset($data[$rule['field']]);
             }
         }
     }
 
     /**
-     * 获取用户的角色 data_scope（取并集，即最宽松值最小者）。
-     * 无角色 → 退化为「仅本人」。
-     */
-    private static function roleDataScope(UserContext $user): int
-    {
-        $roleIds = self::userRoleIds($user);
-        if (!$roleIds) {
-            return 4;
-        }
-        $scopes = SoftDelete::apply(Db::name('role'))->where('id', 'in', $roleIds)->where('status', 1)->column('data_scope');
-        if (!$scopes) {
-            return 4;
-        }
-        return (int)min(array_map('intval', $scopes));
-    }
-
-    /**
-     * 读取适用的数据权限规则。
+     * 读取适用的数据权限规则（从 scope plan 取，不再查库）。
      *
      * @param string|null $action 'row' 或 'field'（null=全部）
      * @param string      $table  当前查询的表（不含前缀）
@@ -368,19 +521,21 @@ final class DataScope
      */
     private static function rules(UserContext $user, ?string $action, string $table = ''): array
     {
-        // 已进回收站的规则不能再生效
-        $q = SoftDelete::apply(Db::name('data_rule'));
+        $plan = self::plan($user);
+
+        // 动作过滤（原先是 SQL where，现在数据已在内存）
+        $all = $plan['rules'];
         if ($action === 'row') {
-            $q->where('action', 'row');
+            $all = array_filter($all, static fn ($r): bool => (string)($r['action'] ?? '') === 'row');
         } elseif ($action === 'field') {
-            $q->where('action', '<>', 'row');
+            $all = array_filter($all, static fn ($r): bool => (string)($r['action'] ?? '') !== 'row');
         }
-        $all = $q->select()->toArray();
+        $all = array_values($all);
 
         // 目标表过滤：规则没指定表 = 对所有模块生效；指定了表的，只在该表上生效。
         // 调用方没声明自己的表时，指定了表的规则一律不用（避免把别的表的列拼进当前 SQL）。
         // 未接入数据权限的表即使被写了规则也不会生效（与「受控表」保持一致）。
-        $guarded = self::guardedTables();
+        $guarded = $plan['tables'];
         $all     = array_values(array_filter(
             $all,
             static function ($r) use ($table, $guarded) {
@@ -392,12 +547,12 @@ final class DataScope
             }
         ));
 
-        $postIds = self::userPostIds($user);
-        $roleIds = self::userRoleIds($user);
-        $deptIds = self::userDeptIds($user);
+        $postIds     = $plan['postIds'];
+        $roleIds     = $plan['roleIds'];
+        $deptIds     = $plan['deptIds'];
         // 部门绑定按「含下级」处理：绑「总公司」要覆盖「研发部」的人。
-        // 部门树只取一次，避免每条规则各查一遍。
-        $deptParents = SoftDelete::apply(Db::name('dept'))->column('parent_id', 'id');
+        // 部门树在 plan 里只取一次，规则再多也不重复查。
+        $deptParents = $plan['deptParents'];
 
         return array_values(array_filter(
             $all,
@@ -405,42 +560,86 @@ final class DataScope
                 $dept = json_decode((string)($r['dept_ids'] ?? 'null'), true);
                 $dept = is_array($dept) ? array_map('intval', $dept) : [];
 
-                $hasBinding = (int)$r['user_id'] > 0 || (int)$r['post_id'] > 0 || (int)$r['role_id'] > 0 || !empty($dept);
-                if (!$hasBinding) {
-                    return true; // 无绑定 = 全局规则
+                // 逐维度判定，只收集**已填写**的维度：未填写 = 不限，不参与判断。
+                // 若把未填写也算作「不命中」，只绑一项的 and 规则将永不生效。
+                $hits = [];
+                if ((int)$r['user_id'] > 0) {
+                    $hits[] = (int)$r['user_id'] === $user->id;
                 }
-                if ((int)$r['user_id'] === $user->id) {
-                    return true;
+                if ((int)$r['post_id'] > 0) {
+                    $hits[] = in_array((int)$r['post_id'], $postIds, true);
                 }
-                if ((int)$r['post_id'] > 0 && in_array((int)$r['post_id'], $postIds, true)) {
-                    return true;
+                if ((int)$r['role_id'] > 0) {
+                    $hits[] = in_array((int)$r['role_id'], $roleIds, true);
                 }
-                if ((int)$r['role_id'] > 0 && in_array((int)$r['role_id'], $roleIds, true)) {
-                    return true;
-                }
-                if (empty($dept)) {
-                    return false;
+                if ($dept !== []) {
+                    // 绑定部门展开成子树后再与「用户所属部门」求交集
+                    $hits[] = count(array_intersect(self::deptAndChildren($dept, $deptParents), $deptIds)) > 0;
                 }
 
-                // 绑定部门展开成子树后再与「用户所属部门」求交集
-                return count(array_intersect(self::deptAndChildren($dept, $deptParents), $deptIds)) > 0;
+                if ($hits === []) {
+                    return true; // 无绑定 = 全局规则
+                }
+
+                // and：所有已填写的维度都命中；or：命中任一即可。
+                // 列是 NOT NULL DEFAULT 'or'，非法值只可能来自手改 SQL，一律按 or 处理。
+                $mode = strtolower(trim((string)$r['bind_mode']));
+                if (!in_array($mode, self::BIND_MODES, true)) {
+                    $mode = 'or';
+                }
+
+                return $mode === 'and' ? !in_array(false, $hits, true) : in_array(true, $hits, true);
             }
         ));
     }
 
+    /** 我的角色（取 plan，请求内只查一次） */
     private static function userRoleIds(UserContext $user): array
     {
-        return array_map('intval', Db::name('user_role')->where('user_id', $user->id)->column('role_id'));
+        return self::plan($user)['roleIds'];
     }
 
+    /** 我的岗位（取 plan，请求内只查一次） */
     private static function userPostIds(UserContext $user): array
     {
-        return array_map('intval', Db::name('user_post')->where('user_id', $user->id)->column('post_id'));
+        return self::plan($user)['postIds'];
     }
 
+    /** 我所属部门（取 plan，请求内只查一次） */
     private static function userDeptIds(UserContext $user): array
     {
-        return array_map('intval', Db::name('user_dept')->where('user_id', $user->id)->column('dept_id'));
+        return self::plan($user)['deptIds'];
+    }
+
+    /** 我所属部门及其所有下级（取 plan 的部门树，不再重复查库） */
+    private static function userDeptSubtreeIds(UserContext $user): array
+    {
+        $plan = self::plan($user);
+
+        return self::deptAndChildren($plan['deptIds'], $plan['deptParents']);
+    }
+
+    /**
+     * 我所属部门（不含下级）。
+     *
+     * 供模型声明自定义 owner / dept 落地方式时复用（如部门表：「仅本人」= 我所属的部门），
+     * 与行级规则的动态变量 `{dept.ids}` 取值一致。
+     *
+     * @return array<int,int>
+     */
+    public static function myDeptIds(UserContext $user): array
+    {
+        return self::userDeptIds($user);
+    }
+
+    /**
+     * 我所属部门及其所有下级，与动态变量 `{dept.subtree}` 取值一致。
+     *
+     * @return array<int,int>
+     */
+    public static function myDeptSubtreeIds(UserContext $user): array
+    {
+        return self::userDeptSubtreeIds($user);
     }
 
     /**

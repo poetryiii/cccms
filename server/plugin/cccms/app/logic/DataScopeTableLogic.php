@@ -4,16 +4,23 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\DataRule;
+use plugin\cccms\app\model\DataScopeTable;
 use plugin\cccms\support\ApiException;
-use plugin\cccms\support\SoftDelete;
 use think\facade\Db;
 
 /**
  * 数据权限「受控表」逻辑（sys_data_scope_table）。
  *
- * 「某张表能否做数据权限」本质上取决于业务 Logic 有没有调用 DataScope，
- * 因此这里是一份**登记表**：列进来的表才会出现在规则页的「目标表」候选里，
+ * 这里是一份**登记表**：列进来的表才会出现在规则页的「目标表」候选里，
  * 其余系统表 / 业务表一律隐藏，避免配出一条永远不会生效的规则。
+ *
+ * 登记的前提是**该表已接入数据权限**：模型声明参与（`BaseModel::$dataScope`，
+ * 预设基线即由此生效）且业务查询已走模型。`cccms:data-scope-check` 会校验这一点。
+ *
+ * 注意「登记」只决定**能不能配自定义规则**，不代表该表有没有数据权限：
+ * `sys_dept` 就没有登记（不能配规则），但仍参与预设基线 ——
+ * 「本部门及以下」档下部门管理页只见自己子树。
  *
  * 语义名优先取登记时手填的 label，留空则回退到库表注释。
  */
@@ -22,7 +29,7 @@ final class DataScopeTableLogic
     /** 受控表列表 + 可添加的表（未登记的库表） */
     public static function index(): array
     {
-        $rows   = Db::name('data_scope_table')->order('id', 'asc')->select()->toArray();
+        $rows   = DataScopeTable::newScopedQuery()->order('id', 'asc')->select()->toArray();
         $tables = self::dbTables();
 
         $list = [];
@@ -72,11 +79,11 @@ final class DataScopeTableLogic
         if ($table === '' || !isset($tables[$table])) {
             throw new ApiException('表不存在：' . ($table === '' ? '(空)' : $table), 422);
         }
-        if (Db::name('data_scope_table')->where('table_name', $table)->count() > 0) {
+        if (DataScopeTable::where('table_name', $table)->count() > 0) {
             throw new ApiException('该表已在受控表内', 422);
         }
 
-        return (int)Db::name('data_scope_table')->insertGetId([
+        return (int)DataScopeTable::withoutGlobalScope()->insertGetId([
             'table_name'  => $table,
             'label'       => self::label($data['label'] ?? ''),
             'status'      => self::status($data['status'] ?? 1),
@@ -104,7 +111,7 @@ final class DataScopeTableLogic
         }
 
         $update['update_time'] = date('Y-m-d H:i:s');
-        Db::name('data_scope_table')->where('id', $id)->update($update);
+        DataScopeTable::where('id', $id)->update($update);
     }
 
     /**
@@ -117,8 +124,8 @@ final class DataScopeTableLogic
     {
         $row = self::assertExists($id);
 
-        $rules = (int)SoftDelete::apply(Db::name('data_rule'))->where('table_name', (string)$row['table_name'])->count();
-        Db::name('data_scope_table')->where('id', $id)->delete();
+        $rules = (int)DataRule::withoutGlobalScope()->where('table_name', (string)$row['table_name'])->count();
+        DataScopeTable::where('id', $id)->delete();
 
         return $rules;
     }
@@ -178,11 +185,11 @@ final class DataScopeTableLogic
 
     private static function assertExists(int $id): array
     {
-        $row = Db::name('data_scope_table')->where('id', $id)->find();
+        $row = DataScopeTable::where('id', $id)->find();
         if (!$row) {
             throw new ApiException('受控表不存在', 404);
         }
 
-        return $row;
+        return $row->toArray();
     }
 }

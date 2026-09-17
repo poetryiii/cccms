@@ -6,7 +6,8 @@ import type { PageResult } from './types'
  *
  * action：row = 行级过滤（用 operator/value 注入 where）；
  *         hidden / readonly / mask / encrypt = 字段级。
- * 绑定：user_id / post_id / role_id / dept_ids，任一命中即生效；全空 = 全局规则。
+ * 绑定：user_id / post_id / role_id / dept_ids；组合方式由 bind_mode 决定
+ *       （or = 任一命中，and = 已填写的全部命中）；全空 = 全局规则。
  */
 export interface DataRuleRow {
   id: number
@@ -15,6 +16,10 @@ export interface DataRuleRow {
   post_id: number
   role_id: number
   dept_ids: number[]
+  /** 绑定组合方式：or 任一命中 / and 全部命中 */
+  bind_mode: 'or' | 'and'
+  /** 后端补的组合方式中文名 */
+  bind_mode_label?: string
   /** 目标表（不含前缀），空 = 不限表 */
   table_name: string
   field: string
@@ -23,7 +28,6 @@ export interface DataRuleRow {
   value: string
   /** 取值类型：static 字面量 / dynamic 动态变量 */
   value_type: 'static' | 'dynamic'
-  sort: number
   remark?: string
   /** 后端补的绑定名称，列表直接用 */
   user_name?: string
@@ -32,6 +36,8 @@ export interface DataRuleRow {
   dept_names?: string
   /** 目标表注释 */
   table_label?: string
+  /** 规则体检结果（后端 RuleConflict 计算）：条件互斥 / 同字段多动作 / 恒不生效 / 表未受控 */
+  conflicts?: { type: string; message: string }[]
   [key: string]: unknown
 }
 
@@ -85,7 +91,7 @@ export interface DataRuleVar {
   label: string
 }
 
-/* ---------- 受控表（哪些表可以配数据权限） ---------- */
+/* ---------- 受控表（哪些表可以配「自定义规则」；未登记的表不受影响，仍走预设基线） ---------- */
 
 export interface DataScopeTableRow {
   id: number

@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\DataRule;
+use plugin\cccms\app\model\Dept;
+use plugin\cccms\app\model\Post;
+use plugin\cccms\app\model\Role;
+use plugin\cccms\app\model\User;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\RuleConflict;
 use plugin\cccms\support\DataScope;
-use plugin\cccms\support\SoftDelete;
 use think\facade\Db;
 
 /**
@@ -20,16 +25,25 @@ use think\facade\Db;
  * `table_name` 指定规则作用在哪张表（不含前缀），空 = 不限表（对所有接入模块生效）。
  * 指定了表的规则只在该表上生效，避免「字段名在别的表里不存在」把 SQL 拼错。
  *
- * 绑定维度：用户 / 岗位 / 部门（含下级）/ 角色，**任一命中即生效**；四个都空 = 全局规则。
+ * 绑定维度：用户 / 岗位 / 部门（含下级）/ 角色，组合方式由 `bind_mode` 决定：
+ *   - `or`（默认）：任一维度命中即生效（更宽）；
+ *   - `and`：所有**已填写**的维度都要命中（更窄，用于「张三 且 在客服岗」这类表达）。
+ * 四个维度都空 = 全局规则，与 `bind_mode` 无关。
  *
  * 与 data_scope 的关系见 DataScope 的类注释：预设档决定基线，自定义行级规则在其上叠加。
  */
 final class DataRuleLogic
 {
-    /** 可写入的列；dept_ids 是 JSON 列，单独归一化 */
+    /**
+     * 可写入的列；dept_ids 是 JSON 列，单独归一化。
+     *
+     * 没有 `sort`：规则的先后顺序对生效结果没有影响（行级规则是 AND 叠加，
+     * 字段级规则按字段各自处理），原先那个「排序」只影响列表行序、且列表里都不显示，
+     * 属于会让人误以为有权重的假旋钮。列表按 id（即创建顺序）稳定输出。
+     */
     private const FIELDS = [
-        'name', 'user_id', 'post_id', 'dept_ids', 'role_id',
-        'table_name', 'field', 'action', 'operator', 'value', 'value_type', 'sort', 'remark',
+        'name', 'user_id', 'post_id', 'dept_ids', 'role_id', 'bind_mode',
+        'table_name', 'field', 'action', 'operator', 'value', 'value_type', 'remark',
     ];
 
     /** 界面需要的动作与操作符候选（与后端校验同一份来源） */
@@ -51,7 +65,8 @@ final class DataRuleLogic
 
     public static function paginate(array $params): array
     {
-        $query = SoftDelete::listQuery('data_rule', $params);
+        // trashed=1 → 回收站视图；规则表是数据权限自身的元数据，模型声明为不参与
+        $query = !empty($params['trashed']) ? DataRule::onlyTrashed() : DataRule::newScopedQuery();
         if (!empty($params['name'])) {
             $query->where('name', 'like', '%' . $params['name'] . '%');
         }
@@ -68,7 +83,7 @@ final class DataRuleLogic
         $page  = max(1, (int)($params['page'] ?? 1));
         $limit = max(1, (int)($params['limit'] ?? 15));
         $total = $query->count();
-        $list  = $query->page($page, $limit)->order('sort', 'asc')->order('id', 'asc')->select()->toArray();
+        $list  = $query->page($page, $limit)->order('id', 'asc')->select()->toArray();
 
         return ['total' => $total, 'list' => self::decorate($list)];
     }
@@ -86,10 +101,10 @@ final class DataRuleLogic
         $data['operator']    = (string)($data['operator'] ?? '=');
         $data['value']       = (string)($data['value'] ?? '');
         $data['value_type']  = (string)($data['value_type'] ?? 'static');
-        $data['sort']        = (int)($data['sort'] ?? 0);
+        $data['bind_mode']   = (string)($data['bind_mode'] ?? 'or');
         $data['create_time'] = date('Y-m-d H:i:s');
 
-        return (int)Db::name('data_rule')->insertGetId($data);
+        return (int)DataRule::withoutGlobalScope()->insertGetId($data);
     }
 
     public static function update(int $id, array $data): void
@@ -112,13 +127,13 @@ final class DataRuleLogic
         }
 
         $data['update_time'] = date('Y-m-d H:i:s');
-        Db::name('data_rule')->where('id', $id)->update($data);
+        DataRule::where('id', $id)->update($data);
     }
 
     public static function delete(int $id): void
     {
         self::assertExists($id);
-        Db::name('data_rule')->where('id', $id)->delete();
+        DataRule::where('id', $id)->delete();
     }
 
     /**
@@ -131,9 +146,11 @@ final class DataRuleLogic
         return [
             // 用户列表默认不返回（可能成千上万条）：改由 searchUsers() 按关键词懒加载
             'users'           => [],
-            'posts'           => SoftDelete::apply(Db::name('post'))->field('id,name')->order('sort', 'asc')->order('id', 'asc')->select()->toArray(),
+            // 候选项一律取全量（岗位表声明不参与数据权限，这里显式写出意图）
+            'posts'           => Post::withoutGlobalScope()->field('id,name')->order('sort', 'asc')->order('id', 'asc')->select()->toArray(),
             'roles'           => RoleLogic::tree(),
-            'depts'           => DeptLogic::tree(),
+            // 绑定部门候选必须全量：规则是配置动作，不能因为「看不见某个部门」就绑不了
+            'depts'           => DeptLogic::treeAll(),
             'tables'          => self::tables(),
             'actions'         => self::allowedActions(),
             'operators'       => DataScope::ROW_OPERATORS,
@@ -161,8 +178,10 @@ final class DataRuleLogic
             static fn ($id) => $id > 0
         )));
 
+        // 规则配置属于系统配置界面（不是业务数据浏览），用户选择器需要全量候选，
+        // 否则「看不到的用户既选不了、已绑定的也显示成空名字」；因此显式跳出数据权限。
         if ($ids !== []) {
-            return SoftDelete::apply(Db::name('user'))->whereIn('id', $ids)->field($field)->limit(50)->select()->toArray();
+            return User::withoutGlobalScope()->whereIn('id', $ids)->field($field)->limit(50)->select()->toArray();
         }
 
         $keyword = trim($keyword);
@@ -171,7 +190,7 @@ final class DataRuleLogic
         }
 
         $like = '%' . addcslashes($keyword, '%_\\') . '%';
-        return SoftDelete::apply(Db::name('user'))
+        return User::withoutGlobalScope()
             ->field($field)
             ->where(static function ($q) use ($like): void {
                 $q->where('username', 'like', $like)->whereOr('nickname', 'like', $like);
@@ -295,6 +314,14 @@ final class DataRuleLogic
             $data['value_type'] = $valueType;
         }
 
+        if (array_key_exists('bind_mode', $data)) {
+            $mode = strtolower(trim((string)$data['bind_mode']));
+            if (!in_array($mode, DataScope::BIND_MODES, true)) {
+                throw new ApiException('未知的绑定关系：' . $mode . '（只能是 or / and）', 422);
+            }
+            $data['bind_mode'] = $mode;
+        }
+
         if (array_key_exists('dept_ids', $data)) {
             $deptIds = $data['dept_ids'];
             if (is_string($deptIds)) {
@@ -308,7 +335,7 @@ final class DataRuleLogic
             $data['dept_ids'] = $deptIds ? json_encode($deptIds) : null;
         }
 
-        foreach (['user_id', 'post_id', 'role_id', 'sort'] as $key) {
+        foreach (['user_id', 'post_id', 'role_id'] as $key) {
             if (array_key_exists($key, $data)) {
                 $data[$key] = max(0, (int)$data[$key]);
             }
@@ -352,17 +379,31 @@ final class DataRuleLogic
      */
     private static function decorate(array $list): array
     {
-        $users = SoftDelete::apply(Db::name('user'))->column('username', 'id');
-        $posts = SoftDelete::apply(Db::name('post'))->column('name', 'id');
-        $roles = SoftDelete::apply(Db::name('role'))->column('name', 'id');
-        $depts = SoftDelete::apply(Db::name('dept'))->column('name', 'id');
+        // 把绑定 id 翻译成名字用于展示：必须看全量，否则已绑定的用户会显示成空名字
+        $users = User::withoutGlobalScope()->column('username', 'id');
+        $posts = Post::withoutGlobalScope()->column('name', 'id');
+        $roles = Role::withoutGlobalScope()->column('name', 'id');
+        // 部门参与数据权限，必须显式跳出：否则范围外的部门会显示成空名字
+        $depts = Dept::withoutGlobalScope()->column('name', 'id');
         // 表注释只查一次，避免逐行调用 tables()
         $tables = array_column(self::tables(), null, 'table');
+
+        // 规则体检：条件互斥这类问题「配的时候看不出来、用的时候页面空白」，
+        // 直接挂到列表上，比让人去记着跑命令行靠谱。需要全量规则才能比较，故单独查一次。
+        $conflicts = RuleConflict::byRule(
+            RuleConflict::check(DataRule::newScopedQuery()->select()->toArray())
+        );
 
         foreach ($list as &$row) {
             $row['user_name'] = $users[(int)$row['user_id']] ?? '';
             $row['post_name'] = $posts[(int)$row['post_id']] ?? '';
             $row['role_name'] = $roles[(int)$row['role_id']] ?? '';
+
+            // 绑定组合方式：与 DataScope::rules() 的判定保持一致（非法值按 or）
+            $mode = strtolower(trim((string)$row['bind_mode']));
+            $mode = in_array($mode, DataScope::BIND_MODES, true) ? $mode : 'or';
+            $row['bind_mode']       = $mode;
+            $row['bind_mode_label'] = DataScope::BIND_MODE_LABELS[$mode];
 
             $ids = json_decode((string)($row['dept_ids'] ?? 'null'), true);
             $ids = is_array($ids) ? array_map('intval', $ids) : [];
@@ -375,6 +416,11 @@ final class DataRuleLogic
             $row['table_label'] = $table === ''
                 ? ''
                 : (string)($tables[$table]['label'] ?? $table);
+
+            $row['conflicts'] = array_values(array_map(
+                static fn ($item): array => ['type' => $item['type'], 'message' => $item['message']],
+                $conflicts[(int)$row['id']] ?? []
+            ));
         }
         unset($row);
 
@@ -383,11 +429,11 @@ final class DataRuleLogic
 
     private static function assertExists(int $id): array
     {
-        $row = SoftDelete::apply(Db::name('data_rule'))->where('id', $id)->find();
+        $row = DataRule::withoutGlobalScope()->where('id', $id)->find();
         if (!$row) {
             throw new ApiException('规则不存在', 404);
         }
 
-        return $row;
+        return $row->toArray();
     }
 }

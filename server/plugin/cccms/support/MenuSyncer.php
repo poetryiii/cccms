@@ -122,7 +122,9 @@ final class MenuSyncer
             return;
         }
 
-        $existing = Menu::where('node', $slug)->find();
+        // withTrashed()：下面要判断「是否躺在回收站里」并顺带恢复，
+        // 模型默认排除已删数据，不加会永远查不到，恢复逻辑形同虚设
+        $existing = Menu::withTrashed()->where('node', $slug)->find();
 
         $data = [
             'parent_id' => $parentId,

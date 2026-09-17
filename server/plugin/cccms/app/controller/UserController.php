@@ -16,27 +16,27 @@ class UserController extends BaseController
     #[Permission(slug: 'cccms:user:index', title: '用户列表')]
     public function index(Request $request): Response
     {
-        return $this->ok(UserLogic::paginate($request->get(), $request->user));
+        return $this->ok(UserLogic::paginate($request->get()));
     }
 
     #[Permission(slug: 'cccms:user:read', title: '用户详情')]
     public function read(Request $request): Response
     {
-        return $this->ok(UserLogic::read((int)$request->input('id', 0), $request->user));
+        return $this->ok(UserLogic::read((int)$request->input('id', 0)));
     }
 
     #[Permission(slug: 'cccms:user:save', title: '新增用户')]
     #[Restrict(methods: ['POST'])]
     public function save(Request $request): Response
     {
-        return $this->ok(['id' => UserLogic::create($request->post(), $request->user)], '创建成功');
+        return $this->ok(['id' => UserLogic::create($request->post())], '创建成功');
     }
 
     #[Permission(slug: 'cccms:user:update', title: '更新用户')]
     #[Restrict(methods: ['POST'])]
     public function update(Request $request): Response
     {
-        UserLogic::update((int)$request->input('id', 0), $request->post(), $request->user);
+        UserLogic::update((int)$request->input('id', 0), $request->post());
         return $this->ok(null, '更新成功');
     }
 
@@ -54,8 +54,7 @@ class UserController extends BaseController
     {
         UserLogic::resetPassword(
             (int)$request->input('id', 0),
-            (string)$request->post('password', ''),
-            $request->user
+            (string)$request->post('password', '')
         );
         return $this->ok(null, '重置成功');
     }
