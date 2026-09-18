@@ -4,7 +4,7 @@ import pluginVue from 'eslint-plugin-vue'
 import prettier from 'eslint-config-prettier'
 
 /**
- * ESLint 扁平配置（ESLint 9）。
+ * ESLint 扁平配置（ESLint 10）。
  *
  * 分工：
  *   - ESLint 只管「可能出错的代码」（未使用变量、可疑写法、Vue 必要规则）；

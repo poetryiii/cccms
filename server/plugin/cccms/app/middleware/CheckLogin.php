@@ -6,6 +6,7 @@ namespace plugin\cccms\app\middleware;
 
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\PermissionMeta;
 use plugin\cccms\support\SessionGuard;
@@ -31,13 +32,13 @@ class CheckLogin implements MiddlewareInterface
         if (!$meta['noLogin']) {
             $token = TokenService::fromRequest($request);
             if ($token === null) {
-                throw new ApiException('未登录', 401);
+                throw new ApiException(I18n::t('common.not_logged_in'), 401);
             }
             $claims = TokenService::verify($token);
 
             // 失效名单：登出写入的单令牌黑名单 + 「强制下线」写入的用户级时间分界线
             if (TokenBlacklist::claimsRevoked($claims)) {
-                throw new ApiException('登录状态已失效，请重新登录', 401);
+                throw new ApiException(I18n::t('common.session_expired'), 401);
             }
 
             $userId = (int)($claims['sub'] ?? 0);
@@ -45,7 +46,7 @@ class CheckLogin implements MiddlewareInterface
             // 权限集合实时加载（Redis 缓存 + 版本号失效见 AuthService::buildContext）
             $user = $userId > 0 ? AuthService::buildContext($userId) : null;
             if ($user === null) {
-                throw new ApiException('登录凭证无效或用户已失效', 401);
+                throw new ApiException(I18n::t('common.invalid_credentials'), 401);
             }
             $request->user = $user;
 
@@ -75,10 +76,10 @@ class CheckLogin implements MiddlewareInterface
     private static function reauthMessage(): string
     {
         if (SysConfig::getBool('system.maintenance', false)) {
-            return SysConfig::getString('system.maintenance_notice', '系统维护中，请稍后访问')
-                ?: '系统维护中，请稍后访问';
+            return SysConfig::getString('system.maintenance_notice', I18n::t('auth.maintenance'))
+                ?: I18n::t('auth.maintenance');
         }
 
-        return '登录状态已失效，请重新登录';
+        return I18n::t('common.session_expired');
     }
 }

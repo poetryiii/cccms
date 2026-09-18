@@ -9,6 +9,7 @@ use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
 use plugin\cccms\support\Captcha;
 use plugin\cccms\support\Cipher;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\LoginThrottle;
 use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\SysConfig;
@@ -22,7 +23,7 @@ final class AuthLogic
     /**
      * 账号密码登录，返回 token 与用户信息。
      *
-     * 成功与失败都会写入登录日志（`sys_log`，type='login'）——失败记录是审计的重点。
+     * 成功与失败都会写入登录日志（`sys_log`，`path='/auth/login'`）——失败记录是审计的重点。
      */
     public static function login(
         string $username,
@@ -37,7 +38,7 @@ final class AuthLogic
             throw $e;
         }
 
-        LogLogic::recordLogin((int)($result['user']['id'] ?? 0), $username, true, '登录成功');
+        LogLogic::recordLogin((int)($result['user']['id'] ?? 0), $username, true, I18n::t('auth.login_success'));
 
         return $result;
     }
@@ -54,7 +55,7 @@ final class AuthLogic
         string $captchaId,
     ): array {
         if ($username === '' || $password === '') {
-            throw new ApiException('请输入用户名和密码', 422);
+            throw new ApiException(I18n::t('auth.missing_credentials'), 422);
         }
 
         // ① 失败锁定：先判断，避免锁定期间仍可用于撞库
@@ -62,7 +63,7 @@ final class AuthLogic
 
         // ② 图形验证码（由 security.login_captcha 控制，默认关闭）
         if (SysConfig::getBool('security.login_captcha', false) && !Captcha::verify($captchaId, $captcha)) {
-            throw new ApiException('验证码错误或已过期', 422);
+            throw new ApiException(I18n::t('auth.captcha_invalid'), 422);
         }
 
         // 已进回收站的账号不能登录（用户名仍被占用，但登录入口直接当作不存在）。
@@ -70,15 +71,15 @@ final class AuthLogic
         $user = User::withoutGlobalScope()->where('username', $username)->find();
         if (!$user || !password_verify($password, (string)$user['password'])) {
             LoginThrottle::recordFailure($username);
-            throw new ApiException('用户名或密码错误' . self::attemptTip($username), 422);
+            throw new ApiException(I18n::t('auth.bad_credentials') . self::attemptTip($username), 422);
         }
         if ((int)$user['status'] !== 1) {
-            throw new ApiException('账号已被禁用', 403);
+            throw new ApiException(I18n::t('auth.account_disabled'), 403);
         }
 
         $context = AuthService::buildContext((int)$user['id']);
         if ($context === null) {
-            throw new ApiException('账号角色异常，请联系管理员', 403);
+            throw new ApiException(I18n::t('auth.role_abnormal'), 403);
         }
 
         // ③ 维护模式：只允许超管登录（前端也会展示维护公告）
@@ -109,7 +110,7 @@ final class AuthLogic
             (string)$user['nickname'],
             (string)$token['jti'],
             $ip,
-            (string)$request->header('user-agent', ''),
+            (string)request()->header('user-agent', ''),
         );
 
         return [
@@ -150,11 +151,12 @@ final class AuthLogic
             return '';
         }
         $left = LoginThrottle::remainingAttempts($username);
-        return $left > 0 ? "，还可尝试 {$left} 次" : '';
+        return $left > 0 ? I18n::t('auth.attempt_tip', ['count' => $left]) : '';
     }
 
     private static function maintenanceNotice(): string
     {
-        return SysConfig::getString('system.maintenance_notice', '系统维护中，请稍后访问') ?: '系统维护中，请稍后访问';
+        return SysConfig::getString('system.maintenance_notice', I18n::t('auth.maintenance'))
+            ?: I18n::t('auth.maintenance');
     }
 }

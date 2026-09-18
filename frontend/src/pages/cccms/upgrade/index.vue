@@ -85,12 +85,7 @@
         <!-- 未建立基线：引导 -->
         <el-card v-if="!overview.initialized" shadow="never" class="block">
           <el-empty description="尚未建立基线，无法判断本地相对上游改过哪些文件">
-            <el-button
-              v-auth="'cccms:upgrade:init'"
-              type="primary"
-              :loading="initing"
-              @click="onInit"
-            >
+            <el-button v-auth="'cccms:upgrade:init'" type="primary" :loading="initing" @click="onInit">
               立即建立基线
             </el-button>
           </el-empty>
@@ -172,9 +167,7 @@
                     <el-radio-button value="all">全部</el-radio-button>
                     <el-radio-button value="kept">仅本地保留</el-radio-button>
                   </el-radio-group>
-                  <span class="tip-inline">
-                    本地独有文件 {{ plan?.local_only || 0 }} 个（业务插件，不会被改动）
-                  </span>
+                  <span class="tip-inline"> 本地独有文件 {{ plan?.local_only || 0 }} 个（业务插件，不会被改动） </span>
                 </div>
 
                 <el-table :data="visibleFiles" size="small" max-height="480" empty-text="没有需要展示的文件">
@@ -413,9 +406,7 @@ async function onRun(): Promise<void> {
   }
 }
 
-const sourceLabel = computed(
-  () => overview.value?.sources.find((s) => s.key === source.value)?.label || source.value,
-)
+const sourceLabel = computed(() => overview.value?.sources.find((s) => s.key === source.value)?.label || source.value)
 
 onMounted(async () => {
   await loadOverview()

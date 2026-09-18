@@ -17,6 +17,8 @@ export interface FileRow {
   create_time: string
   /** 是否图片（由后台 upload.image_ext 配置推导） */
   is_image?: boolean
+  /** 是否 PDF（后端按扩展名推导，前端据此用 iframe 内嵌预览） */
+  is_pdf?: boolean
 }
 
 export function fileList(params: Record<string, unknown>) {

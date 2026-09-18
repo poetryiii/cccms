@@ -53,6 +53,20 @@ WHERE NOT EXISTS (
 );
 
 -- ---------------------------------------------------------------------
+-- 内置定时任务：归档历史日志到对象存储
+--
+-- **默认停用（status=0）**：归档是破坏性操作（上传成功后删主库），
+-- 需运维确认对象存储可用后再手动启用。参数取 plugin/cccms/config/log.php 的 archive 段。
+-- 同样用 INSERT ... SELECT ... WHERE NOT EXISTS 保证幂等。
+-- ---------------------------------------------------------------------
+INSERT INTO `sys_crontab` (`name`, `expression`, `target`, `params`, `status`, `group_name`, `overlap`, `timeout`, `retry_times`, `retry_interval`, `remark`, `create_time`, `update_time`)
+SELECT '日志归档到对象存储', '0 0 4 * * *', 'plugin\\cccms\\command\\task\\LogArchiveTask', NULL, 0, '系统', 'skip', 3600, 1, 300, '每天 04:00 归档早于 log.archive.days 的日志到对象存储（默认停用，确认存储可用后启用）', NOW(), NOW()
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `sys_crontab` WHERE `target` = 'plugin\\cccms\\command\\task\\LogArchiveTask'
+);
+
+-- ---------------------------------------------------------------------
 -- 系统配置默认值
 --
 -- 这些配置项定义了系统的「可配置面」。

@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS `sys_role` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
   `name`        varchar(64)  NOT NULL COMMENT '角色名',
   `code`        varchar(64)  NOT NULL COMMENT '角色标识(唯一)',
-  `data_scope`  tinyint      NOT NULL DEFAULT 1 COMMENT '数据范围 1全部 2本部门及以下 3本部门 4仅本人 5自定义',
+  -- 默认 4（仅本人）而非 1（全部数据）：档位不继承父角色，靠「取最宽松」生效，
+  -- 所以漏配时必须是**最窄**的兜底，否则新建角色会静默拿到全库可见范围（fail-closed 兜底）。
+  `data_scope`  tinyint      NOT NULL DEFAULT 4 COMMENT '数据范围 1全部 2本部门及以下 3本部门 4仅本人 5自定义',
   `parent_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '父角色(继承)，0=顶级',
   `sort`        int          NOT NULL DEFAULT 0,
   `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '状态 1启用 0禁用',
@@ -295,7 +297,6 @@ CREATE TABLE IF NOT EXISTS `sys_log` (
   `path`        varchar(255) NOT NULL DEFAULT '',
   `node`        varchar(128) NOT NULL DEFAULT '' COMMENT '权限节点 slug(路径语义化标识)',
   `title`       varchar(128) NOT NULL DEFAULT '' COMMENT '语义化操作名(取自权限注解)',
-  `type`        varchar(16)  NOT NULL DEFAULT 'operation' COMMENT '日志类型 operation操作 login登录',
   `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1成功 0失败',
   `message`     varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(登录失败原因等)',
   `trace_id`    varchar(32)  NOT NULL DEFAULT '' COMMENT '请求链路 ID(把一次请求的多条记录串起来)',
@@ -310,9 +311,8 @@ CREATE TABLE IF NOT EXISTS `sys_log` (
   KEY `idx_user` (`user_id`),
   KEY `idx_create_time` (`create_time`),
   KEY `idx_node` (`node`),
-  KEY `idx_trace_id` (`trace_id`),
-  KEY `idx_type` (`type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='日志(操作 + 登录)';
+  KEY `idx_trace_id` (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='日志(操作 + 登录；登录记录 path=/auth/login)';
 
 -- ---------------------------------------------------------------------
 -- 附件

@@ -49,6 +49,17 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/403',
+    name: 'forbidden',
+    component: () => import('@/pages/cccms/error/403.vue'),
+    // 注意：这里**不能**标 public，更**不能**带 meta.node。
+    // 守卫会对带 node 的动态路由做权限校验，403 页若也带 node 且校验不通过，
+    // 就会「跳 403 → 403 自己又校验失败 → 再跳 403」形成无限重定向。
+    // 不标 public 是为了保持与 404 兜底同样的语义：刷新首帧仍会先落到 404 兜底，
+    // 由守卫完成动态路由注册后再按 path 重新导航到 /403。
+    meta: { title: '无权访问' },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'notFound',
     component: () => import('@/pages/cccms/error/404.vue'),
@@ -152,6 +163,19 @@ router.beforeEach(async (to) => {
     // 结果会被再解析回兜底路由 —— 表现就是「动态路由明明注册了，刷新还是 404」。
     // 所以这里只带 path/query/hash，强制按路径重新匹配。
     return { path: to.path, query: to.query, hash: to.hash, replace: true }
+  }
+
+  // 动态路由已注册（含上面按 path 重新导航后的那次执行）：做节点级权限校验。
+  // `v-auth` 只管按钮显隐，直接输入 URL 过去要靠后端 403 才拦得住；
+  // 这里提前用 meta.node（buildRoutes 写入的菜单 slug）在路由层拦一次。
+  //
+  // 防循环：403 路由自身**不能**带 meta.node（见上方路由注册处注释），
+  // 所以跳过去之后 to.meta.node 为空，会直接放行，不会再次重定向。
+  // meta.node 为空（/dashboard、/profile、404 兜底、/403 本身）一律不校验。
+  // 超管直通由 hasAuth() 内部处理。
+  const node = to.meta.node
+  if (typeof node === 'string' && node && !user.hasAuth(node)) {
+    return { path: '/403', replace: true }
   }
 
   return true

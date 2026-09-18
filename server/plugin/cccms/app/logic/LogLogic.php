@@ -7,12 +7,12 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\OperationLog;
 use plugin\cccms\support\Csv;
 use support\Log;
-use think\facade\Db;
 use Throwable;
 use Webman\Http\Response;
 
 /**
- * 日志逻辑：操作日志与登录日志统一存 `sys_log`，用 `type` 区分（operation 操作 / login 登录）。
+ * 日志逻辑：操作日志与登录日志统一存 `sys_log`，登录记录固定 `path=/auth/login`
+ * （中间件不记该路径，二者天然互斥），页面按「请求路径」筛选即可。
  *
  * 查询统一走 `OperationLog` 模型：它**参与**数据权限（仅本人 = 自己的日志、
  * 本部门 = 可见部门成员的日志，见模型里的 `$dataScope`），所以越权数据在列表与
@@ -33,7 +33,7 @@ final class LogLogic
      * 记录一条登录日志（成功与失败都记）。
      *
      * 登录接口是 `#[NoLogin]`，那时还没有用户上下文，操作日志中间件拿不到操作人，
-     * 所以由登录逻辑自己记；写成 `sys_log` 的 `type='login'`，与操作日志同表。
+     * 所以由登录逻辑自己记；写成 `path='/auth/login'` 的 `sys_log` 记录，与操作日志同表。
      * 写日志失败**绝不影响登录本身**（吞掉异常并记 error 日志）。
      */
     public static function recordLogin(int $userId, string $username, bool $success, string $message = ''): void
@@ -41,10 +41,11 @@ final class LogLogic
         try {
             $request = function_exists('request') ? request() : null;
 
-            Db::name('log')->insert([
+            // 登录链路还没有用户上下文（登录接口是 #[NoLogin]），且登录日志必须**无条件**写入
+            // （含失败尝试）；这里显式跳出数据权限：既没有范围可算，也不允许字段级规则剔除字段。
+            OperationLog::withoutGlobalScope()->insert([
                 'user_id'     => $userId,
                 'username'    => mb_substr($username, 0, 64),
-                'type'        => 'login',
                 'status'      => $success ? 1 : 0,
                 'message'     => mb_substr($message, 0, 255),
                 'method'      => 'POST',
@@ -83,7 +84,6 @@ final class LogLogic
 
         $data = array_map(static fn (array $row): array => [
             (string)($row['id'] ?? ''),
-            (string)($row['type'] ?? '') === 'login' ? '登录' : '操作',
             (string)($row['username'] ?? ''),
             (string)($row['title'] ?? ''),
             (int)($row['status'] ?? 1) === 1 ? '成功' : '失败',
@@ -100,7 +100,7 @@ final class LogLogic
 
         return Csv::download(
             '操作日志',
-            ['ID', '类型', '账号', '操作', '结果', '说明', '方法', '路径', '节点', 'IP', '状态码', '耗时(ms)', '链路ID', '时间'],
+            ['ID', '账号', '操作', '结果', '说明', '方法', '路径', '节点', 'IP', '状态码', '耗时(ms)', '链路ID', '时间'],
             $data
         );
     }
@@ -125,10 +125,6 @@ final class LogLogic
         }
         if (!empty($params['title'])) {
             $query->where('title', 'like', '%' . $params['title'] . '%');
-        }
-        // 日志类型：login 登录 / operation 操作
-        if (!empty($params['type'])) {
-            $query->where('type', (string)$params['type']);
         }
         // 结果：1 成功 / 0 失败
         if (isset($params['status']) && $params['status'] !== '') {

@@ -5,8 +5,8 @@
       <el-form :inline="true" @submit.prevent>
         <slot name="search" />
         <el-form-item>
-          <el-button type="primary" :icon="Search" @click="emit('search')">查询</el-button>
-          <el-button :icon="RefreshLeft" @click="emit('reset')">重置</el-button>
+          <el-button type="primary" :icon="Search" @click="emit('search')">{{ t('table.query') }}</el-button>
+          <el-button :icon="RefreshLeft" @click="emit('reset')">{{ t('table.reset') }}</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -19,7 +19,7 @@
             （在回收站里做这些操作没有意义）。
           -->
           <template v-if="recycle">
-            <el-tag type="warning" effect="dark" round>回收站模式</el-tag>
+            <el-tag type="warning" effect="dark" round>{{ t('table.recycleMode') }}</el-tag>
             <template v-if="selection">
               <el-button
                 v-auth="'cccms:recycle:restore'"
@@ -28,7 +28,7 @@
                 :disabled="selected.length === 0"
                 @click="emit('restore')"
               >
-                还原选中{{ selected.length ? `（${selected.length}）` : '' }}
+                {{ t('table.restoreSelected') }}{{ selected.length ? `（${selected.length}）` : '' }}
               </el-button>
               <el-button
                 v-auth="'cccms:recycle:delete'"
@@ -38,7 +38,7 @@
                 :disabled="selected.length === 0"
                 @click="emit('force-delete')"
               >
-                彻底删除{{ selected.length ? `（${selected.length}）` : '' }}
+                {{ t('table.forceDeleteSelected') }}{{ selected.length ? `（${selected.length}）` : '' }}
               </el-button>
             </template>
           </template>
@@ -46,7 +46,43 @@
         </div>
         <div class="art-table-toolbar-right">
           <slot name="toolbar-right" />
-          <el-tooltip content="刷新" placement="top">
+          <!--
+            筛选方案：控制器由页面 useTable 通过 provide 注入，页面无需接线。
+            页面没用 useTable（如纯树表）时为 null，入口整体不渲染。
+          -->
+          <el-popover v-if="tableFilter" trigger="click" placement="bottom-end" :width="240" @show="refreshFilterPanel">
+            <template #reference>
+              <!-- 这里同样不能套 el-tooltip：popover 与 tooltip 都是 popper trigger，会互抢 click -->
+              <el-button text circle :icon="Filter" :title="t('table.filterScheme')" />
+            </template>
+            <div class="art-table-filter">
+              <div class="art-table-filter-head">
+                <span>{{ t('table.filterScheme') }}</span>
+                <el-button link type="primary" size="small" :disabled="!filterHasSaved" @click="clearFilterSaved">
+                  {{ t('table.clearMemory') }}
+                </el-button>
+              </div>
+              <div v-if="filterSchemes.length" class="art-table-filter-list">
+                <div v-for="name in filterSchemes" :key="name" class="art-table-filter-item">
+                  <el-button link type="primary" @click="applyFilterScheme(name)">{{ name }}</el-button>
+                  <el-button link type="danger" @click="removeFilterScheme(name)">{{ t('table.delete') }}</el-button>
+                </div>
+              </div>
+              <div v-else class="art-table-filter-empty">{{ t('table.noSavedScheme') }}</div>
+              <div class="art-table-filter-save">
+                <el-input
+                  v-model="filterName"
+                  size="small"
+                  :placeholder="t('table.schemeName')"
+                  @keyup.enter="saveFilterScheme"
+                />
+                <el-button size="small" type="primary" :disabled="!filterName.trim()" @click="saveFilterScheme">
+                  {{ t('table.save') }}
+                </el-button>
+              </div>
+            </div>
+          </el-popover>
+          <el-tooltip :content="t('table.refresh')" placement="top">
             <el-button text circle :icon="Refresh" :loading="loading" @click="emit('refresh')" />
           </el-tooltip>
           <!--
@@ -59,8 +95,8 @@
             </template>
             <div class="art-table-columns">
               <div class="art-table-columns-head">
-                <span>列设置</span>
-                <el-button link type="primary" size="small" @click="resetColumns">重置</el-button>
+                <span>{{ t('table.columnSetting') }}</span>
+                <el-button link type="primary" size="small" @click="resetColumns">{{ t('table.reset') }}</el-button>
               </div>
               <el-checkbox
                 v-for="col in ownColumns"
@@ -110,19 +146,19 @@
           </el-table-column>
 
           <!-- 回收站模式：操作列由表格统一渲染，页面的「操作」列（slot=action）被换掉 -->
-          <el-table-column v-if="recycle" label="操作" width="170" fixed="right">
+          <el-table-column v-if="recycle" :label="t('table.action')" width="170" fixed="right">
             <template #default="{ row }">
               <el-button v-auth="'cccms:recycle:restore'" link type="primary" @click="emit('restore', row)">
-                还原
+                {{ t('table.restore') }}
               </el-button>
               <el-button v-auth="'cccms:recycle:delete'" link type="danger" @click="emit('force-delete', row)">
-                彻底删除
+                {{ t('table.forceDelete') }}
               </el-button>
             </template>
           </el-table-column>
 
           <template #empty>
-            <el-empty description="暂无数据" :image-size="80" />
+            <el-empty :description="t('table.empty')" :image-size="80" />
           </template>
         </el-table>
       </div>
@@ -147,11 +183,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, useSlots, watch } from 'vue'
+import { computed, inject, ref, useSlots, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaQuery } from '@vueuse/core'
-import { Delete, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
+import { Delete, Filter, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
+import { TABLE_FILTER_KEY } from '@/composables/useTable'
 import type { ArtTableColumn } from '@/types/table'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const props = withDefaults(
   defineProps<{
@@ -214,6 +255,44 @@ const route = useRoute()
 
 /** 当前勾选行（仅用于回收站模式的批量按钮） */
 const selected = ref<any[]>([])
+
+/* ---- 筛选方案（控制器由页面 useTable provide，页面零配置） ---- */
+const tableFilter = inject(TABLE_FILTER_KEY, null)
+const filterSchemes = ref<string[]>([])
+const filterName = ref('')
+const filterHasSaved = ref(false)
+
+function refreshFilterPanel(): void {
+  filterSchemes.value = tableFilter?.listSchemes() ?? []
+  filterHasSaved.value = tableFilter?.hasSaved() ?? false
+}
+
+function saveFilterScheme(): void {
+  const name = filterName.value.trim()
+  if (!tableFilter || !name) {
+    return
+  }
+  tableFilter.saveScheme(name)
+  filterName.value = ''
+  refreshFilterPanel()
+  ElMessage.success(t('table.savedScheme', { name }))
+}
+
+function applyFilterScheme(name: string): void {
+  tableFilter?.applyScheme(name)
+  refreshFilterPanel()
+}
+
+function removeFilterScheme(name: string): void {
+  tableFilter?.removeScheme(name)
+  refreshFilterPanel()
+}
+
+function clearFilterSaved(): void {
+  tableFilter?.clearSaved()
+  refreshFilterPanel()
+  ElMessage.success(t('table.clearedMemory'))
+}
 
 const hasSearch = computed(() => !!slots.search)
 
@@ -481,5 +560,53 @@ function onSortChange(payload: { prop: string | null; order: string | null }): v
   font-weight: 600;
   color: var(--art-main);
   border-bottom: 1px solid var(--art-card-border);
+}
+
+.art-table-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.art-table-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--art-main);
+  border-bottom: 1px solid var(--art-card-border);
+}
+
+.art-table-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.art-table-filter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.art-table-filter-item :deep(.el-button) {
+  padding: 0;
+}
+
+.art-table-filter-empty {
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--art-muted);
+  text-align: center;
+}
+
+.art-table-filter-save {
+  display: flex;
+  gap: 6px;
 }
 </style>

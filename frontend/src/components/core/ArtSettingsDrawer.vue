@@ -1,12 +1,19 @@
 <template>
-  <el-drawer v-model="visible" title="主题设置" :size="320" append-to-body>
+  <el-drawer v-model="visible" :title="t('setting.title')" :size="320" append-to-body>
     <div class="setting-block">
-      <div class="setting-label">主题模式</div>
+      <div class="setting-label">{{ t('setting.language') }}</div>
+      <el-select :model-value="currentLocale" class="setting-lang" @change="onLocaleChange">
+        <el-option v-for="item in SUPPORTED_LOCALES" :key="item.value" :label="item.label" :value="item.value" />
+      </el-select>
+    </div>
+
+    <div class="setting-block">
+      <div class="setting-label">{{ t('setting.mode') }}</div>
       <el-segmented v-model="mode" :options="MODE_OPTIONS" block />
     </div>
 
     <div class="setting-block">
-      <div class="setting-label">品牌主色</div>
+      <div class="setting-label">{{ t('setting.primary') }}</div>
       <div class="setting-colors">
         <button
           v-for="c in PRESET_COLORS"
@@ -28,7 +35,7 @@
 
     <div class="setting-block">
       <div class="setting-label">
-        圆角
+        {{ t('setting.radius') }}
         <span class="setting-value">{{ setting.theme.radius }}px</span>
       </div>
       <el-slider :model-value="setting.theme.radius" :min="0" :max="20" :step="1" @input="setting.setRadius" />
@@ -36,9 +43,9 @@
 
     <div class="setting-block">
       <div class="setting-label">
-        内容区宽度
+        {{ t('setting.containerWidth') }}
         <span class="setting-value">
-          {{ setting.theme.containerWidth > 0 ? `${setting.theme.containerWidth}px` : '全宽' }}
+          {{ setting.theme.containerWidth > 0 ? `${setting.theme.containerWidth}px` : t('setting.fullWidth') }}
         </span>
       </div>
       <el-slider
@@ -51,17 +58,21 @@
     </div>
 
     <p class="setting-hint">
-      {{ setting.hasOwnPref ? '当前使用你的个人主题设置' : '当前跟随后台的系统默认设置' }}
+      {{ setting.hasOwnPref ? t('setting.ownPref') : t('setting.systemPref') }}
     </p>
-    <el-button class="setting-reset" @click="onResetToSystem">跟随系统默认</el-button>
+    <el-button class="setting-reset" @click="onResetToSystem">{{ t('setting.resetToSystem') }}</el-button>
   </el-drawer>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { SUPPORTED_LOCALES, currentLocale, setLocale } from '@/locales'
 import { PRESET_COLORS, type ThemeMode } from '@/utils/theme'
 import { useAppStore } from '@/stores/app'
 import { useSettingStore } from '@/stores/setting'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const visible = defineModel<boolean>({ required: true })
 
@@ -73,11 +84,16 @@ function onResetToSystem(): void {
   setting.resetToSystem(appStore.config.ui)
 }
 
-const MODE_OPTIONS = [
-  { label: '亮色', value: 'light' },
-  { label: '暗色', value: 'dark' },
-  { label: '跟随系统', value: 'auto' },
-]
+/** 语言切换即时生效并持久化（ElConfigProvider 会跟随 currentLocale 重新下发语言包） */
+function onLocaleChange(value: string): void {
+  setLocale(value)
+}
+
+const MODE_OPTIONS = computed(() => [
+  { label: t('setting.light'), value: 'light' },
+  { label: t('setting.dark'), value: 'dark' },
+  { label: t('setting.auto'), value: 'auto' },
+])
 
 const mode = computed<ThemeMode>({
   get: () => setting.theme.mode,
@@ -107,6 +123,10 @@ function onCustomColor(value: string | null): void {
   margin-bottom: 12px;
   font-size: 13px;
   color: var(--art-sub);
+}
+
+.setting-lang {
+  width: 100%;
 }
 
 .setting-value {

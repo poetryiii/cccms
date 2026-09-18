@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace plugin\cccms\support\storage;
 
+use plugin\cccms\support\ApiException;
 use plugin\cccms\support\SysConfig;
 use Webman\Http\UploadFile;
 
@@ -21,6 +22,22 @@ final class LocalDriver extends StorageDriver
         $file->move($full);
 
         return $this->result($file, $path, $ext, $size, sha1_file($full) ?: '');
+    }
+
+    public function put(string $content, string $path): array
+    {
+        $path = $this->objectPath($path);
+        $full = $this->root() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $path);
+        $dir  = dirname($full);
+
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new ApiException('创建归档目录失败：' . $dir, 500);
+        }
+        if (file_put_contents($full, $content) === false) {
+            throw new ApiException('写入归档文件失败：' . $path, 500);
+        }
+
+        return ['path' => $path, 'size' => strlen($content), 'hash' => sha1($content)];
     }
 
     public function delete(string $path): void

@@ -46,10 +46,12 @@ final class FileLogic
         $categories = Category::withoutGlobalScope()->column('name', 'id');
 
         // URL 按当前 url_prefix 实时生成，切换 CDN/OSS 后历史数据无需迁移；
-        // is_image 由 upload.image_ext 决定，前端据此决定是否显示缩略图
+        // is_image 由 upload.image_ext 决定，前端据此决定是否显示缩略图；
+        // is_pdf 决定前端用内置 PDF 阅读器（iframe）还是回退到「查看 / 下载」
         foreach ($list as &$row) {
             $row['url']           = FileStorage::url((string)$row['path']);
             $row['is_image']      = FileStorage::isImage((string)$row['ext']);
+            $row['is_pdf']        = self::isPdf((string)$row['ext']);
             $row['category_name'] = $categories[(int)$row['category_id']] ?? '';
         }
         unset($row);
@@ -137,11 +139,23 @@ final class FileLogic
         File::destroy($id);
     }
 
-    /** 补全 url / is_image 这类「按当前配置实时生成」的字段 */
+    /** 补全 url / is_image / is_pdf 这类「按当前配置实时生成」的字段 */
     private static function decorate(array $row): array
     {
         $row['url']      = FileStorage::url((string)$row['path']);
         $row['is_image'] = FileStorage::isImage((string)$row['ext']);
+        $row['is_pdf']   = self::isPdf((string)$row['ext']);
         return $row;
+    }
+
+    /**
+     * 是否 PDF（前端据此用 iframe 内嵌浏览器阅读器）。
+     *
+     * 只按扩展名判断，不走 MIME：本地上传时 `mime` 来自客户端上报，不可信；
+     * 而扩展名是上传白名单校验过的，且对象存储也是按 key 扩展名推断 Content-Type。
+     */
+    private static function isPdf(string $ext): bool
+    {
+        return strtolower($ext) === 'pdf';
     }
 }

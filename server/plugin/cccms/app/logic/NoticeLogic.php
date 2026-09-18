@@ -4,14 +4,18 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\Dept;
 use plugin\cccms\app\model\Notice;
 use plugin\cccms\app\model\NoticeRead;
 use plugin\cccms\app\model\NoticeTarget;
+use plugin\cccms\app\model\Role;
+use plugin\cccms\app\model\User;
+use plugin\cccms\app\model\UserDept;
+use plugin\cccms\app\model\UserRole;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
 use plugin\cccms\support\UserContext;
 use think\db\BaseQuery;
-use think\facade\Db;
 
 /**
  * 通知公告。
@@ -359,7 +363,10 @@ final class NoticeLogic
         $noticeId = (int)$notice['id'];
 
         if ($scope === 0) {
-            return array_map('intval', Db::name('user')->whereNull('delete_time')->column('id'));
+            // 「应读用户」= 全量启用用户，与**操作者的数据范围无关**：
+            // 公告是广播给全站的，报表口径必须覆盖所有人，否则回执统计会凭空少人。
+            // 因此显式跳出数据权限（withoutGlobalScope），逃生口在此处可见且有必要。
+            return array_map('intval', User::withoutGlobalScope()->column('id'));
         }
 
         $ids = array_map('intval', NoticeTarget::where('notice_id', $noticeId)->column('target_id'));
@@ -375,13 +382,13 @@ final class NoticeLogic
             // 指定角色：该角色及其后代角色下的用户
             $roles = self::roleSubtreeIds($ids);
 
-            return array_map('intval', Db::name('user_role')->whereIn('role_id', $roles)->column('user_id'));
+            return array_map('intval', UserRole::whereIn('role_id', $roles)->column('user_id'));
         }
 
         // scope === 1：指定部门（含下级）
         $depts = self::deptSubtree($ids);
 
-        return array_map('intval', Db::name('user_dept')->whereIn('dept_id', $depts)->column('user_id'));
+        return array_map('intval', UserDept::whereIn('dept_id', $depts)->column('user_id'));
     }
 
     // ------------------------------------------------------------------
@@ -392,8 +399,10 @@ final class NoticeLogic
     private static function readRows(array $rows): array
     {
         $userIds = array_map('intval', array_column($rows, 'user_id'));
-        $nick    = $userIds === [] ? [] : Db::name('user')->whereIn('id', $userIds)->column('nickname', 'id');
-        $name    = $userIds === [] ? [] : Db::name('user')->whereIn('id', $userIds)->column('username', 'id');
+        // 回执明细要显示「谁读了」，必须是全量用户信息：
+        // 若按操作者的数据范围收窄，范围外的已读人会被显示成空白，报表即失真。
+        $nick    = $userIds === [] ? [] : User::withoutGlobalScope()->whereIn('id', $userIds)->column('nickname', 'id');
+        $name    = $userIds === [] ? [] : User::withoutGlobalScope()->whereIn('id', $userIds)->column('username', 'id');
 
         $out = [];
         foreach ($rows as $row) {
@@ -417,7 +426,7 @@ final class NoticeLogic
         }
 
         $out = [];
-        foreach (Db::name('user')->whereIn('id', $userIds)->field('id,username,nickname,status')->select()->toArray() as $row) {
+        foreach (User::withoutGlobalScope()->whereIn('id', $userIds)->field('id,username,nickname,status')->select()->toArray() as $row) {
             $out[] = [
                 'user_id'   => (int)$row['id'],
                 'username'  => (string)$row['username'],
@@ -432,7 +441,7 @@ final class NoticeLogic
     /** 我所属部门及其所有下级。 */
     private static function userDeptSubtree(int $userId): array
     {
-        $deptIds = array_map('intval', Db::name('user_dept')->where('user_id', $userId)->column('dept_id'));
+        $deptIds = array_map('intval', UserDept::where('user_id', $userId)->column('dept_id'));
 
         return self::deptSubtree($deptIds);
     }
@@ -445,7 +454,8 @@ final class NoticeLogic
             return [];
         }
 
-        $parents = Db::name('dept')->column('parent_id', 'id');   // id => parent_id
+        // 子树展开需要**完整**部门树（父不在可见集合时也要能往上/往下走），故跳出数据权限
+        $parents = Dept::withoutGlobalScope()->column('parent_id', 'id');   // id => parent_id
         $result  = $ids;
         $queue   = $ids;
         while ($queue !== []) {
@@ -470,7 +480,8 @@ final class NoticeLogic
             return [];
         }
 
-        $parents  = Db::name('role')->column('parent_id', 'id');   // id => parent_id
+        // 同上：角色子树展开也需要完整角色树
+        $parents  = Role::withoutGlobalScope()->column('parent_id', 'id');   // id => parent_id
         $children = [];
         foreach ($parents as $id => $pid) {
             $children[(int)$pid][] = (int)$id;

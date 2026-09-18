@@ -111,6 +111,10 @@ Route::get('/data_rule/users', [DataRuleController::class, 'users']);
 Route::post('/data_rule/save', [DataRuleController::class, 'save']);
 Route::post('/data_rule/update', [DataRuleController::class, 'update']);
 Route::post('/data_rule/delete', [DataRuleController::class, 'delete']);
+// 导入 / 导出（CSV）：导出直接返回文件流，不走统一信封
+Route::get('/data_rule/export', [DataRuleController::class, 'export']);
+Route::get('/data_rule/template', [DataRuleController::class, 'template']);
+Route::post('/data_rule/import', [DataRuleController::class, 'import']);
 // 受控表（哪些表可以配数据权限）
 Route::get('/data_rule/table', [DataScopeTableController::class, 'index']);
 Route::post('/data_rule/table/save', [DataScopeTableController::class, 'save']);
@@ -138,6 +142,10 @@ Route::get('/notice/read', [NoticeController::class, 'read']);
 Route::post('/notice/save', [NoticeController::class, 'save']);
 Route::post('/notice/update', [NoticeController::class, 'update']);
 Route::post('/notice/delete', [NoticeController::class, 'delete']);
+// 定向投放候选（部门 / 角色 / 用户搜索）与已读回执报表
+Route::get('/notice/options', [NoticeController::class, 'options']);
+Route::get('/notice/users', [NoticeController::class, 'users']);
+Route::get('/notice/report', [NoticeController::class, 'report']);
 // 阅读侧（登录即可，只看自己的）
 Route::get('/notice/my', [NoticeController::class, 'my']);
 Route::get('/notice/unread', [NoticeController::class, 'unread']);

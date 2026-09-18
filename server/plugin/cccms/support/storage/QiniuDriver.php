@@ -30,6 +30,17 @@ final class QiniuDriver extends StorageDriver
         return $this->result($file, $path, $ext, $size, $hash);
     }
 
+    public function put(string $content, string $path): array
+    {
+        $path = $this->objectPath($path);
+        [, $err] = $this->uploadManager()->put($this->uploadToken(), $path, $content);
+        if ($err !== null) {
+            throw new ApiException('七牛上传失败：' . (is_object($err) && method_exists($err, 'message') ? $err->message() : (string)$err), 500);
+        }
+
+        return ['path' => $path, 'size' => strlen($content), 'hash' => sha1($content)];
+    }
+
     public function delete(string $path): void
     {
         [, $err] = $this->bucketManager()->delete($this->cfg('bucket'), $path);

@@ -6,11 +6,11 @@
         <span class="not-found-zero" />
         <span class="not-found-digit">4</span>
       </div>
-      <h1 class="not-found-title">页面不存在</h1>
-      <p class="not-found-desc">你访问的页面可能已被移除、改名，或者从未存在过。</p>
+      <h1 class="not-found-title">{{ t('error.notFoundTitle') }}</h1>
+      <p class="not-found-desc">{{ t('error.notFoundDesc') }}</p>
       <div class="not-found-actions">
-        <el-button type="primary" @click="goHome">返回首页</el-button>
-        <el-button @click="goBack">返回上一页</el-button>
+        <el-button type="primary" @click="goHome">{{ t('error.backHome') }}</el-button>
+        <el-button @click="goBack">{{ t('error.backPrev') }}</el-button>
       </div>
     </div>
   </div>
@@ -18,7 +18,10 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { HOME_PATH } from '@/stores/worktab'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const router = useRouter()
 

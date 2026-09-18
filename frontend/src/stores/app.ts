@@ -1,12 +1,15 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { configUi, type AppUiConfig } from '@/api/config'
+import { applyDefaultLocale, hasLocalePref } from '@/locales'
 import { useSettingStore } from './setting'
 
 /** 取不到后台配置时的兜底值（保证界面永远能正常渲染） */
 const FALLBACK: AppUiConfig = {
   system: { name: 'CCCMS', logo: '', icp: '', copyright: '', maintenance: false, notice: '' },
   ui: { theme_mode: 'light', theme_primary: '#2b6cff', page_size: 15, tags_view: true, container_width: 0 },
+  locale: 'zh-CN',
+  locales: ['zh-CN', 'en-US'],
 }
 
 /**
@@ -26,6 +29,8 @@ export const useAppStore = defineStore('app', () => {
   const config = ref<AppUiConfig>({
     system: { ...FALLBACK.system },
     ui: { ...FALLBACK.ui },
+    locale: FALLBACK.locale,
+    locales: FALLBACK.locales,
   })
   const loaded = ref(false)
 
@@ -47,14 +52,19 @@ export const useAppStore = defineStore('app', () => {
         config.value = {
           system: { ...FALLBACK.system, ...(res.system ?? {}) },
           ui: { ...FALLBACK.ui, ...(res.ui ?? {}) },
+          locale: res.locale || FALLBACK.locale,
+          locales: res.locales?.length ? res.locales : FALLBACK.locales,
         }
       }
     } catch {
       // 拿不到后台配置就用兜底值，绝不阻塞启动
     } finally {
       loaded.value = true
-      // 首次访问（本机无偏好）时，把后台下发的主题作为默认值
+      // 首次访问（本机无偏好）时，把后台下发的主题与默认语言作为默认值
       useSettingStore().applySystemDefaults(config.value.ui)
+      if (!hasLocalePref() && config.value.locale) {
+        applyDefaultLocale(config.value.locale)
+      }
     }
   }
 

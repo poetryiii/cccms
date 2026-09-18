@@ -50,6 +50,18 @@ CREATE TABLE IF NOT EXISTS `%sdata_scope_table` (
   UNIQUE KEY `uk_table` (`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据权限受控表'
 SQL,
+        'crontab_retry' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%scrontab_retry` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `crontab_id`  bigint unsigned NOT NULL COMMENT '任务ID',
+  `attempt`     tinyint        NOT NULL DEFAULT 1 COMMENT '第几次重试(1..retry_times)',
+  `retry_at`    datetime       NOT NULL COMMENT '计划重试时间',
+  `create_time` datetime       NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_due` (`retry_at`),
+  KEY `idx_crontab` (`crontab_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务独立重试队列'
+SQL,
         'notice' => <<<'SQL'
 CREATE TABLE IF NOT EXISTS `%snotice` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -96,6 +108,23 @@ CREATE TABLE IF NOT EXISTS `%snotice_read` (
 SQL,
     ];
 
+    /**
+     * 列默认值修正：表名(不含前缀) => [列名 => [完整列定义, 期望默认值]]。
+     *
+     * 只改列的**默认值**，不动已有行的数据 —— 升级不会把线上已配好的档位改掉。
+     * 用于「漏配兜底方向」纠偏：`role.data_scope` 原默认 1（全部数据），
+     * 档位不继承父角色、靠「取最宽松」生效，漏配即等于静默放行全库；
+     * 改为默认 4（仅本人），让新建角色的兜底落在最窄范围。
+     */
+    private const COLUMN_DEFAULTS = [
+        'role' => [
+            'data_scope' => [
+                "tinyint NOT NULL DEFAULT 4 COMMENT '数据范围 1全部 2本部门及以下 3本部门 4仅本人 5自定义'",
+                '4',
+            ],
+        ],
+    ];
+
     /** 软删除列定义（NULL = 未删除） */
     private const SOFT_DELETE = "datetime DEFAULT NULL COMMENT '删除时间(NULL=未删除)'";
 
@@ -112,8 +141,7 @@ SQL,
         'log' => [
             'node'     => "varchar(128) NOT NULL DEFAULT '' COMMENT '权限节点 slug(路径语义化标识)' AFTER `path`",
             'title'    => "varchar(128) NOT NULL DEFAULT '' COMMENT '语义化操作名(取自权限注解)' AFTER `node`",
-            'type'     => "varchar(16) NOT NULL DEFAULT 'operation' COMMENT '日志类型 operation操作 login登录' AFTER `title`",
-            'status'   => "tinyint NOT NULL DEFAULT 1 COMMENT '1成功 0失败' AFTER `type`",
+            'status'   => "tinyint NOT NULL DEFAULT 1 COMMENT '1成功 0失败' AFTER `title`",
             'message'  => "varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(登录失败原因等)' AFTER `status`",
             'trace_id' => "varchar(32) NOT NULL DEFAULT '' COMMENT '请求链路 ID' AFTER `message`",
         ],
@@ -171,7 +199,6 @@ SQL,
         'log'       => [
             'idx_node'     => '`node`',
             'idx_trace_id' => '`trace_id`',
-            'idx_type'     => '`type`',
         ],
         'crontab'   => ['idx_retry' => '`retry_left`, `retry_at`'],
         'notice'    => ['idx_scope' => '`scope`'],
@@ -185,6 +212,7 @@ SQL,
         $cols   = 0;
         $idxs   = 0;
         $stamps = 0;
+        $defaults = 0;
 
         foreach (self::TABLES as $name => $sql) {
             if ($this->exists($prefix . $name)) {
@@ -209,6 +237,26 @@ SQL,
                 Db::execute("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
                 $output->writeln("  <info>加列</info> {$table}.{$column}");
                 $cols++;
+            }
+        }
+
+        // 列默认值纠偏：只改默认值，不动已有行的数据
+        foreach (self::COLUMN_DEFAULTS as $name => $columns) {
+            $table = $prefix . $name;
+            if (!$this->exists($table)) {
+                continue;
+            }
+            $meta = $this->columnMeta($table);
+            foreach ($columns as $column => [$definition, $expected]) {
+                if (!isset($meta[$column])) {
+                    continue;
+                }
+                if ((string)($meta[$column]['Default'] ?? '') === $expected) {
+                    continue;
+                }
+                Db::execute("ALTER TABLE `{$table}` MODIFY COLUMN `{$column}` {$definition}");
+                $output->writeln("  <info>默认值</info> {$table}.{$column} → {$expected}");
+                $defaults++;
             }
         }
 
@@ -252,13 +300,13 @@ SQL,
         }
 
         // 迁移旧登录日志表 → sys_log（一次性：迁移后 DROP，天然幂等）。
-        // 登录日志与操作日志合并到同一张 sys_log，用 type='login' 区分。
+        // 登录日志与操作日志合并到同一张 sys_log，登录记录固定 path=/auth/login。
         if ($this->exists($prefix . 'login_log')) {
             try {
                 Db::execute(
                     "INSERT INTO `{$prefix}log`
-                     (user_id, username, type, status, message, method, path, title, ip, ua, create_time)
-                     SELECT user_id, username, 'login', status, message, 'POST', '/auth/login', '登录', ip, ua, create_time
+                     (user_id, username, status, message, method, path, title, ip, ua, create_time)
+                     SELECT user_id, username, status, message, 'POST', '/auth/login', '登录', ip, ua, create_time
                      FROM `{$prefix}login_log`"
                 );
                 Db::execute("DROP TABLE `{$prefix}login_log`");
@@ -269,7 +317,15 @@ SQL,
             }
         }
 
-        $output->writeln("<info>升级完成：建表 {$tables}，加列 {$cols}，加索引 {$idxs}，时间戳 {$stamps}</info>");
+        // 移除日志类型列：登录与操作已可由 path 区分（登录固定 /auth/login，中间件不记该路径），
+        // 单列 type 还带来一个只有两个取值的低选择性索引。删列时 MySQL 会一并带走 idx_type。
+        $logTable = $prefix . 'log';
+        if ($this->exists($logTable) && isset($this->columnMeta($logTable)['type'])) {
+            Db::execute("ALTER TABLE `{$logTable}` DROP COLUMN `type`");
+            $output->writeln("  <info>删列</info> {$logTable}.type（日志类型改用 path 区分）");
+        }
+
+        $output->writeln("<info>升级完成：建表 {$tables}，加列 {$cols}，加索引 {$idxs}，默认值 {$defaults}，时间戳 {$stamps}</info>");
 
         // 业务插件建表：执行 plugin/*/db/schema.sql（幂等；cccms 自身由上面的增量逻辑负责）
         $pluginStatements = 0;

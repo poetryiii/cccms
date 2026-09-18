@@ -16,12 +16,6 @@
       @selection-change="onSelectionChange"
     >
       <template #search>
-        <el-form-item label="类型">
-          <el-select v-model="query.type" placeholder="全部" clearable style="width: 110px">
-            <el-option label="操作" value="operation" />
-            <el-option label="登录" value="login" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="结果">
           <el-select v-model="query.status" placeholder="全部" clearable style="width: 110px">
             <el-option label="成功" :value="1" />
@@ -35,7 +29,7 @@
           <el-input v-model="query.title" placeholder="如 新增字典类型" clearable style="width: 180px" />
         </el-form-item>
         <el-form-item label="请求路径">
-          <el-input v-model="query.path" placeholder="请输入" clearable style="width: 180px" />
+          <el-input v-model="query.path" placeholder="如 /auth/login 查登录" clearable style="width: 180px" />
         </el-form-item>
         <el-form-item label="链路ID">
           <el-input v-model="query.trace_id" placeholder="报错时的 trace_id" clearable style="width: 220px" />
@@ -57,13 +51,6 @@
 
       <template #toolbar-right>
         <el-button v-auth="'cccms:log:export'" :icon="Download" @click="onExport"> 导出 </el-button>
-      </template>
-
-      <!-- 类型：登录 / 操作 -->
-      <template #type="{ row }">
-        <el-tag :type="row.type === 'login' ? 'warning' : 'info'" effect="plain" size="small">
-          {{ row.type === 'login' ? '登录' : '操作' }}
-        </el-tag>
       </template>
 
       <!-- 结果：成功 / 失败 -->
@@ -99,11 +86,6 @@
     <el-drawer v-model="detailVisible" title="日志详情" size="680px">
       <template v-if="current">
         <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="类型">
-            <el-tag :type="current.type === 'login' ? 'warning' : 'info'" effect="plain" size="small">
-              {{ current.type === 'login' ? '登录' : '操作' }}
-            </el-tag>
-          </el-descriptions-item>
           <el-descriptions-item label="结果">
             <el-tag :type="current.status === 1 ? 'success' : 'danger'" effect="light" size="small">
               {{ current.status === 1 ? '成功' : '失败' }}
@@ -162,15 +144,12 @@ interface Query {
   title: string
   path: string
   trace_id: string
-  /** 日志类型 operation 操作 / login 登录 */
-  type: string
   /** 结果 1 成功 / 0 失败 */
   status: number | ''
 }
 
 const columns: ArtTableColumn[] = [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'type', label: '类型', width: 90, align: 'center', slot: 'type' },
   { prop: 'title', label: '操作', minWidth: 190, slot: 'action_name' },
   { prop: 'username', label: '操作人', width: 110 },
   { prop: 'status', label: '结果', width: 90, align: 'center', slot: 'status' },
@@ -200,7 +179,7 @@ const {
   onSelectionChange,
 } = useTable<LogRow, Query>({
   api: logList,
-  initialQuery: { username: '', title: '', path: '', trace_id: '', type: '', status: '' },
+  initialQuery: { username: '', title: '', path: '', trace_id: '', status: '' },
   pageSize: 15,
 })
 

@@ -27,6 +27,14 @@ final class OssDriver extends StorageDriver
         return $this->result($file, $path, $ext, $size, $hash);
     }
 
+    public function put(string $content, string $path): array
+    {
+        $path = $this->objectPath($path);
+        $this->client()->putObject($this->cfg('bucket'), $path, $content);
+
+        return ['path' => $path, 'size' => strlen($content), 'hash' => sha1($content)];
+    }
+
     public function delete(string $path): void
     {
         $this->client()->deleteObject($this->cfg('bucket'), $path);

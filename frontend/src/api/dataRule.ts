@@ -1,4 +1,4 @@
-import { http } from './request'
+import { downloadFile, http } from './request'
 import type { PageResult } from './types'
 
 /**
@@ -141,6 +141,26 @@ export function dataRuleUpdate(data: Record<string, unknown>) {
 
 export function dataRuleDelete(id: number) {
   return http.post<null>('/data_rule/delete', { id })
+}
+
+/** 导出 CSV（按当前筛选） */
+export function dataRuleExport(params: Record<string, unknown>) {
+  return downloadFile('/data_rule/export', params, '数据权限规则.csv')
+}
+
+/** 下载导入模板 */
+export function dataRuleTemplate() {
+  return downloadFile('/data_rule/template', undefined, '数据权限规则导入模板.csv')
+}
+
+/** 导入接口地址（走 el-upload 直传，与用户导入同样的做法） */
+export const DATA_RULE_IMPORT_URL = `${import.meta.env.VITE_API_BASE || '/api'}/data_rule/import`
+
+export interface DataRuleImportResult {
+  total: number
+  created: number
+  updated: number
+  failed: string[]
 }
 
 /** 受控表列表 + 可加入的库表 */

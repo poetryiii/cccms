@@ -111,7 +111,10 @@
         </template>
 
         <template #action="{ row }">
-          <el-button link type="primary" @click="openUrl(row.url)">查看</el-button>
+          <!-- PDF 走内置对话框预览，其余类型回退到新窗口打开（浏览器自行决定预览或下载） -->
+          <el-button link type="primary" @click="openPreview(row)">
+            {{ row.is_pdf ? '预览' : '查看' }}
+          </el-button>
           <el-popconfirm title="确定删除该附件？" @confirm="onDelete(row.id)">
             <template #reference>
               <el-button v-auth="'cccms:file:delete'" link type="danger">删除</el-button>
@@ -172,6 +175,22 @@
       <template #footer>
         <el-button @click="moveVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submitMove">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- PDF 在线预览：内嵌浏览器自带阅读器；destroy-on-close 保证关闭后不再加载 -->
+    <el-dialog
+      v-model="previewVisible"
+      :title="previewTitle"
+      width="82%"
+      top="5vh"
+      class="pdf-preview-dialog"
+      destroy-on-close
+    >
+      <iframe v-if="previewUrl" :src="previewUrl" class="pdf-frame" title="PDF 预览" />
+      <template #footer>
+        <el-button @click="openUrl(previewUrl)">在新窗口打开</el-button>
+        <el-button @click="previewVisible = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -436,6 +455,22 @@ async function submitMove(): Promise<void> {
   }
 }
 
+/* ---- 预览 ---- */
+const previewVisible = ref(false)
+const previewUrl = ref('')
+const previewTitle = ref('预览')
+
+/** 图片由 preview 列的 el-image 内置查看器负责；PDF 用对话框内嵌，其余回退到新窗口 */
+function openPreview(row: FileRow): void {
+  if (row.is_pdf) {
+    previewUrl.value = row.url
+    previewTitle.value = row.original_name || 'PDF 预览'
+    previewVisible.value = true
+    return
+  }
+  openUrl(row.url)
+}
+
 /* ---- 其它 ---- */
 function openUrl(url: string): void {
   window.open(url, '_blank', 'noopener')
@@ -477,6 +512,15 @@ loadCategories()
 
 .file-thumb-icon {
   color: var(--art-muted);
+}
+
+/* PDF 预览：暗色模式下强制浏览器阅读器用浅色底，避免「深底深字」看不清 */
+.pdf-frame {
+  width: 100%;
+  height: 72vh;
+  background: var(--art-card-bg);
+  border: 0;
+  color-scheme: light;
 }
 
 /* ---- 分类树节点 ---- */

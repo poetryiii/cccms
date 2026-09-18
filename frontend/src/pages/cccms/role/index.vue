@@ -268,7 +268,8 @@ const emptyForm = {
   name: '',
   code: '',
   parent_id: 0,
-  data_scope: 1,
+  // 默认「仅本人」：档位不继承父角色、按「取最宽松」生效，漏配必须兜底到最窄范围
+  data_scope: 4,
   status: 1,
   nodes: [] as string[],
 }

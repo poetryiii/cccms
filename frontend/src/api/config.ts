@@ -47,6 +47,10 @@ export interface AppUiDefaults {
 export interface AppUiConfig {
   system: AppSystemConfig
   ui: AppUiDefaults
+  /** 后台默认语言（本机无语言偏好时应用） */
+  locale?: string
+  /** 后端支持的可用语言列表 */
+  locales?: string[]
 }
 
 /** 不传 group 则返回全部配置 */

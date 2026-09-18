@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\app\middleware;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\LogRedactor;
 use plugin\cccms\support\PermissionMeta;
 use plugin\cccms\support\SysConfig;
 use support\Log;
@@ -26,12 +27,6 @@ use Webman\MiddlewareInterface;
 class OperationLog implements MiddlewareInterface
 {
     private const WRITE_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH'];
-
-    /** 需要脱敏的字段（小写比对，递归生效） */
-    private const SENSITIVE = [
-        'password', 'old_password', 'new_password', 'password_confirm',
-        'token', 'access_token', 'refresh_token', 'secret',
-    ];
 
     /** text 上限 65535 字节，utf8mb4 单字符最多 4 字节，8000 字符足够安全 */
     private const TEXT_LIMIT = 8000;
@@ -90,7 +85,7 @@ class OperationLog implements MiddlewareInterface
 
     private function write(Request $request, ?Response $response, ?Throwable $error, int $cost): void
     {
-        // 登录接口由 AuthLogic 自己记（type='login'），这里跳过：那时没有用户上下文，
+        // 登录接口由 AuthLogic 自己记（path='/auth/login'），这里跳过：那时没有用户上下文，
         // 中间件记出来的 user_id=0 且 node/title 为空，是重复且不友好的记录
         if ($request->method() === 'POST' && '/' . ltrim($request->path(), '/') === '/auth/login') {
             return;
@@ -110,7 +105,8 @@ class OperationLog implements MiddlewareInterface
 
             // query + body 合并，保留完整入参（同名时以 body 为准）
             $params = array_merge($request->get(), $request->post());
-            $params = self::redact($params);
+            // 脱敏规则抽到 LogRedactor，归档冷数据时复用同一份（避免两处规则漂移）
+            $params = LogRedactor::redact($params);
 
             // 上传接口的 body 是空的，补上原始文件名，否则日志看不出传了什么
             $files = self::fileNames($request);
@@ -129,7 +125,6 @@ class OperationLog implements MiddlewareInterface
             Db::name('log')->insert([
                 'user_id'     => $user?->id ?? 0,
                 'username'    => $user?->username ?? '',
-                'type'        => 'operation',
                 'status'      => $error !== null ? 0 : 1,
                 'message'     => $error !== null ? self::clip($error->getMessage(), 255) : '',
                 'method'      => $request->method(),
@@ -150,29 +145,6 @@ class OperationLog implements MiddlewareInterface
             // 日志写入失败绝不影响业务
             Log::error('operation log failed: ' . $e->getMessage());
         }
-    }
-
-    /**
-     * 递归脱敏：密码 / token 这类字段可能藏在嵌套结构里。
-     *
-     * @param  array<string,mixed> $data
-     * @return array<string,mixed>
-     */
-    private static function redact(array $data, int $depth = 0): array
-    {
-        if ($depth > 3) {
-            return $data;
-        }
-
-        foreach ($data as $key => $value) {
-            if (in_array(strtolower((string)$key), self::SENSITIVE, true)) {
-                $data[$key] = '******';
-            } elseif (is_array($value)) {
-                $data[$key] = self::redact($value, $depth + 1);
-            }
-        }
-
-        return $data;
     }
 
     /**

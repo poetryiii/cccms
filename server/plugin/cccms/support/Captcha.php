@@ -36,7 +36,7 @@ final class Captcha
         try {
             Redis::setex(self::KEY_PREFIX . $id, self::TTL, strtolower($code));
         } catch (Throwable) {
-            throw new ApiException('验证码服务不可用，请联系管理员', 500);
+            throw new ApiException(I18n::t('auth.captcha_service_down'), 500);
         }
 
         return ['id' => $id, 'image' => self::svg($code)];

@@ -124,14 +124,13 @@ export function upgradeTags(source: string) {
 }
 
 export function upgradeInit(source: string, ref?: string) {
-  return instance.post('/upgrade/init', { source, ref: ref || undefined }, SLOW) as unknown as Promise<UpgradeInitResult>
+  return instance.post(
+    '/upgrade/init',
+    { source, ref: ref || undefined },
+    SLOW,
+  ) as unknown as Promise<UpgradeInitResult>
 }
 
-export function upgradeRun(payload: {
-  source: string
-  ref?: string
-  force?: boolean
-  prune?: boolean
-}) {
+export function upgradeRun(payload: { source: string; ref?: string; force?: boolean; prune?: boolean }) {
   return instance.post('/upgrade/run', payload, SLOW) as unknown as Promise<UpgradeRunResult>
 }

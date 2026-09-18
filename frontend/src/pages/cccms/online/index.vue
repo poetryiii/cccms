@@ -5,6 +5,7 @@
       :data="list"
       :loading="loading"
       :total="total"
+      row-key="jti"
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
@@ -57,7 +58,7 @@ interface Query {
 }
 
 const columns: ArtTableColumn[] = [
-  { prop: 'username', label: '用户', width: 160, slot: 'username' },
+  { prop: 'username', label: '用户', slot: 'username' },
   { prop: 'ip', label: 'IP', width: 150 },
   { prop: 'login_at', label: '登录时间', width: 170 },
   { prop: 'last_at', label: '最后活跃', width: 170 },

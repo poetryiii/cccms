@@ -16,9 +16,35 @@ abstract class StorageDriver
      */
     abstract public function upload(UploadFile $file): array;
 
+    /**
+     * 把一段内容写入**指定对象路径**（附件上传之外的第二条入口）。
+     *
+     * upload() 会自动生成随机对象名，适合附件；日志归档需要稳定、可追溯的路径
+     * （log-archive/2026/09/log-20260918-040000-1.jsonl.gz），所以单独开这个口子。
+     * 不做扩展名白名单校验（内容由调用方负责），路径统一过 objectPath() 防穿越。
+     *
+     * @return array{path:string,size:int,hash:string}
+     */
+    abstract public function put(string $content, string $path): array;
+
     abstract public function delete(string $path): void;
 
     abstract public function url(string $path): string;
+
+    /**
+     * 规范化并校验调用方给出的对象路径：拒绝空值 / 目录穿越。
+     *
+     * 与 upload() 的 objectName() 不同，这里的路径来自调用方，必须显式设防。
+     */
+    final protected function objectPath(string $path): string
+    {
+        $path = ltrim(str_replace('\\', '/', trim($path)), '/');
+        if ($path === '' || str_contains($path, '..')) {
+            throw new ApiException('非法的存储路径：' . $path, 422);
+        }
+
+        return $path;
+    }
 
     public function name(): string
     {

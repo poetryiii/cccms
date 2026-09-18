@@ -9,10 +9,10 @@ import 'nprogress/nprogress.css'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
 
 import App from './App.vue'
 import router from './router'
+import { i18n } from './locales'
 import { setupDirectives } from './directives'
 import { useAppStore } from './stores/app'
 import { useSettingStore } from './stores/setting'
@@ -21,7 +21,10 @@ const app = createApp(App)
 const pinia = createPinia()
 
 app.use(pinia)
-app.use(ElementPlus, { locale: zhCn, zIndex: 3000 })
+// Element Plus 的语言包不在这里写死：App.vue 用 ElConfigProvider 按当前语言响应式下发，
+// 这样切换语言后日期选择器 / 分页等内置文案会立即跟随，无需刷新页面。
+app.use(ElementPlus, { zIndex: 3000 })
+app.use(i18n)
 setupDirectives(app)
 app.use(router)
 

@@ -5,8 +5,6 @@ export interface LogRow {
   id: number
   user_id: number
   username: string
-  /** 日志类型 operation 操作 / login 登录 */
-  type: string
   /** 1 成功 / 0 失败 */
   status: number
   /** 结果说明（登录失败原因 / 操作异常信息） */

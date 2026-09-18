@@ -54,7 +54,7 @@ final class LoginThrottle
         $left = self::lockedSeconds($username);
         if ($left > 0) {
             throw new ApiException(
-                sprintf('登录失败次数过多，请 %d 分钟后再试', max(1, (int)ceil($left / 60))),
+                I18n::t('auth.too_many_attempts', ['minutes' => max(1, (int)ceil($left / 60))]),
                 429
             );
         }

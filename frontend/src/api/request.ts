@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
+import { currentLocale, t } from '@/locales'
 import { clearToken, getToken } from '@/utils/auth'
 import { progressDone, progressStart } from '@/utils/progress'
 
@@ -35,6 +36,9 @@ instance.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`
   }
 
+  // 带上当前语言，后端据此返回对应语言的错误文案（优先 ?lang=，其次该请求头）
+  config.headers['Accept-Language'] = currentLocale.value
+
   // 每个请求都推进度条：并发请求按令牌聚合，全部结束才收尾
   const tracked = config as typeof config & TrackedConfig
   if (tracked.__progressToken === undefined) {
@@ -61,8 +65,9 @@ instance.interceptors.response.use(
       if (body.code === 0) {
         return body.data as never
       }
-      ElMessage.error(body.message || '请求失败')
-      return Promise.reject(new Error(body.message || '请求失败'))
+      const failed = body.message || t('common.requestFailed')
+      ElMessage.error(failed)
+      return Promise.reject(new Error(failed))
     }
     return body as never
   },
@@ -74,7 +79,7 @@ instance.interceptors.response.use(
 
     if (status === 401) {
       clearToken()
-      ElMessage.error(message || '登录已失效，请重新登录')
+      ElMessage.error(message || t('common.loginExpired'))
       if (!redirecting && !window.location.hash.startsWith('#/login')) {
         redirecting = true
         // 动态路由与标签页都在内存里：不清掉的话，换账号登录会残留上一个账号的菜单。
@@ -88,9 +93,9 @@ instance.interceptors.response.use(
         })
       }
     } else if (status) {
-      ElMessage.error(message || `请求错误 (${status})`)
+      ElMessage.error(message || t('common.requestError', { status }))
     } else {
-      ElMessage.error('网络异常，请检查服务是否启动')
+      ElMessage.error(t('common.networkError'))
     }
     return Promise.reject(error)
   },

@@ -46,6 +46,8 @@
       </template>
 
       <template #toolbar-right>
+        <el-button v-auth="'cccms:data_rule:export'" :icon="Download" @click="onExport"> 导出 </el-button>
+        <el-button v-auth="'cccms:data_rule:import'" :icon="Upload" @click="openImport"> 导入 </el-button>
         <RecycleToggle :active="recycle" label="数据权限规则" @toggle="toggle" />
       </template>
 
@@ -349,6 +351,52 @@
         <el-button @click="tableVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 导入规则（CSV） -->
+    <el-dialog v-model="importVisible" title="导入数据权限规则" width="580px">
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="CSV 首行必须是列名；name 必填，同名规则会被更新，否则新增。绑定一律填 ID（0 = 不绑定），dept_ids 多个用 | 分隔；末尾的 *_name 列仅供人工校对，导入时忽略。"
+        style="margin-bottom: 12px"
+      />
+
+      <div class="import-actions">
+        <el-button link type="primary" @click="onTemplate">下载导入模板</el-button>
+      </div>
+
+      <el-upload
+        ref="uploadRef"
+        drag
+        :action="DATA_RULE_IMPORT_URL"
+        :headers="uploadHeaders"
+        name="file"
+        accept=".csv"
+        :limit="1"
+        :auto-upload="false"
+        :on-success="onImportSuccess"
+        :on-error="onImportError"
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">将 CSV 拖到此处，或<em>点击选择</em></div>
+      </el-upload>
+
+      <div v-if="importResult" class="import-result">
+        <p>
+          共 {{ importResult.total }} 行：新增 {{ importResult.created }}，更新 {{ importResult.updated }}，失败
+          {{ importResult.failed.length }}
+        </p>
+        <ul v-if="importResult.failed.length" class="import-failed">
+          <li v-for="(msg, index) in importResult.failed.slice(0, 20)" :key="index">{{ msg }}</li>
+        </ul>
+      </div>
+
+      <template #footer>
+        <el-button @click="importVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="importing" @click="submitImport">开始导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -357,29 +405,34 @@ defineOptions({ name: 'cccms:data_rule' })
 
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus, Setting } from '@element-plus/icons-vue'
+import { Download, Plus, Setting, Upload, UploadFilled } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'
 import ArtNodePicker from '@/components/core/ArtNodePicker.vue'
 import { useTable } from '@/composables/useTable'
 import {
+  DATA_RULE_IMPORT_URL,
   dataRuleDelete,
+  dataRuleExport,
   dataRuleList,
   dataRuleOptions,
   dataRuleSave,
+  dataRuleTemplate,
   dataRuleUpdate,
   dataRuleUsers,
   dataScopeTableDelete,
   dataScopeTableList,
   dataScopeTableSave,
   dataScopeTableUpdate,
+  type DataRuleImportResult,
   type DataRuleOption,
   type DataRuleOptions,
   type DataRuleRow,
   type DataScopeTableAvailable,
   type DataScopeTableRow,
 } from '@/api/dataRule'
+import { getToken } from '@/utils/auth'
 import type { ArtTableColumn } from '@/types/table'
 
 interface Query {
@@ -971,6 +1024,58 @@ async function onDelete(id: number): Promise<void> {
   load()
 }
 
+/* ---- 导出 / 导入 ---- */
+
+/** 导出当前筛选下的规则 */
+function onExport(): void {
+  void dataRuleExport({ ...query })
+}
+
+function onTemplate(): void {
+  void dataRuleTemplate()
+}
+
+const importVisible = ref(false)
+const importing = ref(false)
+const importResult = ref<DataRuleImportResult | null>(null)
+const uploadRef = ref<{ submit: () => void; clearFiles: () => void } | null>(null)
+
+/** el-upload 直传，需自己带鉴权头（与用户导入同样的做法） */
+const uploadHeaders = computed(() => ({ Authorization: `Bearer ${getToken() ?? ''}` }))
+
+function openImport(): void {
+  importResult.value = null
+  importVisible.value = true
+  uploadRef.value?.clearFiles()
+}
+
+function submitImport(): void {
+  importing.value = true
+  uploadRef.value?.submit()
+}
+
+function onImportSuccess(response: { code?: number; message?: string; data?: DataRuleImportResult }): void {
+  importing.value = false
+  if (!response || response.code !== 0) {
+    ElMessage.error(response?.message || '导入失败')
+    return
+  }
+
+  importResult.value = response.data ?? null
+  const failed = response.data?.failed.length ?? 0
+  if (failed === 0) {
+    ElMessage.success(`导入完成：新增 ${response.data?.created ?? 0}，更新 ${response.data?.updated ?? 0}`)
+  } else {
+    ElMessage.warning(`导入完成，但有 ${failed} 行失败，详见下方列表`)
+  }
+  load()
+}
+
+function onImportError(): void {
+  importing.value = false
+  ElMessage.error('导入失败，请检查文件格式或网络')
+}
+
 loadOptions()
 </script>
 
@@ -1096,5 +1201,26 @@ loadOptions()
 /* 「检测」列 tooltip 里的多条提示 */
 .conflict-line + .conflict-line {
   margin-top: 4px;
+}
+
+.import-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.import-result {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--art-main);
+}
+
+.import-failed {
+  max-height: 180px;
+  padding-left: 18px;
+  margin: 6px 0 0;
+  overflow-y: auto;
+  font-size: 12px;
+  color: var(--art-danger);
 }
 </style>

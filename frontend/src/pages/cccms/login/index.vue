@@ -1,7 +1,7 @@
 <template>
   <div class="login">
     <div class="login-theme">
-      <el-tooltip :content="setting.isDark ? '切换到亮色' : '切换到暗色'" placement="bottom">
+      <el-tooltip :content="setting.isDark ? t('login.toLight') : t('login.toDark')" placement="bottom">
         <el-button text circle @click="setting.toggleDark()">
           <el-icon :size="18">
             <Sunny v-if="setting.isDark" />
@@ -18,16 +18,16 @@
         <div class="login-brand-blob is-b" />
 
         <div class="login-brand-head">
-          <img v-if="appStore.logo" class="login-brand-img" :src="appStore.logo" alt="logo" />
+          <img v-if="appStore.logo" class="login-brand-img" :src="appStore.logo" :alt="t('login.brandTitle')" />
           <div v-else class="login-brand-logo">{{ brandInitial }}</div>
           <span class="login-brand-name">{{ appStore.systemName }}</span>
         </div>
 
-        <h1 class="login-brand-title">企业级后台管理系统</h1>
-        <p class="login-brand-desc">权限、组织、数据范围一体化，开箱即用的后台底座</p>
+        <h1 class="login-brand-title">{{ t('login.brandTitle') }}</h1>
+        <p class="login-brand-desc">{{ t('login.brandDesc') }}</p>
 
         <ul class="login-brand-list">
-          <li v-for="item in FEATURES" :key="item">
+          <li v-for="item in features" :key="item">
             <el-icon :size="14"><Check /></el-icon>
             <span>{{ item }}</span>
           </li>
@@ -37,8 +37,8 @@
       <!-- 右侧表单 -->
       <div class="login-form">
         <div class="login-form-head">
-          <h2 class="login-form-title">欢迎回来</h2>
-          <p class="login-form-desc">请使用你的账号登录</p>
+          <h2 class="login-form-title">{{ t('login.welcome') }}</h2>
+          <p class="login-form-desc">{{ t('login.welcomeDesc') }}</p>
         </div>
 
         <!-- 维护模式（system.maintenance）开启时，仅超管可登录 -->
@@ -53,7 +53,7 @@
 
         <el-form ref="formRef" :model="form" :rules="rules" size="large" @keyup.enter="onSubmit">
           <el-form-item prop="username">
-            <el-input v-model="form.username" placeholder="用户名" clearable>
+            <el-input v-model="form.username" :placeholder="t('login.username')" clearable>
               <template #prefix
                 ><el-icon><User /></el-icon
               ></template>
@@ -61,7 +61,7 @@
           </el-form-item>
 
           <el-form-item prop="password">
-            <el-input v-model="form.password" type="password" show-password placeholder="密码">
+            <el-input v-model="form.password" type="password" show-password :placeholder="t('login.password')">
               <template #prefix
                 ><el-icon><Lock /></el-icon
               ></template>
@@ -70,21 +70,21 @@
 
           <el-form-item v-if="captchaImage" prop="captcha">
             <div class="login-captcha">
-              <el-input v-model="form.captcha" placeholder="验证码">
+              <el-input v-model="form.captcha" :placeholder="t('login.captcha')">
                 <template #prefix
                   ><el-icon><Key /></el-icon
                 ></template>
               </el-input>
-              <img class="login-captcha-img" :src="captchaImage" alt="验证码" @click="loadCaptcha" />
+              <img class="login-captcha-img" :src="captchaImage" :alt="t('login.captcha')" @click="loadCaptcha" />
             </div>
           </el-form-item>
 
           <div class="login-row">
-            <el-checkbox v-model="rememberMe">记住用户名</el-checkbox>
+            <el-checkbox v-model="rememberMe">{{ t('login.remember') }}</el-checkbox>
           </div>
 
           <el-button type="primary" size="large" class="login-submit" :loading="loading" @click="onSubmit">
-            登 录
+            {{ t('login.submit') }}
           </el-button>
         </el-form>
 
@@ -100,6 +100,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Check, Key, Lock, Moon, Sunny, User } from '@element-plus/icons-vue'
 import { captcha as captchaApi } from '@/api/auth'
@@ -107,8 +108,12 @@ import { useAppStore } from '@/stores/app'
 import { useSettingStore } from '@/stores/setting'
 import { useUserStore } from '@/stores/user'
 
-const FEATURES = ['注解驱动鉴权，按钮级权限', '组织 + 岗位 + 数据范围', '多标签页与主题可定制']
+const { t } = useI18n({ useScope: 'global' })
+
 const REMEMBER_KEY = 'cccms_remember_username'
+
+/** 品牌区卖点：用 computed 包住，切换语言时能实时重渲染 */
+const features = computed(() => [t('login.feature1'), t('login.feature2'), t('login.feature3')])
 
 const route = useRoute()
 const router = useRouter()
@@ -126,10 +131,11 @@ const formRef = ref<FormInstance>()
 
 const form = reactive({ username: 'admin', password: '', captcha: '' })
 
-const rules: FormRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-}
+// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
+const rules = computed<FormRules>(() => ({
+  username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
+  password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }],
+}))
 
 /** 验证码：后端未实现时 data 为 null，此处静默隐藏该输入项 */
 async function loadCaptcha(): Promise<void> {
@@ -164,7 +170,7 @@ async function onSubmit(): Promise<void> {
       localStorage.removeItem(REMEMBER_KEY)
     }
 
-    ElMessage.success('登录成功')
+    ElMessage.success(t('login.success'))
     const redirect = (route.query.redirect as string) || '/dashboard'
     router.replace(redirect)
   } catch {
