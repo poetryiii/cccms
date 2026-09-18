@@ -112,7 +112,7 @@
 
                 <span class="filter-label">目标版本</span>
                 <el-select v-model="targetRef" style="width: 190px" @change="onCheck">
-                  <el-option :label="`跟踪分支 ${overview.track}`" value="" />
+                  <el-option :label="`跟踪分支 ${overview.track}`" :value="TRACK_VALUE" />
                   <el-option v-for="t in tags" :key="t" :label="t" :value="t" />
                 </el-select>
               </div>
@@ -259,8 +259,13 @@ const runResult = ref<UpgradeRunResult | null>(null)
 const tags = ref<string[]>([])
 
 const source = ref('')
-/** 目标版本（空 = 用配置里的跟踪分支）；变量名避开内置的 ref */
-const targetRef = ref('')
+
+/**
+ * 目标版本。`__track__` 是哨兵值，表示「用配置里的跟踪分支」。
+ * 不用空字符串：el-select 会把 value='' 当成「未选中」，导致选项点了没反应。
+ */
+const TRACK_VALUE = '__track__'
+const targetRef = ref(TRACK_VALUE)
 const force = ref(false)
 const tab = ref('files')
 const kindFilter = ref<'changed' | 'all' | 'kept'>('changed')
@@ -282,6 +287,11 @@ const visibleFiles = computed<UpgradeFile[]>(() => {
   const allow = kindFilter.value === 'changed' ? CHANGED : KEPT
   return files.filter((f) => allow.includes(f.kind))
 })
+
+/** 把哨兵值还原成「不指定版本」（undefined = 用跟踪分支） */
+function effectiveRef(): string | undefined {
+  return targetRef.value === TRACK_VALUE ? undefined : targetRef.value
+}
 
 function short(hash: string): string {
   return (hash || '').slice(0, 8)
@@ -323,6 +333,7 @@ async function loadTags(): Promise<void> {
 
 async function onSourceChange(): Promise<void> {
   plan.value = null
+  targetRef.value = TRACK_VALUE
   await loadTags()
   await onCheck()
 }
@@ -335,7 +346,7 @@ async function onCheck(): Promise<void> {
 
   checking.value = true
   try {
-    plan.value = await upgradeCheck(source.value, targetRef.value)
+    plan.value = await upgradeCheck(source.value, effectiveRef())
     force.value = false
   } finally {
     checking.value = false
@@ -390,7 +401,7 @@ async function onRun(): Promise<void> {
   try {
     runResult.value = await upgradeRun({
       source: source.value,
-      ref: targetRef.value || undefined,
+      ref: effectiveRef(),
       force: force.value,
       prune: false,
     })

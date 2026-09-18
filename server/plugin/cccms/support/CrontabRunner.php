@@ -112,7 +112,9 @@ final class CrontabRunner
         try {
             self::insertLog($task, $result, $now, $source);
 
-            if (!empty($task['id'])) {
+            // 只有「正常 cron 调度」才推进 last/next run 时间轴；
+            // 重试 / 手动执行是独立动作，不扰动任务的调度时间（严格独立的重试队列）。
+            if ($source === 'cron' && !empty($task['id'])) {
                 $next = CronMatcher::nextRunTime((string)$task['expression'], $now);
                 Db::name('crontab')->where('id', (int)$task['id'])->update([
                     'last_run_time' => date('Y-m-d H:i:s', $now),
@@ -126,55 +128,35 @@ final class CrontabRunner
     }
 
     /**
-     * 维护失败重试状态。
+     * 失败后向「独立重试队列」投递一次重试（与 cron 调度解耦）。
      *
      * 语义：`retry_times = N` 表示「失败后再试 N 次」，所以总执行次数最多 N + 1。
-     * 成功后清零；跳过（status=2）不动重试状态。
+     * `attempt` 是本次重试的序号（cron 首次失败 = 1，重试再失败 = 上一次 + 1），
+     * 超过 `retry_times` 就不再投递。
      *
-     * @param array<string,mixed>                      $task
-     * @param array{status:int,output:string,cost:int} $result
+     * @param array<string,mixed> $task
      */
-    public static function updateRetry(array $task, array $result, int $now, string $source): void
+    public static function enqueueRetry(array $task, int $now, int $attempt): void
     {
         $id = (int)($task['id'] ?? 0);
         if ($id <= 0) {
             return;
         }
 
-        $status = (int)$result['status'];
-        if ($status === 2) {
-            return;   // 跳过：不改动重试状态
+        $times = max(0, (int)($task['retry_times'] ?? 0));
+        if ($times === 0 || $attempt < 1 || $attempt > $times) {
+            return;
         }
 
         try {
-            if ($status === 1) {
-                Db::name('crontab')->where('id', $id)->update(['retry_left' => 0, 'retry_at' => null]);
-                return;
-            }
-
-            $times = max(0, (int)($task['retry_times'] ?? 0));
-            if ($times === 0) {
-                Db::name('crontab')->where('id', $id)->update(['retry_left' => 0, 'retry_at' => null]);
-                return;
-            }
-
-            // 初次失败装载次数；重试再失败则递减
-            $left = $source === 'cron'
-                ? $times
-                : max(0, (int)($task['retry_left'] ?? 0) - 1);
-
-            if ($left <= 0) {
-                Db::name('crontab')->where('id', $id)->update(['retry_left' => 0, 'retry_at' => null]);
-                return;
-            }
-
             $interval = max(1, (int)($task['retry_interval'] ?? 60));
-            Db::name('crontab')->where('id', $id)->update([
-                'retry_left' => $left,
+            Db::name('crontab_retry')->insert([
+                'crontab_id' => $id,
+                'attempt'    => $attempt,
                 'retry_at'   => date('Y-m-d H:i:s', $now + $interval),
             ]);
         } catch (Throwable $e) {
-            Log::error('crontab: update retry failed: ' . $e->getMessage());
+            Log::error('crontab: enqueue retry failed: ' . $e->getMessage());
         }
     }
 

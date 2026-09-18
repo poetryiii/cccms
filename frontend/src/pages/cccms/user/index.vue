@@ -139,7 +139,7 @@
         type="info"
         :closable="false"
         show-icon
-        title="CSV 首行必须是列名；username 必填，已存在的用户会被更新，新用户必须提供 password 列。"
+        title="CSV 首行必须是列名；username 必填，已存在的用户会被更新，新用户必须提供 password 列。roles/depts/posts 按名称匹配、逗号分隔，更新时留空则不改动。"
         style="margin-bottom: 12px"
       />
 

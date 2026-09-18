@@ -29,4 +29,21 @@ return [
             ]
         ],
     ],
+    // 慢接口告警：独立文件便于 tail / 采集（阈值见 sys_config 的 log.slow_threshold）
+    'slow' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/slow.log',
+                    7, //$maxFiles
+                    Monolog\Logger::WARNING,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [null, 'Y-m-d H:i:s', true],
+                ],
+            ]
+        ],
+    ],
 ];

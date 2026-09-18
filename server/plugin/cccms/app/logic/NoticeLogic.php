@@ -6,16 +6,23 @@ namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\Notice;
 use plugin\cccms\app\model\NoticeRead;
+use plugin\cccms\app\model\NoticeTarget;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\AuthService;
 use plugin\cccms\support\UserContext;
 use think\db\BaseQuery;
+use think\facade\Db;
 
 /**
  * 通知公告。
  *
  * 两套入口：
- *   - **管理侧**（需权限节点 `cccms:notice:*`）：全量增删改查；
- *   - **阅读侧**（登录即可）：只看「已发布 + 未过期」的，并维护已读状态。
+ *   - **管理侧**（需权限节点 `cccms:notice:*`）：全量增删改查 + 已读回执报表；
+ *   - **阅读侧**（登录即可）：只看「已发布 + 未过期 + 投放给自己」的，并维护已读状态。
+ *
+ * 定向投放（`scope` + `sys_notice_target`）：
+ *   - `scope = 0` 全部用户；`1` 指定部门（含下级）；`2` 指定角色（含后代）；`3` 指定用户；
+ *   - 阅读侧只看「投放给自己」的公告，未命中则既看不到、也标不了已读。
  *
  * 「已读人数」用 `sys_notice.read_count` 冗余计数（列表不必实时 count），
  * 只有在「首次已读」时才 +1，避免重复自增。
@@ -23,7 +30,14 @@ use think\db\BaseQuery;
 final class NoticeLogic
 {
     /** 管理侧可写字段白名单 */
-    private const FIELDS = ['title', 'type', 'level', 'content', 'status', 'publish_at', 'expire_at'];
+    private const FIELDS = ['title', 'type', 'level', 'content', 'status', 'scope', 'publish_at', 'expire_at'];
+
+    /** scope → 目标类型映射（notice_target.target_type） */
+    private const SCOPE_TYPES = [
+        1 => 'dept',
+        2 => 'role',
+        3 => 'user',
+    ];
 
     // ------------------------------------------------------------------
     // 管理侧
@@ -45,6 +59,9 @@ final class NoticeLogic
         if (isset($params['level']) && $params['level'] !== '') {
             $query->where('level', (int)$params['level']);
         }
+        if (isset($params['scope']) && $params['scope'] !== '') {
+            $query->where('scope', (int)$params['scope']);
+        }
 
         $page  = max(1, (int)($params['page'] ?? 1));
         $limit = max(1, (int)($params['limit'] ?? 15));
@@ -61,12 +78,22 @@ final class NoticeLogic
             throw new ApiException('通知公告不存在', 404);
         }
 
-        return $notice->toArray();
+        $row = $notice->toArray();
+        $row['scope'] = (int)($row['scope'] ?? 0);
+        $row['target_ids'] = $row['scope'] === 0
+            ? []
+            : array_map('intval', NoticeTarget::where('notice_id', $id)->column('target_id'));
+
+        return $row;
     }
 
     public static function create(array $data, UserContext $operator): int
     {
+        $scope     = self::normalizeScope($data['scope'] ?? 0);
+        $targetIds = self::normalizeTargetIds($scope, $data['target_ids'] ?? []);
+
         $payload = self::prepare($data);
+        $payload['scope']      = $scope;
         $payload['create_by']  = $operator->id;
         $payload['read_count'] = 0;
         // 已发布但没填发布时间的，视为「立即发布」
@@ -74,7 +101,10 @@ final class NoticeLogic
             $payload['publish_at'] = date('Y-m-d H:i:s');
         }
 
-        return (int)Notice::withoutGlobalScope()->insertGetId($payload);
+        $id = (int)Notice::withoutGlobalScope()->insertGetId($payload);
+        self::syncTargets($id, $scope, $targetIds);
+
+        return $id;
     }
 
     public static function update(int $id, array $data): void
@@ -86,6 +116,12 @@ final class NoticeLogic
         }
 
         Notice::where('id', $id)->update($payload);
+
+        // 定向投放：只要传了 scope 就重设目标（scope=0 视为清空投放）
+        if (array_key_exists('scope', $data)) {
+            $scope = self::normalizeScope($data['scope'] ?? 0);
+            self::syncTargets($id, $scope, self::normalizeTargetIds($scope, $data['target_ids'] ?? []));
+        }
     }
 
     public static function delete(int $id): void
@@ -93,17 +129,96 @@ final class NoticeLogic
         self::read($id);
         // 软删除：进回收站（见 RecycleLogic 的 notice 类型）
         Notice::destroy($id);
+        NoticeTarget::where('notice_id', $id)->delete();
         NoticeRead::where('notice_id', $id)->delete();
+    }
+
+    /**
+     * 已读回执统计报表。
+     *
+     * 返回该公告的「应读 / 已读 / 未读」人数，以及明细列表：
+     *   - `view=read`（默认）返回已读明细（含 read_time，按时间倒序）；
+     *   - `view=unread` 返回未读明细（应读但尚未读的用户）。
+     *
+     * 应读用户口径与阅读侧 `targetedNoticeIds` 一致：
+     *   全部用户 = 所有未删用户；指定部门 = 部门（含下级）下的用户；
+     *   指定角色 = 该角色（含后代角色）下的用户；指定用户 = 直接指定的用户。
+     */
+    public static function readReport(int $noticeId, array $params): array
+    {
+        $notice = Notice::where('id', $noticeId)->find();
+        if (!$notice) {
+            throw new ApiException('通知公告不存在', 404);
+        }
+        $notice = $notice->toArray();
+
+        $targetUserIds = self::targetUserIds($notice);
+        $readUserIds   = array_map('intval', NoticeRead::where('notice_id', $noticeId)->column('user_id'));
+
+        $view  = (string)($params['view'] ?? 'read');
+        $page  = max(1, (int)($params['page'] ?? 1));
+        $limit = max(1, (int)($params['limit'] ?? 15));
+
+        if ($view === 'unread') {
+            $unreadIds = array_values(array_diff($targetUserIds, $readUserIds));
+            $list      = self::userRows(array_slice($unreadIds, ($page - 1) * $limit, $limit));
+        } else {
+            $rows = NoticeRead::where('notice_id', $noticeId)
+                ->order('read_time', 'desc')->order('id', 'desc')
+                ->page($page, $limit)->select()->toArray();
+            $list = self::readRows($rows);
+        }
+
+        return [
+            'notice' => [
+                'id'    => (int)$notice['id'],
+                'title' => (string)$notice['title'],
+                'scope' => (int)($notice['scope'] ?? 0),
+            ],
+            'total'  => count($targetUserIds),
+            'read'   => count($readUserIds),
+            'unread' => max(0, count($targetUserIds) - count($readUserIds)),
+            'list'   => $list,
+        ];
+    }
+
+    /**
+     * 定向投放的「指定用户」候选（模糊搜索，默认无数据）。
+     *
+     * 规则配置、公告投放都属于系统配置界面（不是业务数据浏览），用户选择器需要全量候选，
+     * 否则「看不到的用户既选不了、已绑定的也显示成空名字」。与 `DataRuleLogic::searchUsers`
+     * 同一口径，直接复用。
+     *
+     * @param array<int|string> $ids
+     * @return array<int,array<string,mixed>>
+     */
+    public static function searchUsers(string $keyword, array $ids = []): array
+    {
+        return DataRuleLogic::searchUsers($keyword, $ids);
+    }
+
+    /**
+     * 投放目标候选：部门树（含下级语义）+ 角色树（含后代语义）。
+     *
+     * 用户候选不在此返回（可能成千上万），改由 `searchUsers()` 按关键词懒加载。
+     * 候选一律取全量：投放属于系统配置动作，不能因为「看不见某个部门/角色」就选不了。
+     */
+    public static function options(): array
+    {
+        return [
+            'depts' => DeptLogic::treeAll(),
+            'roles' => RoleLogic::tree(),
+        ];
     }
 
     // ------------------------------------------------------------------
     // 阅读侧（登录即可）
     // ------------------------------------------------------------------
 
-    /** 我的消息分页（已发布 + 未过期） */
+    /** 我的消息分页（已发布 + 未过期 + 投放给我） */
     public static function myPaginate(int $userId, array $params): array
     {
-        $query = self::published();
+        $query = self::visible($userId);
         if (!empty($params['only_unread'])) {
             $readIds = NoticeRead::where('user_id', $userId)->column('notice_id');
             if ($readIds) {
@@ -132,7 +247,7 @@ final class NoticeLogic
     /** 未读数量（顶栏角标） */
     public static function unreadCount(int $userId): int
     {
-        $total = self::published()->count();
+        $total = self::visible($userId)->count();
         if ($total === 0) {
             return 0;
         }
@@ -142,7 +257,7 @@ final class NoticeLogic
 
     public static function markRead(int $userId, int $noticeId): void
     {
-        $notice = self::published()->where('id', $noticeId)->find();
+        $notice = self::visible($userId)->where('id', $noticeId)->find();
         if (!$notice) {
             throw new ApiException('通知公告不存在或已过期', 404);
         }
@@ -164,7 +279,7 @@ final class NoticeLogic
     /** 全部标记已读 */
     public static function markAllRead(int $userId): int
     {
-        $ids = array_map('intval', self::published()->column('id'));
+        $ids = array_map('intval', self::visible($userId)->column('id'));
         if ($ids === []) {
             return 0;
         }
@@ -185,13 +300,15 @@ final class NoticeLogic
     }
 
     // ------------------------------------------------------------------
+    // 查询
+    // ------------------------------------------------------------------
 
-    /** 已发布 + 未过期的公告查询 */
-    private static function published(): BaseQuery
+    /** 该用户可见的公告（已发布 + 未过期 + 投放给他） */
+    private static function visible(int $userId): BaseQuery
     {
         $now = date('Y-m-d H:i:s');
 
-        return Notice::newScopedQuery()
+        $query = Notice::newScopedQuery()
             ->where('status', 1)
             ->where(function ($query) use ($now): void {
                 $query->whereNull('publish_at')->whereOr('publish_at', '<=', $now);
@@ -199,6 +316,216 @@ final class NoticeLogic
             ->where(function ($query) use ($now): void {
                 $query->whereNull('expire_at')->whereOr('expire_at', '>', $now);
             });
+
+        // 定向投放：scope=0 对所有人可见；scope!=0 只对命中的目标可见
+        $targetIds = self::targetedNoticeIds($userId);
+        $query->where(function ($query) use ($targetIds): void {
+            $query->where('scope', 0);
+            if ($targetIds !== []) {
+                $query->whereOr('id', 'in', $targetIds);
+            }
+        });
+
+        return $query;
+    }
+
+    /** 当前用户命中的「定向投放」公告 id（scope != 0）。 */
+    private static function targetedNoticeIds(int $userId): array
+    {
+        $ids = [];
+
+        // 指定用户
+        $ids = array_merge($ids, NoticeTarget::where('target_type', 'user')->where('target_id', $userId)->column('notice_id'));
+
+        // 指定角色（有效角色 = 直连 + 祖先，与鉴权同口径）
+        $roleIds = AuthService::effectiveRoleIds($userId);
+        if ($roleIds !== []) {
+            $ids = array_merge($ids, NoticeTarget::where('target_type', 'role')->whereIn('target_id', $roleIds)->column('notice_id'));
+        }
+
+        // 指定部门（含下级）
+        $deptIds = self::userDeptSubtree($userId);
+        if ($deptIds !== []) {
+            $ids = array_merge($ids, NoticeTarget::where('target_type', 'dept')->whereIn('target_id', $deptIds)->column('notice_id'));
+        }
+
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /** 该公告的「应读用户」集合（报表用，与阅读侧同口径）。 */
+    private static function targetUserIds(array $notice): array
+    {
+        $scope    = (int)($notice['scope'] ?? 0);
+        $noticeId = (int)$notice['id'];
+
+        if ($scope === 0) {
+            return array_map('intval', Db::name('user')->whereNull('delete_time')->column('id'));
+        }
+
+        $ids = array_map('intval', NoticeTarget::where('notice_id', $noticeId)->column('target_id'));
+        if ($ids === []) {
+            return [];
+        }
+
+        if ($scope === 3) {
+            return $ids;   // 指定用户
+        }
+
+        if ($scope === 2) {
+            // 指定角色：该角色及其后代角色下的用户
+            $roles = self::roleSubtreeIds($ids);
+
+            return array_map('intval', Db::name('user_role')->whereIn('role_id', $roles)->column('user_id'));
+        }
+
+        // scope === 1：指定部门（含下级）
+        $depts = self::deptSubtree($ids);
+
+        return array_map('intval', Db::name('user_dept')->whereIn('dept_id', $depts)->column('user_id'));
+    }
+
+    // ------------------------------------------------------------------
+    // 工具
+    // ------------------------------------------------------------------
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private static function readRows(array $rows): array
+    {
+        $userIds = array_map('intval', array_column($rows, 'user_id'));
+        $nick    = $userIds === [] ? [] : Db::name('user')->whereIn('id', $userIds)->column('nickname', 'id');
+        $name    = $userIds === [] ? [] : Db::name('user')->whereIn('id', $userIds)->column('username', 'id');
+
+        $out = [];
+        foreach ($rows as $row) {
+            $uid    = (int)$row['user_id'];
+            $out[] = [
+                'user_id'   => $uid,
+                'username'  => (string)($name[$uid] ?? ''),
+                'nickname'  => (string)($nick[$uid] ?? ''),
+                'read_time' => (string)($row['read_time'] ?? ''),
+            ];
+        }
+
+        return $out;
+    }
+
+    /** @param array<int,int> $userIds */
+    private static function userRows(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach (Db::name('user')->whereIn('id', $userIds)->field('id,username,nickname,status')->select()->toArray() as $row) {
+            $out[] = [
+                'user_id'   => (int)$row['id'],
+                'username'  => (string)$row['username'],
+                'nickname'  => (string)$row['nickname'],
+                'read_time' => '',
+            ];
+        }
+
+        return $out;
+    }
+
+    /** 我所属部门及其所有下级。 */
+    private static function userDeptSubtree(int $userId): array
+    {
+        $deptIds = array_map('intval', Db::name('user_dept')->where('user_id', $userId)->column('dept_id'));
+
+        return self::deptSubtree($deptIds);
+    }
+
+    /** 部门子树展开：给定部门 + 其所有下级部门。 */
+    private static function deptSubtree(array $ids): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids), static fn ($id) => $id > 0));
+        if ($ids === []) {
+            return [];
+        }
+
+        $parents = Db::name('dept')->column('parent_id', 'id');   // id => parent_id
+        $result  = $ids;
+        $queue   = $ids;
+        while ($queue !== []) {
+            $current = (int)array_shift($queue);
+            foreach ($parents as $id => $pid) {
+                $id = (int)$id;
+                if ((int)$pid === $current && !in_array($id, $result, true)) {
+                    $result[] = $id;
+                    $queue[]  = $id;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /** 角色子树展开：给定角色 + 其所有后代角色。 */
+    private static function roleSubtreeIds(array $ids): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids), static fn ($id) => $id > 0));
+        if ($ids === []) {
+            return [];
+        }
+
+        $parents  = Db::name('role')->column('parent_id', 'id');   // id => parent_id
+        $children = [];
+        foreach ($parents as $id => $pid) {
+            $children[(int)$pid][] = (int)$id;
+        }
+
+        $result = $ids;
+        $queue  = $ids;
+        while ($queue !== []) {
+            $current = (int)array_shift($queue);
+            foreach ($children[$current] ?? [] as $child) {
+                if (!in_array($child, $result, true)) {
+                    $result[] = $child;
+                    $queue[]  = $child;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    private static function syncTargets(int $noticeId, int $scope, array $targetIds): void
+    {
+        NoticeTarget::where('notice_id', $noticeId)->delete();
+        if ($scope === 0 || $targetIds === []) {
+            return;
+        }
+
+        $type = self::SCOPE_TYPES[$scope] ?? 'user';
+        foreach ($targetIds as $targetId) {
+            NoticeTarget::insert([
+                'notice_id'   => $noticeId,
+                'target_type' => $type,
+                'target_id'   => $targetId,
+            ]);
+        }
+    }
+
+    private static function normalizeScope(mixed $scope): int
+    {
+        $scope = (int)$scope;
+
+        return in_array($scope, [0, 1, 2, 3], true) ? $scope : 0;
+    }
+
+    /** @return array<int,int> */
+    private static function normalizeTargetIds(int $scope, mixed $targetIds): array
+    {
+        if ($scope === 0 || !is_array($targetIds)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(
+            array_map('intval', $targetIds),
+            static fn ($id) => $id > 0
+        )));
     }
 
     /**
@@ -223,6 +550,11 @@ final class NoticeLogic
                 throw new ApiException('标题不能为空', 422);
             }
             $payload['title'] = $title;
+        }
+
+        // 投放范围归一化（非法值回退到「全部用户」）
+        if (array_key_exists('scope', $payload)) {
+            $payload['scope'] = self::normalizeScope($payload['scope']);
         }
 
         // 空字符串的时间字段视为「不设置」，否则 MySQL 严格模式会报错

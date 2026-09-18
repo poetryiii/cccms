@@ -93,4 +93,5 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 -- 日志
 ('log.keep_days',               '日志保留天数',    'input-number', '30',                           NULL, '日志', 1, 1, '定时任务按此天数清理历史日志', NOW(), NOW()),
 ('log.auto_clean',              '自动清理日志',    'switch',       '1',                            NULL, '日志', 2, 1, '关闭后需手工清理', NOW(), NOW()),
-('log.record_read',             '记录查询操作',    'switch',       '0',                            NULL, '日志', 3, 1, '开启后 GET 请求也会写入操作日志', NOW(), NOW());
+('log.record_read',             '记录查询操作',    'switch',       '0',                            NULL, '日志', 3, 1, '开启后 GET 请求也会写入操作日志', NOW(), NOW()),
+('log.slow_threshold',          '慢接口告警阈值',  'input-number', '3000',                         NULL, '日志', 4, 1, '单位毫秒；请求耗时超过该值时写慢接口告警日志(slow.log)，0 表示关闭', NOW(), NOW());

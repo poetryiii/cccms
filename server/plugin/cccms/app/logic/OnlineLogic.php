@@ -51,9 +51,9 @@ final class OnlineLogic
             throw new ApiException('不能强制下线当前会话，请使用「退出登录」', 422);
         }
 
+        // 精确作废：用会话里登记的 exp 计算黑名单 TTL，不留多余垃圾
+        TokenBlacklist::revoke($jti, OnlineSession::expiryOf($jti));
         OnlineSession::remove($jti);
-        // 拿不到原令牌的 exp，按最大有效期记黑名单（保守但安全）
-        TokenBlacklist::revoke($jti);
     }
 
     /**
@@ -70,8 +70,10 @@ final class OnlineLogic
             throw new ApiException('不能强制下线自己，请使用「退出登录」', 422);
         }
 
-        // 用户级时间分界线：该用户此前签发的令牌全部作废（比逐条 jti 更彻底）
-        TokenBlacklist::revokeUser($userId);
+        // 用户级时间分界线：该用户此前签发的令牌全部作废（比逐条 jti 更彻底）。
+        // TTL 精确到「最晚过期令牌的剩余时长」，让分界线键到期即消失，不残留。
+        $maxExp = OnlineSession::maxExpiryOfUser($userId);
+        TokenBlacklist::revokeUser($userId, 0, $maxExp > 0 ? $maxExp - time() : 0);
 
         return OnlineSession::removeUser($userId);
     }

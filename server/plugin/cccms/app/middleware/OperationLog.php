@@ -42,14 +42,17 @@ class OperationLog implements MiddlewareInterface
 
         try {
             $response = $handler($request);
+            $cost = $this->cost($start);
+            $this->alertSlow($request, $cost);
+            $this->write($request, $response, null, $cost);
+
+            return $response;
         } catch (Throwable $e) {
-            $this->write($request, null, $e, $this->cost($start));
+            $cost = $this->cost($start);
+            $this->alertSlow($request, $cost);
+            $this->write($request, null, $e, $cost);
             throw $e;
         }
-
-        $this->write($request, $response, null, $this->cost($start));
-
-        return $response;
     }
 
     private function cost(float $start): int
@@ -57,8 +60,42 @@ class OperationLog implements MiddlewareInterface
         return (int)round((microtime(true) - $start) * 1000);
     }
 
+    /**
+     * 慢接口告警：耗时超过阈值时写一条独立 channel（slow）的告警日志。
+     *
+     * 阈值来自 `log.slow_threshold`（毫秒，0 = 关闭）。覆盖**所有**请求（含 GET），
+     * 不依赖「是否写操作日志」—— 慢查询同样值得盯；告警失败绝不影响业务。
+     */
+    private function alertSlow(Request $request, int $cost): void
+    {
+        $threshold = SysConfig::getInt('log.slow_threshold', 0);
+        if ($threshold <= 0 || $cost < $threshold) {
+            return;
+        }
+
+        try {
+            Log::channel('slow')->warning(sprintf(
+                '%s %s cost=%dms user=%s ip=%s trace=%s',
+                $request->method(),
+                '/' . ltrim($request->path(), '/'),
+                $cost,
+                (string)($request->user?->username ?? '-'),
+                (string)($request->getRealIp() ?: '-'),
+                (string)($request->traceId ?? '-')
+            ));
+        } catch (Throwable) {
+            // 告警失败不影响业务
+        }
+    }
+
     private function write(Request $request, ?Response $response, ?Throwable $error, int $cost): void
     {
+        // 登录接口由 AuthLogic 自己记（type='login'），这里跳过：那时没有用户上下文，
+        // 中间件记出来的 user_id=0 且 node/title 为空，是重复且不友好的记录
+        if ($request->method() === 'POST' && '/' . ltrim($request->path(), '/') === '/auth/login') {
+            return;
+        }
+
         // 写操作必记；读操作默认不记，可由 log.record_read 打开（日志量会明显增加）
         if (!in_array($request->method(), self::WRITE_METHODS, true)
             && !SysConfig::getBool('log.record_read', false)) {
@@ -92,6 +129,9 @@ class OperationLog implements MiddlewareInterface
             Db::name('log')->insert([
                 'user_id'     => $user?->id ?? 0,
                 'username'    => $user?->username ?? '',
+                'type'        => 'operation',
+                'status'      => $error !== null ? 0 : 1,
+                'message'     => $error !== null ? self::clip($error->getMessage(), 255) : '',
                 'method'      => $request->method(),
                 'path'        => '/' . ltrim($request->path(), '/'),
                 'node'        => (string)($meta['slug'] ?? ''),

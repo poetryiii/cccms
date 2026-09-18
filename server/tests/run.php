@@ -21,6 +21,14 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use think\facade\Db;
 
+// 初始化 think-orm 连接（与 webman worker 启动时 DatabaseBootstrap 做的事一致）。
+// 测试运行器不经过 webman 的启动流程，这里显式注入，让「需库」的集成测试
+// 在 CI（MySQL 服务就绪）下真正执行，而不是永远跳过；本地无库时由 dbAvailable() 自动跳过。
+$dbConfigFile = __DIR__ . '/../plugin/cccms/config/database.php';
+if (is_file($dbConfigFile)) {
+    Db::setConfig((array)require $dbConfigFile);
+}
+
 final class Suite
 {
     public static int $passed = 0;

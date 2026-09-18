@@ -62,15 +62,24 @@ final class TokenBlacklist
     /**
      * 记录用户级分界线：该用户在此时间之前签发的令牌全部作废。
      *
-     * @param int $at 0 = 当前时间
+     * @param int      $at  0 = 当前时间
+     * @param int|null $ttl 分界线键的存活秒数；null = 按令牌最大有效期兜底。
+     *                      传入「该用户最晚过期令牌的剩余时长」可让键**精确**到期，
+     *                      不留多余垃圾（见 `OnlineSession::maxExpiryOfUser`）。
      * @return int 实际写入的时间戳
      */
-    public static function revokeUser(int $userId, int $at = 0): int
+    public static function revokeUser(int $userId, int $at = 0, ?int $ttl = null): int
     {
         $at = $at > 0 ? $at : time();
 
+        $ttl = $ttl !== null ? max(0, $ttl) : TokenService::ttl();
+        if ($ttl <= 0) {
+            // 已无有效令牌可作废，无需记录分界线
+            return $at;
+        }
+
         try {
-            Redis::setex(self::USER_PREFIX . $userId, TokenService::ttl(), (string)$at);
+            Redis::setex(self::USER_PREFIX . $userId, $ttl, (string)$at);
         } catch (Throwable) {
             // 降级
         }

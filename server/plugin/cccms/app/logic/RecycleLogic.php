@@ -146,6 +146,12 @@ final class RecycleLogic
             }
         }
 
+        if ($type === 'notice') {
+            // 彻底删除公告时一并清理定向投放目标与已读记录，避免残留孤儿
+            Db::name('notice_target')->whereIn('notice_id', $ids)->delete();
+            Db::name('notice_read')->whereIn('notice_id', $ids)->delete();
+        }
+
         $affected = SoftDelete::force(self::query($meta), $ids);
 
         // 彻底删除可能清掉了 role_node 授权，或让「回收站里的同名角色」不再占用标识

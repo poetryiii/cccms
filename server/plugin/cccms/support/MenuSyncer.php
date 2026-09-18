@@ -181,7 +181,9 @@ final class MenuSyncer
         }
 
         $node = (string)Menu::where('id', $id)->value('node');
-        Menu::where('id', $id)->delete();
+        // 软删必须用 destroy()：Menu::where('id', $id)->delete() 会走 Query 的物理删除路径，
+        // 与 SoftDelete 注入的软删选项冲突，实际返回 0 行、什么都没删。
+        Menu::destroy($id);
         if ($node !== '') {
             Db::name('role_node')->where('node', $node)->delete();
         }

@@ -50,23 +50,6 @@ CREATE TABLE IF NOT EXISTS `%sdata_scope_table` (
   UNIQUE KEY `uk_table` (`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据权限受控表'
 SQL,
-        'login_log' => <<<'SQL'
-CREATE TABLE IF NOT EXISTS `%slogin_log` (
-  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
-  `user_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '成功时为用户ID，失败时为0',
-  `username`    varchar(64)  NOT NULL DEFAULT '' COMMENT '尝试登录的账号',
-  `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1成功 0失败',
-  `message`     varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(失败原因)',
-  `ip`          varchar(64)  NOT NULL DEFAULT '',
-  `ua`          varchar(255) NOT NULL DEFAULT '',
-  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_user` (`user_id`),
-  KEY `idx_username` (`username`),
-  KEY `idx_status` (`status`),
-  KEY `idx_create_time` (`create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='登录日志'
-SQL,
         'notice' => <<<'SQL'
 CREATE TABLE IF NOT EXISTS `%snotice` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -75,6 +58,7 @@ CREATE TABLE IF NOT EXISTS `%snotice` (
   `level`       tinyint      NOT NULL DEFAULT 1 COMMENT '1普通 2重要',
   `content`     text         COMMENT '正文',
   `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1已发布 0草稿',
+  `scope`       tinyint      NOT NULL DEFAULT 0 COMMENT '投放范围 0全部用户 1指定部门 2指定角色 3指定用户',
   `publish_at`  datetime     DEFAULT NULL COMMENT '发布时间',
   `expire_at`   datetime     DEFAULT NULL COMMENT '过期时间(NULL=不过期)',
   `read_count`  int          NOT NULL DEFAULT 0 COMMENT '已读人数(冗余计数)',
@@ -84,8 +68,20 @@ CREATE TABLE IF NOT EXISTS `%snotice` (
   `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
+  KEY `idx_scope` (`scope`),
   KEY `idx_publish_at` (`publish_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告'
+SQL,
+        'notice_target' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%snotice_target` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `notice_id`   bigint unsigned NOT NULL COMMENT '公告ID',
+  `target_type` varchar(16)  NOT NULL DEFAULT 'user' COMMENT '目标类型 dept/role/user',
+  `target_id`   bigint unsigned NOT NULL COMMENT '目标ID(部门/角色/用户)',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_notice_type_target` (`notice_id`, `target_type`, `target_id`),
+  KEY `idx_type_target` (`target_type`, `target_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告定向投放'
 SQL,
         'notice_read' => <<<'SQL'
 CREATE TABLE IF NOT EXISTS `%snotice_read` (
@@ -114,9 +110,12 @@ SQL,
             'delete_time' => self::SOFT_DELETE,
         ],
         'log' => [
-            'node'  => "varchar(128) NOT NULL DEFAULT '' COMMENT '权限节点 slug(路径语义化标识)' AFTER `path`",
-            'title' => "varchar(128) NOT NULL DEFAULT '' COMMENT '语义化操作名(取自权限注解)' AFTER `node`",
-            'trace_id' => "varchar(32) NOT NULL DEFAULT '' COMMENT '请求链路 ID' AFTER `title`",
+            'node'     => "varchar(128) NOT NULL DEFAULT '' COMMENT '权限节点 slug(路径语义化标识)' AFTER `path`",
+            'title'    => "varchar(128) NOT NULL DEFAULT '' COMMENT '语义化操作名(取自权限注解)' AFTER `node`",
+            'type'     => "varchar(16) NOT NULL DEFAULT 'operation' COMMENT '日志类型 operation操作 login登录' AFTER `title`",
+            'status'   => "tinyint NOT NULL DEFAULT 1 COMMENT '1成功 0失败' AFTER `type`",
+            'message'  => "varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(登录失败原因等)' AFTER `status`",
+            'trace_id' => "varchar(32) NOT NULL DEFAULT '' COMMENT '请求链路 ID' AFTER `message`",
         ],
         // 定时任务增强：重叠保护 / 超时 / 失败重试 / 分组
         'crontab' => [
@@ -138,6 +137,10 @@ SQL,
             'table_name' => "varchar(64) NOT NULL DEFAULT '' COMMENT '目标表(不含前缀)，空=不限表' AFTER `bind_mode`",
             'value_type' => "varchar(16) NOT NULL DEFAULT 'static' COMMENT '取值类型 static静态 dynamic动态变量' AFTER `value`",
             'delete_time' => self::SOFT_DELETE,
+        ],
+        // 通知公告定向投放
+        'notice' => [
+            'scope' => "tinyint NOT NULL DEFAULT 0 COMMENT '投放范围 0全部用户 1指定部门 2指定角色 3指定用户' AFTER `status`",
         ],
         // 软删除（回收站）
         'menu'      => ['delete_time' => self::SOFT_DELETE],
@@ -168,8 +171,10 @@ SQL,
         'log'       => [
             'idx_node'     => '`node`',
             'idx_trace_id' => '`trace_id`',
+            'idx_type'     => '`type`',
         ],
         'crontab'   => ['idx_retry' => '`retry_left`, `retry_at`'],
+        'notice'    => ['idx_scope' => '`scope`'],
     ];
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -243,6 +248,24 @@ SQL,
                 Db::execute("ALTER TABLE `{$table}` MODIFY COLUMN `{$column}` {$definition}");
                 $output->writeln("  <info>时间戳</info> {$table}.{$column}");
                 $stamps++;
+            }
+        }
+
+        // 迁移旧登录日志表 → sys_log（一次性：迁移后 DROP，天然幂等）。
+        // 登录日志与操作日志合并到同一张 sys_log，用 type='login' 区分。
+        if ($this->exists($prefix . 'login_log')) {
+            try {
+                Db::execute(
+                    "INSERT INTO `{$prefix}log`
+                     (user_id, username, type, status, message, method, path, title, ip, ua, create_time)
+                     SELECT user_id, username, 'login', status, message, 'POST', '/auth/login', '登录', ip, ua, create_time
+                     FROM `{$prefix}login_log`"
+                );
+                Db::execute("DROP TABLE `{$prefix}login_log`");
+                $output->writeln('  <info>迁移登录日志</info> login_log → log（合并到 sys_log）');
+            } catch (\Throwable $e) {
+                // 迁移失败不阻断其余升级，但要显式报出来，避免静默丢数据
+                $output->writeln('  <error>登录日志迁移失败</error>：' . $e->getMessage());
             }
         }
 

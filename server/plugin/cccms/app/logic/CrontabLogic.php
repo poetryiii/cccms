@@ -123,6 +123,8 @@ final class CrontabLogic
         self::assertInScope($id);
         // 软删除：进回收站。执行日志是历史记录，刻意保留（调度进程查询已自动排除已删任务）
         Crontab::destroy($id);
+        // 丢弃该任务在独立重试队列里的残留，避免已删任务被重试消费
+        Db::name('crontab_retry')->where('crontab_id', $id)->delete();
     }
 
     /**

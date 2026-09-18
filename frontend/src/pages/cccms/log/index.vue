@@ -16,6 +16,18 @@
       @selection-change="onSelectionChange"
     >
       <template #search>
+        <el-form-item label="类型">
+          <el-select v-model="query.type" placeholder="全部" clearable style="width: 110px">
+            <el-option label="操作" value="operation" />
+            <el-option label="登录" value="login" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="结果">
+          <el-select v-model="query.status" placeholder="全部" clearable style="width: 110px">
+            <el-option label="成功" :value="1" />
+            <el-option label="失败" :value="0" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="操作人">
           <el-input v-model="query.username" placeholder="请输入" clearable style="width: 150px" />
         </el-form-item>
@@ -47,10 +59,25 @@
         <el-button v-auth="'cccms:log:export'" :icon="Download" @click="onExport"> 导出 </el-button>
       </template>
 
-      <!-- 语义化操作：注解标题 + 权限节点 -->
+      <!-- 类型：登录 / 操作 -->
+      <template #type="{ row }">
+        <el-tag :type="row.type === 'login' ? 'warning' : 'info'" effect="plain" size="small">
+          {{ row.type === 'login' ? '登录' : '操作' }}
+        </el-tag>
+      </template>
+
+      <!-- 结果：成功 / 失败 -->
+      <template #status="{ row }">
+        <el-tag :type="row.status === 1 ? 'success' : 'danger'" effect="light" size="small">
+          {{ row.status === 1 ? '成功' : '失败' }}
+        </el-tag>
+      </template>
+
+      <!-- 语义化操作：注解标题 + 权限节点 + 结果说明（登录失败原因等） -->
       <template #action_name="{ row }">
         <div class="log-title">{{ row.title || '—' }}</div>
         <div v-if="row.node" class="log-node">{{ row.node }}</div>
+        <div v-if="row.message" class="log-msg">{{ row.message }}</div>
       </template>
 
       <template #method="{ row }">
@@ -69,9 +96,19 @@
       </template>
     </ArtTable>
 
-    <el-drawer v-model="detailVisible" title="操作日志详情" size="680px">
+    <el-drawer v-model="detailVisible" title="日志详情" size="680px">
       <template v-if="current">
         <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="类型">
+            <el-tag :type="current.type === 'login' ? 'warning' : 'info'" effect="plain" size="small">
+              {{ current.type === 'login' ? '登录' : '操作' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="结果">
+            <el-tag :type="current.status === 1 ? 'success' : 'danger'" effect="light" size="small">
+              {{ current.status === 1 ? '成功' : '失败' }}
+            </el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="操作名">{{ current.title || '—' }}</el-descriptions-item>
           <el-descriptions-item label="权限节点">{{ current.node || '—' }}</el-descriptions-item>
           <el-descriptions-item label="操作人">{{ current.username || '—' }}</el-descriptions-item>
@@ -86,6 +123,9 @@
           <el-descriptions-item label="耗时">{{ current.cost ?? 0 }} ms</el-descriptions-item>
           <el-descriptions-item label="链路ID" :span="2">
             <span class="log-trace">{{ current.trace_id || '—' }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="current.message" label="说明" :span="2">
+            {{ current.message }}
           </el-descriptions-item>
           <el-descriptions-item label="User-Agent" :span="2">
             {{ current.ua || '—' }}
@@ -114,40 +154,26 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Download } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import { useTable } from '@/composables/useTable'
-import { logDelete, logExport, logList } from '@/api/log'
+import { logDelete, logExport, logList, type LogRow } from '@/api/log'
 import type { ArtTableColumn } from '@/types/table'
-
-interface Row {
-  id: number
-  username?: string
-  method?: string
-  path?: string
-  /** 权限节点 slug（语义化标识） */
-  node?: string
-  /** 语义化操作名，取自接口的权限注解 */
-  title?: string
-  params?: string
-  result?: string
-  ip?: string
-  ua?: string
-  status_code?: number
-  cost?: number
-  trace_id?: string
-  create_time?: string
-  [key: string]: unknown
-}
 
 interface Query {
   username: string
   title: string
   path: string
   trace_id: string
+  /** 日志类型 operation 操作 / login 登录 */
+  type: string
+  /** 结果 1 成功 / 0 失败 */
+  status: number | ''
 }
 
 const columns: ArtTableColumn[] = [
   { prop: 'id', label: 'ID', width: 76 },
+  { prop: 'type', label: '类型', width: 90, align: 'center', slot: 'type' },
   { prop: 'title', label: '操作', minWidth: 190, slot: 'action_name' },
   { prop: 'username', label: '操作人', width: 110 },
+  { prop: 'status', label: '结果', width: 90, align: 'center', slot: 'status' },
   { prop: 'method', label: '方法', width: 90, align: 'center', slot: 'method' },
   { prop: 'path', label: '请求路径', minWidth: 200 },
   { prop: 'trace_id', label: '链路ID', width: 200, defaultHidden: true },
@@ -172,9 +198,9 @@ const {
   onPageChange,
   onLimitChange,
   onSelectionChange,
-} = useTable<Row, Query>({
+} = useTable<LogRow, Query>({
   api: logList,
-  initialQuery: { username: '', title: '', path: '', trace_id: '' },
+  initialQuery: { username: '', title: '', path: '', trace_id: '', type: '', status: '' },
   pageSize: 15,
 })
 
@@ -184,9 +210,9 @@ function onExport(): void {
 
 /* ---- 详情 ---- */
 const detailVisible = ref(false)
-const current = ref<Row | null>(null)
+const current = ref<LogRow | null>(null)
 
-function openDetail(row: Row): void {
+function openDetail(row: LogRow): void {
   current.value = row
   detailVisible.value = true
 }
@@ -252,6 +278,12 @@ async function onDeleteOne(id: number): Promise<void> {
   font-family: Consolas, Monaco, monospace;
   font-size: 11px;
   color: var(--art-muted);
+}
+
+.log-msg {
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--art-danger);
 }
 
 .log-trace {

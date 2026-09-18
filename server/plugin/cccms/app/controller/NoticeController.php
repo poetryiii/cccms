@@ -61,6 +61,27 @@ class NoticeController extends BaseController
         return $this->ok(null, '已删除');
     }
 
+    #[Permission(slug: 'cccms:notice:report', title: '通知公告已读回执报表')]
+    public function report(Request $request): Response
+    {
+        return $this->ok(NoticeLogic::readReport((int)$request->get('id', 0), $request->get()));
+    }
+
+    #[Permission(slug: 'cccms:notice:options', title: '通知公告投放候选')]
+    public function options(): Response
+    {
+        return $this->ok(NoticeLogic::options());
+    }
+
+    #[Permission(slug: 'cccms:notice:users', title: '通知公告用户搜索')]
+    public function users(Request $request): Response
+    {
+        $ids = $request->get('ids', []);
+        $ids = is_array($ids) ? $ids : explode(',', (string)$ids);
+
+        return $this->ok(NoticeLogic::searchUsers((string)$request->get('keyword', ''), $ids));
+    }
+
     // ---------------- 阅读侧（登录即可） ----------------
 
     #[NoAuth(title: '我的消息')]

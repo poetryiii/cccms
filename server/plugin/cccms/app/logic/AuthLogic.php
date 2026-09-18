@@ -22,7 +22,7 @@ final class AuthLogic
     /**
      * 账号密码登录，返回 token 与用户信息。
      *
-     * 成功与失败都会写入登录日志（`sys_login_log`）——失败记录是审计的重点。
+     * 成功与失败都会写入登录日志（`sys_log`，type='login'）——失败记录是审计的重点。
      */
     public static function login(
         string $username,
@@ -33,11 +33,11 @@ final class AuthLogic
         try {
             $result = self::attempt($username, $password, $captcha, $captchaId);
         } catch (ApiException $e) {
-            LoginLogLogic::record(0, $username, false, $e->getMessage());
+            LogLogic::recordLogin(0, $username, false, $e->getMessage());
             throw $e;
         }
 
-        LoginLogLogic::record((int)($result['user']['id'] ?? 0), $username, true, '登录成功');
+        LogLogic::recordLogin((int)($result['user']['id'] ?? 0), $username, true, '登录成功');
 
         return $result;
     }

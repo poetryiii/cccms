@@ -295,6 +295,9 @@ CREATE TABLE IF NOT EXISTS `sys_log` (
   `path`        varchar(255) NOT NULL DEFAULT '',
   `node`        varchar(128) NOT NULL DEFAULT '' COMMENT '权限节点 slug(路径语义化标识)',
   `title`       varchar(128) NOT NULL DEFAULT '' COMMENT '语义化操作名(取自权限注解)',
+  `type`        varchar(16)  NOT NULL DEFAULT 'operation' COMMENT '日志类型 operation操作 login登录',
+  `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1成功 0失败',
+  `message`     varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(登录失败原因等)',
   `trace_id`    varchar(32)  NOT NULL DEFAULT '' COMMENT '请求链路 ID(把一次请求的多条记录串起来)',
   `ip`          varchar(64)  NOT NULL DEFAULT '',
   `ua`          varchar(255) NOT NULL DEFAULT '',
@@ -307,8 +310,9 @@ CREATE TABLE IF NOT EXISTS `sys_log` (
   KEY `idx_user` (`user_id`),
   KEY `idx_create_time` (`create_time`),
   KEY `idx_node` (`node`),
-  KEY `idx_trace_id` (`trace_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作日志';
+  KEY `idx_trace_id` (`trace_id`),
+  KEY `idx_type` (`type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='日志(操作 + 登录)';
 
 -- ---------------------------------------------------------------------
 -- 附件
@@ -378,23 +382,24 @@ CREATE TABLE IF NOT EXISTS `sys_crontab_log` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务执行日志';
 
 -- ---------------------------------------------------------------------
--- 登录日志（登录成功 / 失败都记录，便于审计）
+-- 定时任务独立重试队列（与 cron 调度严格解耦）
+--
+-- 失败后把「重试」作为独立任务投递到这里，由调度进程单独消费；
+-- 重试只按自己的 retry_at 触发，不影响任务本身的 cron 时间轴 ——
+-- 避免「重试吃掉一次正常调度」（旧实现把 retry_left/retry_at 写在 sys_crontab 上，
+-- 重试与 cron 同秒命中时会让 cron 被跳过）。
+-- sys_crontab 上遗留的 retry_left / retry_at 列为历史兼容保留，不再写入。
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `sys_login_log` (
+CREATE TABLE IF NOT EXISTS `sys_crontab_retry` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
-  `user_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '成功时为用户ID，失败时为0',
-  `username`    varchar(64)  NOT NULL DEFAULT '' COMMENT '尝试登录的账号',
-  `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1成功 0失败',
-  `message`     varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(失败原因)',
-  `ip`          varchar(64)  NOT NULL DEFAULT '',
-  `ua`          varchar(255) NOT NULL DEFAULT '',
-  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
+  `crontab_id`  bigint unsigned NOT NULL COMMENT '任务ID',
+  `attempt`     tinyint        NOT NULL DEFAULT 1 COMMENT '第几次重试(1..retry_times)',
+  `retry_at`    datetime       NOT NULL COMMENT '计划重试时间',
+  `create_time` datetime       NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_user` (`user_id`),
-  KEY `idx_username` (`username`),
-  KEY `idx_status` (`status`),
-  KEY `idx_create_time` (`create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='登录日志';
+  KEY `idx_due` (`retry_at`),
+  KEY `idx_crontab` (`crontab_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务独立重试队列';
 
 -- ---------------------------------------------------------------------
 -- 通知公告（广播给所有登录用户；已读状态记录在 sys_notice_read）
@@ -406,6 +411,7 @@ CREATE TABLE IF NOT EXISTS `sys_notice` (
   `level`       tinyint      NOT NULL DEFAULT 1 COMMENT '1普通 2重要',
   `content`     text         COMMENT '正文',
   `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1已发布 0草稿',
+  `scope`       tinyint      NOT NULL DEFAULT 0 COMMENT '投放范围 0全部用户 1指定部门 2指定角色 3指定用户',
   `publish_at`  datetime     DEFAULT NULL COMMENT '发布时间',
   `expire_at`   datetime     DEFAULT NULL COMMENT '过期时间(NULL=不过期)，过期后不在「我的消息」展示',
   `read_count`  int          NOT NULL DEFAULT 0 COMMENT '已读人数(冗余计数)',
@@ -415,8 +421,19 @@ CREATE TABLE IF NOT EXISTS `sys_notice` (
   `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
+  KEY `idx_scope` (`scope`),
   KEY `idx_publish_at` (`publish_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告';
+
+CREATE TABLE IF NOT EXISTS `sys_notice_target` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `notice_id`   bigint unsigned NOT NULL COMMENT '公告ID',
+  `target_type` varchar(16)  NOT NULL DEFAULT 'user' COMMENT '目标类型 dept/role/user',
+  `target_id`   bigint unsigned NOT NULL COMMENT '目标ID(部门/角色/用户)',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_notice_type_target` (`notice_id`, `target_type`, `target_id`),
+  KEY `idx_type_target` (`target_type`, `target_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告定向投放';
 
 CREATE TABLE IF NOT EXISTS `sys_notice_read` (
   `id`        bigint unsigned NOT NULL AUTO_INCREMENT,

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\Dept;
+use plugin\cccms\app\model\Post;
 use plugin\cccms\app\model\Role;
 use plugin\cccms\app\model\User;
 use plugin\cccms\app\model\UserDept;
@@ -37,8 +39,8 @@ final class UserLogic
     /** 导出上限：避免一次导出把内存打满 */
     private const EXPORT_LIMIT = 5000;
 
-    /** 导入模板表头（也用于校验必填列） */
-    public const IMPORT_HEADERS = ['username', 'nickname', 'email', 'phone', 'status', 'password'];
+    /** 导入模板表头（也用于校验必填列）。roles/depts/posts 为名称多值列，逗号分隔。 */
+    public const IMPORT_HEADERS = ['username', 'nickname', 'email', 'phone', 'status', 'password', 'roles', 'depts', 'posts'];
 
     public static function paginate(array $params): array
     {
@@ -96,9 +98,9 @@ final class UserLogic
 
         // 字段级规则的入参剔除由 ScopedQuery 在写库前统一完成（见 app/model/ScopedQuery.php）
 
-        $roleIds = self::pull($data, 'role_ids');
-        $deptIds = self::pull($data, 'dept_ids');
-        $postIds = self::pull($data, 'post_ids');
+        $roleIds = self::pull($data, 'role_ids') ?? [];
+        $deptIds = self::pull($data, 'dept_ids') ?? [];
+        $postIds = self::pull($data, 'post_ids') ?? [];
 
         // 新增还没有「归属」，插入语句不需要数据权限条件
         $id = (int)User::withoutGlobalScope()->insertGetId($data);
@@ -127,7 +129,18 @@ final class UserLogic
         $postIds = self::pull($data, 'post_ids');
 
         User::newScopedQuery()->where('id', $id)->update($data);
-        self::assign($id, $roleIds, $deptIds, $postIds);
+
+        // 只有显式提供了关联数组时才重设（未提供 = 保持原样，导入「留空不改动」依赖此语义）；
+        // 提供了空数组 = 清空对应关联（表单编辑的默认行为）。
+        if ($roleIds !== null) {
+            self::assignRoles($id, $roleIds);
+        }
+        if ($deptIds !== null) {
+            self::assignDepts($id, $deptIds);
+        }
+        if ($postIds !== null) {
+            self::assignPosts($id, $postIds);
+        }
         PermissionCache::bump();
     }
 
@@ -198,7 +211,11 @@ final class UserLogic
     public static function template(): Response
     {
         return Csv::download('用户导入模板', array_merge(self::IMPORT_HEADERS, ['说明']), [
-            ['zhangsan', '张三', 'zhangsan@example.com', '13800000000', '1', '初始密码(至少6位)', '已存在的用户名会被更新；新用户必须填 password'],
+            [
+                'zhangsan', '张三', 'zhangsan@example.com', '13800000000', '1', '初始密码(至少6位)',
+                '员工', '研发部', '工程师',
+                '已存在的用户名会被更新；新用户必须填 password；roles/depts/posts 按名称匹配、多值用逗号分隔、更新时留空则不改动',
+            ],
         ]);
     }
 
@@ -221,6 +238,15 @@ final class UserLogic
             throw new ApiException('CSV 缺少 username 列，请先下载导入模板', 422);
         }
 
+        // 名称 → id 映射一次性预载，避免逐行查库（N+1）。
+        // 显式跳出数据权限：导入是系统配置动作，必须看全量角色/部门/岗位，
+        // 否则「看不见的角色」会被误判为不存在。
+        $roleNameMap = Role::withoutGlobalScope()->column('id', 'name');
+        $roleCodeMap = Role::withoutGlobalScope()->column('id', 'code');
+        $deptNameMap = Dept::withoutGlobalScope()->column('id', 'name');
+        $postNameMap = Post::withoutGlobalScope()->column('id', 'name');
+        $postCodeMap = Post::withoutGlobalScope()->column('id', 'code');
+
         $created = 0;
         $updated = 0;
         $failed  = [];
@@ -235,6 +261,11 @@ final class UserLogic
             }
 
             try {
+                // 名称 → id；找不到即行级失败，避免静默丢掉授权
+                $roleIds = self::resolveIds((string)($row['roles'] ?? ''), $roleNameMap, $roleCodeMap, '角色');
+                $deptIds = self::resolveIds((string)($row['depts'] ?? ''), $deptNameMap, null, '部门');
+                $postIds = self::resolveIds((string)($row['posts'] ?? ''), $postNameMap, $postCodeMap, '岗位');
+
                 // 唯一性判断要看全量（含回收站），否则会撞唯一键
                 $exist = User::withoutGlobalScope()->withTrashed()->where('username', $username)->find();
 
@@ -246,6 +277,16 @@ final class UserLogic
                 ];
 
                 if ($exist) {
+                    // 更新：只有填了 roles/depts/posts 才覆盖对应关联（留空 = 保持原样）
+                    if (trim((string)($row['roles'] ?? '')) !== '') {
+                        $data['role_ids'] = $roleIds;
+                    }
+                    if (trim((string)($row['depts'] ?? '')) !== '') {
+                        $data['dept_ids'] = $deptIds;
+                    }
+                    if (trim((string)($row['posts'] ?? '')) !== '') {
+                        $data['post_ids'] = $postIds;
+                    }
                     self::update((int)$exist['id'], $data);
                     $updated++;
                     continue;
@@ -255,7 +296,13 @@ final class UserLogic
                 if ($password === '') {
                     throw new ApiException('缺少初始密码', 422);
                 }
-                self::create($data + ['username' => $username, 'password' => $password]);
+                self::create($data + [
+                    'username' => $username,
+                    'password' => $password,
+                    'role_ids' => $roleIds,
+                    'dept_ids' => $deptIds,
+                    'post_ids' => $postIds,
+                ]);
                 $created++;
             } catch (Throwable $e) {
                 $failed[] = "第 {$line} 行：" . $e->getMessage();
@@ -301,24 +348,75 @@ final class UserLogic
 
     private static function assign(int $userId, array $roleIds, array $deptIds, array $postIds): void
     {
+        self::assignRoles($userId, $roleIds);
+        self::assignDepts($userId, $deptIds);
+        self::assignPosts($userId, $postIds);
+    }
+
+    private static function assignRoles(int $userId, array $roleIds): void
+    {
         UserRole::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $roleIds)) as $rid) {
             if ($rid > 0) {
                 UserRole::insert(['user_id' => $userId, 'role_id' => $rid]);
             }
         }
+    }
+
+    private static function assignDepts(int $userId, array $deptIds): void
+    {
         UserDept::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $deptIds)) as $did) {
             if ($did > 0) {
                 UserDept::insert(['user_id' => $userId, 'dept_id' => $did]);
             }
         }
+    }
+
+    private static function assignPosts(int $userId, array $postIds): void
+    {
         UserPost::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $postIds)) as $pid) {
             if ($pid > 0) {
                 UserPost::insert(['user_id' => $userId, 'post_id' => $pid]);
             }
         }
+    }
+
+    /**
+     * 把「名称（英文逗号 / 中文逗号 / 顿号 / 分号分隔）」解析成 id 列表。
+     * 先按 name 精确匹配，可选按 code 兜底；找不到即抛异常（行级失败，不静默丢授权）。
+     *
+     * @param array<string,int>      $nameMap 名称 → id
+     * @param array<string,int>|null $codeMap 编码 → id（角色 / 岗位有 code，部门没有）
+     * @return array<int,int>
+     */
+    private static function resolveIds(string $raw, array $nameMap, ?array $codeMap, string $label): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $tokens = preg_split('/[,，、;；]/u', $raw) ?: [];
+        $out    = [];
+        foreach ($tokens as $token) {
+            $token = trim($token);
+            if ($token === '') {
+                continue;
+            }
+
+            $id = $nameMap[$token] ?? null;
+            if ($id === null && $codeMap !== null) {
+                $id = $codeMap[$token] ?? null;
+            }
+            if ($id === null) {
+                throw new ApiException("{$label}「{$token}」不存在", 422);
+            }
+            $out[] = (int)$id;
+        }
+
+        return array_values(array_unique($out));
     }
 
     private static function assertUniqueUsername(string $username, int $excludeId): void
@@ -345,11 +443,19 @@ final class UserLogic
         }
     }
 
-    private static function pull(array &$data, string $key): array
+    /**
+     * 取出并移除关联数组字段。
+     *
+     * @return array<int,mixed>|null null = 键未提供（更新时表示「不改动」）；数组 = 已提供（空数组 = 清空）
+     */
+    private static function pull(array &$data, string $key): ?array
     {
-        $value = $data[$key] ?? [];
+        if (!array_key_exists($key, $data)) {
+            return null;
+        }
+        $value = $data[$key];
         unset($data[$key]);
-        return is_array($value) ? $value : [];
+        return is_array($value) ? array_values($value) : [];
     }
 
     /**

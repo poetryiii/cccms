@@ -10,7 +10,6 @@ use plugin\cccms\app\controller\DeptController;
 use plugin\cccms\app\controller\DictController;
 use plugin\cccms\app\controller\FileController;
 use plugin\cccms\app\controller\GeneratorController;
-use plugin\cccms\app\controller\LoginLogController;
 use plugin\cccms\app\controller\LogController;
 use plugin\cccms\app\controller\MaintenanceController;
 use plugin\cccms\app\controller\MenuController;
@@ -126,12 +125,6 @@ Route::post('/recycle/delete', [RecycleController::class, 'delete']);
 Route::get('/log', [LogController::class, 'index']);
 Route::get('/log/export', [LogController::class, 'export']);
 Route::post('/log/delete', [LogController::class, 'delete']);
-
-// ---- 登录日志 ----
-Route::get('/login_log', [LoginLogController::class, 'index']);
-Route::get('/login_log/export', [LoginLogController::class, 'export']);
-Route::post('/login_log/delete', [LoginLogController::class, 'delete']);
-Route::post('/login_log/clear', [LoginLogController::class, 'clear']);
 
 // ---- 在线用户（Redis 会话索引 + 强制下线） ----
 Route::get('/online', [OnlineController::class, 'index']);
