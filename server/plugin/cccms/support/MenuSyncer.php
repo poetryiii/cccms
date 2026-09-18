@@ -104,6 +104,9 @@ final class MenuSyncer
             self::syncNode((array)$node, 0, $created, $updated, $removed);
         }
 
+        // 菜单节点变更（含恢复 / 删除）会影响权限与可见菜单，作废权限缓存
+        PermissionCache::bump();
+
         return ['created' => $created, 'updated' => $updated, 'removed' => $removed];
     }
 

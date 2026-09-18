@@ -2,12 +2,7 @@
   <div class="art-fill">
     <ArtSplitView aside-width="240px">
       <template #aside>
-        <ArtTreePanel
-          title="组织架构"
-          :data="treeData"
-          :current-key="currentId"
-          @node-click="onNodeClick"
-        />
+        <ArtTreePanel title="组织架构" :data="treeData" :current-key="currentId" @node-click="onNodeClick" />
       </template>
 
       <ArtTable
@@ -22,12 +17,8 @@
         @force-delete="onForceDelete"
       >
         <template #toolbar>
-          <el-button v-auth="'cccms:dept:save'" type="primary" :icon="Plus" @click="openCreate()">
-            新增
-          </el-button>
-          <el-tag v-if="currentId" type="info" closable @close="currentId = 0">
-            仅看：{{ currentNodeName }}
-          </el-tag>
+          <el-button v-auth="'cccms:dept:save'" type="primary" :icon="Plus" @click="openCreate()"> 新增 </el-button>
+          <el-tag v-if="currentId" type="info" closable @close="currentId = 0"> 仅看：{{ currentNodeName }} </el-tag>
           <span v-else class="toolbar-tip">支持树形层级：点「新增子部门」快速挂载下级</span>
         </template>
 
@@ -42,9 +33,7 @@
         </template>
 
         <template #action="{ row }">
-          <el-button v-auth="'cccms:dept:save'" link type="primary" @click="openCreate(row.id)">
-            新增子部门
-          </el-button>
+          <el-button v-auth="'cccms:dept:save'" link type="primary" @click="openCreate(row.id)"> 新增子部门 </el-button>
           <el-button v-auth="'cccms:dept:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-popconfirm title="确定删除该部门？" @confirm="onDelete(row.id)">
             <template #reference>
@@ -165,7 +154,7 @@ function findNode(nodes: Row[], id: number): Row | null {
   return null
 }
 
-const currentNodeName = computed(() => (currentId.value ? findNode(list.value, currentId.value)?.name ?? '' : ''))
+const currentNodeName = computed(() => (currentId.value ? (findNode(list.value, currentId.value)?.name ?? '') : ''))
 
 /** 右侧表格：选中节点时只显示该节点及其子树 */
 const tableData = computed<Row[]>(() => {

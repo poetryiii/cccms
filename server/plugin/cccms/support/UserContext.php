@@ -33,26 +33,6 @@ final class UserContext
         return $this->superAdmin || in_array($slug, $this->permissions, true);
     }
 
-    /**
-     * 从 JWT claims 构建（骨架阶段用 claims 携带权限快照；
-     * todo 6 改为从 Redis/DB 实时加载权限集合）。
-     *
-     * @param array<string,mixed> $claims
-     */
-    public static function fromClaims(array $claims): self
-    {
-        return new self(
-            id:          (int)($claims['uid'] ?? $claims['sub'] ?? 0),
-            username:    (string)($claims['username'] ?? ''),
-            nickname:    (string)($claims['nickname'] ?? ''),
-            superAdmin:  (bool)($claims['super_admin'] ?? false),
-            roles:       (array)($claims['roles'] ?? []),
-            permissions: (array)($claims['permissions'] ?? []),
-            dataScope:   (array)($claims['data_scope'] ?? []),
-            avatar:      (string)($claims['avatar'] ?? ''),
-        );
-    }
-
     /** @return array<string,mixed> */
     public function toArray(): array
     {

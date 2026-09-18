@@ -1,39 +1,107 @@
-name: PHP Composer
+name: Backend CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ['main']
+    paths:
+      - 'server/**'
+      - '.github/workflows/php.yml'
   pull_request:
-    branches: [ "main" ]
+    branches: ['main']
+    paths:
+      - 'server/**'
+      - '.github/workflows/php.yml'
 
 permissions:
   contents: read
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
 
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: 123456
+          MYSQL_DATABASE: cccms
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p123456"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: cccms
+      DB_USERNAME: root
+      DB_PASSWORD: 123456
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      JWT_SECRET: ci-only-secret-0123456789abcdef0123456789abcdef
+      DATA_ENCRYPT_KEY: ci-only-crypto-key
+
+    defaults:
+      run:
+        working-directory: server
+
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Validate composer.json and composer.lock
-      run: composer validate --strict
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pdo_mysql, pcntl, redis, mbstring
+          coverage: none
 
-    - name: Cache Composer packages
-      id: composer-cache
-      uses: actions/cache@v3
-      with:
-        path: vendor
-        key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-php-
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: server/vendor
+          key: ${{ runner.os }}-php-${{ hashFiles('server/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-
 
-    - name: Install dependencies
-      run: composer install --prefer-dist --no-progress
+      # 不用 --strict：composer.json 继承自 webman 模板，空 PSR-4 前缀
+      # （`"": "./"`，插件自动加载依赖它）会被 --strict 判为警告而非错误。
+      - name: Validate composer.json
+        run: composer validate --no-check-publish
 
-    # Add a test script to composer.json, for instance: "test": "vendor/bin/phpunit"
-    # Docs: https://getcomposer.org/doc/articles/scripts.md
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
 
-    # - name: Run test suite
-    #   run: composer run-script test
+      - name: Initialize database
+        run: |
+          mysql -h 127.0.0.1 -uroot -p123456 cccms < plugin/cccms/db/schema.sql
+          mysql -h 127.0.0.1 -uroot -p123456 cccms < plugin/cccms/db/seed.sql
+
+      - name: Sync menus & permission nodes
+        run: |
+          php webman cccms:menu-sync
+          php webman cccms:perm-scan
+
+      # 以下三个命令都有语义化退出码，失败即阻断（与 docs/08 的提交前检查清单一致）
+      - name: Check permission declarations
+        run: php webman cccms:perm-scan --check
+
+      - name: Check data scope integration
+        run: php webman cccms:data-scope-check
+
+      - name: Check data rule conflicts
+        run: php webman cccms:data-rule-check
+
+      - name: Unit tests
+        run: composer test

@@ -21,10 +21,18 @@ use WeakMap;
  *   - `and` 里的「没填的维度不参与判断」是刻意的：否则只填一项时规则永远不会命中
  *     （空维度意味着「不限」，而不是「必须为空」）。
  *
+ * 角色口径（两个「角色」含义不同，别混）：
+ *   - 规则的**绑定角色**与动态变量 `{role.ids}` 用「有效角色」（直连 + 祖先，与鉴权同口径），
+ *     否则会出现「按权限能进这个菜单、数据规则却匹配不上父角色」的割裂；
+ *   - 角色的**档位**（`data_scope`）只按**直连角色**取最宽松值，不跟随祖先 ——
+ *     否则子角色会因父角色的「全部数据」而隐式扩权。
+ *
  * 语义约定：
  *   - 1 全部数据：不加任何行级条件，**自定义行级规则也不生效**（「全部」就是不受约束）
  *   - 2 本部门及以下 / 3 本部门 / 4 仅本人：先加预设基线条件，**再叠加**自定义行级规则（AND）
- *   - 5 自定义规则：不加预设基线，只用自定义行级规则（没有规则 = 等同全部）
+ *   - 5 自定义规则：不加预设基线，只用自定义行级规则 —— **没有规则 / 一条都没命中 = 看不到任何数据**
+ *     （fail-closed）。模型参与数据权限就说明这张表按范围隔离，此时「没有规则」只能是「无权限」；
+ *     某张表压根不该隔离的正确做法是模型声明 `$dataScope = false`，而不是靠「没登记受控表」兜住。
  *   - 多角色取最宽松（min）；无角色退化为「仅本人」
  *   - 字段级规则与 data_scope 无关，只要绑定匹配就生效（超管除外）
  *
@@ -197,6 +205,7 @@ final class DataScope
      *     tables:array<int,string>,
      *     roleScope:int,
      *     roleIds:array<int,int>,
+     *     effectiveRoleIds:array<int,int>,
      *     postIds:array<int,int>,
      *     deptIds:array<int,int>,
      *     deptParents:array<int|string,int>,
@@ -212,7 +221,11 @@ final class DataScope
 
         $roleIds = array_map('intval', Db::name('user_role')->where('user_id', $user->id)->column('role_id'));
 
-        // 角色 data_scope 取并集（最宽松值最小者）；无角色 / 角色全禁用 → 退化为「仅本人」
+        // 角色 data_scope 取并集（最宽松值最小者）；无角色 / 角色全禁用 → 退化为「仅本人」。
+        //
+        // **只按直连角色计算档位，不含祖先角色**（与下面 effectiveRoleIds 的差别是刻意的）：
+        // 档位如果跟随祖先，子角色用户会因父角色「全部数据」而放大范围 —— 属于隐式扩权，
+        // 与「新增子角色不影响父角色」的设计相反。角色的**权限节点**才走继承。
         $roleScope = 4;
         if ($roleIds !== []) {
             $scopes = SoftDelete::apply(Db::name('role'))
@@ -228,6 +241,10 @@ final class DataScope
             'tables'      => self::queryGuardedTables(),
             'roleScope'   => $roleScope,
             'roleIds'     => $roleIds,
+            // 有效角色 = 直连 + 祖先（与鉴权 AuthService::effectiveRoleIds 同口径）。
+            // 规则的「绑定角色」与动态变量 {role.ids} 都用它，避免出现
+            // 「按权限能进这个菜单、数据规则却匹配不上父角色」的割裂。
+            'effectiveRoleIds' => AuthService::effectiveRoleIds($user->id),
             'postIds'     => array_map('intval', Db::name('user_post')->where('user_id', $user->id)->column('post_id')),
             'deptIds'     => array_map('intval', Db::name('user_dept')->where('user_id', $user->id)->column('dept_id')),
             'deptParents' => SoftDelete::apply(Db::name('dept'))->column('parent_id', 'id'),
@@ -548,7 +565,8 @@ final class DataScope
         ));
 
         $postIds     = $plan['postIds'];
-        $roleIds     = $plan['roleIds'];
+        // 角色绑定按「有效角色（直连 + 祖先）」判定，与鉴权口径一致
+        $roleIds     = $plan['effectiveRoleIds'];
         $deptIds     = $plan['deptIds'];
         // 部门绑定按「含下级」处理：绑「总公司」要覆盖「研发部」的人。
         // 部门树在 plan 里只取一次，规则再多也不重复查。
@@ -593,10 +611,10 @@ final class DataScope
         ));
     }
 
-    /** 我的角色（取 plan，请求内只查一次） */
+    /** 我的角色（取 plan，请求内只查一次）；用「有效角色（直连 + 祖先）」，与鉴权同口径 */
     private static function userRoleIds(UserContext $user): array
     {
-        return self::plan($user)['roleIds'];
+        return self::plan($user)['effectiveRoleIds'];
     }
 
     /** 我的岗位（取 plan，请求内只查一次） */

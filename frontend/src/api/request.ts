@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from 'axios'
+import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
 import { clearToken, getToken } from '@/utils/auth'
 import { progressDone, progressStart } from '@/utils/progress'
@@ -51,6 +51,11 @@ instance.interceptors.response.use(
   (response) => {
     endProgress(response.config as TrackedConfig)
 
+    // 文件下载（CSV 导出）：保留完整响应，调用方需要读 Content-Disposition 里的文件名
+    if (response.config.responseType === 'blob') {
+      return response as never
+    }
+
     const body = response.data as ApiEnvelope
     if (body && typeof body === 'object' && 'code' in body) {
       if (body.code === 0) {
@@ -98,6 +103,45 @@ export const http = {
   post<T = unknown>(url: string, data?: unknown): Promise<T> {
     return instance.post(url, data) as unknown as Promise<T>
   },
+}
+
+/** 从 Content-Disposition 解析文件名（优先 RFC 5987 的 filename*） */
+function filenameFromDisposition(disposition: string): string {
+  const star = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(disposition)
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^"|"$/g, ''))
+    } catch {
+      // 解码失败则回落到普通 filename
+    }
+  }
+
+  const plain = /filename="?([^";]+)"?/i.exec(disposition)
+  return plain?.[1] ? plain[1].trim() : ''
+}
+
+/**
+ * 下载后端返回的文件（CSV 导出）。
+ *
+ * 复用同一个 axios 实例：自动带鉴权头、401 处理与进度条；
+ * 文件名取 `Content-Disposition`，拿不到时用 `fallbackName`。
+ */
+export async function downloadFile(
+  url: string,
+  params?: Record<string, unknown>,
+  fallbackName = 'export.csv',
+): Promise<void> {
+  const response = (await instance.get(url, { params, responseType: 'blob' })) as unknown as AxiosResponse<Blob>
+
+  const name = filenameFromDisposition(String(response.headers['content-disposition'] ?? '')) || fallbackName
+  const objectUrl = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
 }
 
 export default instance

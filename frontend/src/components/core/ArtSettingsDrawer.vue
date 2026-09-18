@@ -31,13 +31,7 @@
         圆角
         <span class="setting-value">{{ setting.theme.radius }}px</span>
       </div>
-      <el-slider
-        :model-value="setting.theme.radius"
-        :min="0"
-        :max="20"
-        :step="1"
-        @input="setting.setRadius"
-      />
+      <el-slider :model-value="setting.theme.radius" :min="0" :max="20" :step="1" @input="setting.setRadius" />
     </div>
 
     <div class="setting-block">

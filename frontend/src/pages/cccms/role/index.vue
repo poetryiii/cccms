@@ -2,12 +2,7 @@
   <div class="art-fill">
     <ArtSplitView aside-width="240px">
       <template #aside>
-        <ArtTreePanel
-          title="角色层级"
-          :data="treeData"
-          :current-key="currentId"
-          @node-click="onNodeClick"
-        />
+        <ArtTreePanel title="角色层级" :data="treeData" :current-key="currentId" @node-click="onNodeClick" />
       </template>
 
       <ArtTable
@@ -33,9 +28,7 @@
         </template>
 
         <template #toolbar>
-          <el-button v-auth="'cccms:role:save'" type="primary" :icon="Plus" @click="openCreate">
-            新增
-          </el-button>
+          <el-button v-auth="'cccms:role:save'" type="primary" :icon="Plus" @click="openCreate"> 新增 </el-button>
           <el-tag v-if="currentId" type="info" closable @close="clearNode">
             仅看：{{ currentNodeName }} 及其下级
           </el-tag>
@@ -207,19 +200,19 @@ const { recycle, toggle, onRestore, onForceDelete } = useRecycle('role', {
   reload: () => search(),
 })
 
-const {
-  list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange,
-} = useTable<Row, Query>({
+const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
+  Row,
+  Query
+>({
   // node_id 在请求时注入，这样「重置」只清查询条件，不会意外丢掉树上的筛选
-  api: (params) =>
-    roleList({ ...params, node_id: currentId.value || undefined, trashed: recycle.value ? 1 : 0 }),
+  api: (params) => roleList({ ...params, node_id: currentId.value || undefined, trashed: recycle.value ? 1 : 0 }),
   initialQuery: { name: '' },
 })
 
 const roleTreeData = ref<Row[]>([])
 const treeData = computed<Row[]>(() => [{ id: 0, name: '全部角色' }, ...roleTreeData.value])
 const currentNodeName = computed(() =>
-  currentId.value ? flatten(roleTreeData.value).find((r) => r.id === currentId.value)?.name ?? '' : '',
+  currentId.value ? (flatten(roleTreeData.value).find((r) => r.id === currentId.value)?.name ?? '') : '',
 )
 
 function onNodeClick(data: Record<string, any>): void {

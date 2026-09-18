@@ -10,8 +10,13 @@ use plugin\cccms\app\model\UserDept;
 use plugin\cccms\app\model\UserPost;
 use plugin\cccms\app\model\UserRole;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\Csv;
 use plugin\cccms\support\PasswordPolicy;
+use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\UserContext;
+use Throwable;
+use Webman\Http\Response;
+use Webman\Http\UploadFile;
 
 /**
  * 用户管理逻辑。
@@ -28,6 +33,12 @@ final class UserLogic
 {
     /** 对外安全字段（不含 password）。 */
     private const SAFE_FIELDS = 'id,username,nickname,avatar,email,phone,status,remark,login_time,login_ip,create_time,update_time';
+
+    /** 导出上限：避免一次导出把内存打满 */
+    private const EXPORT_LIMIT = 5000;
+
+    /** 导入模板表头（也用于校验必填列） */
+    public const IMPORT_HEADERS = ['username', 'nickname', 'email', 'phone', 'status', 'password'];
 
     public static function paginate(array $params): array
     {
@@ -92,6 +103,9 @@ final class UserLogic
         // 新增还没有「归属」，插入语句不需要数据权限条件
         $id = (int)User::withoutGlobalScope()->insertGetId($data);
         self::assign($id, $roleIds, $deptIds, $postIds);
+        // 角色 / 部门 / 岗位关系变化会影响该用户的权限与数据范围缓存
+        PermissionCache::bump();
+
         return $id;
     }
 
@@ -114,6 +128,7 @@ final class UserLogic
 
         User::newScopedQuery()->where('id', $id)->update($data);
         self::assign($id, $roleIds, $deptIds, $postIds);
+        PermissionCache::bump();
     }
 
     public static function delete(int $id, UserContext $operator): void
@@ -134,6 +149,7 @@ final class UserLogic
         // 软删除：进回收站；关联表刻意保留，恢复后角色/部门/岗位原样回来。
         // destroy() 由 SoftDelete trait 提供，作用域仍然生效（越权 id 匹配不到行）
         User::destroy($id);
+        PermissionCache::bump();
     }
 
     public static function resetPassword(int $id, string $password): void
@@ -145,6 +161,113 @@ final class UserLogic
         User::newScopedQuery()
             ->where('id', $id)
             ->update(['password' => password_hash($password, PASSWORD_BCRYPT)]);
+    }
+
+    /** 导出当前数据范围内的用户（CSV，直接返回文件流） */
+    public static function export(array $params): Response
+    {
+        $query = !empty($params['trashed']) ? User::onlyTrashed() : User::newScopedQuery();
+        if (!empty($params['username'])) {
+            $query->where('username', 'like', '%' . $params['username'] . '%');
+        }
+        if (!empty($params['nickname'])) {
+            $query->where('nickname', 'like', '%' . $params['nickname'] . '%');
+        }
+        if (isset($params['status']) && $params['status'] !== '') {
+            $query->where('status', (int)$params['status']);
+        }
+
+        $rows = $query->field(self::SAFE_FIELDS)->order('id', 'desc')->limit(self::EXPORT_LIMIT)->select()->toArray();
+        $roleNames = self::roleNamesOf(array_map('intval', array_column($rows, 'id')));
+
+        $data = array_map(static fn (array $row): array => [
+            (string)$row['id'],
+            (string)$row['username'],
+            (string)$row['nickname'],
+            (string)$row['email'],
+            (string)$row['phone'],
+            implode('、', $roleNames[(int)$row['id']] ?? []),
+            (int)$row['status'] === 1 ? '启用' : '禁用',
+            (string)($row['create_time'] ?? ''),
+        ], $rows);
+
+        return Csv::download('用户列表', ['ID', '用户名', '昵称', '邮箱', '手机号', '角色', '状态', '创建时间'], $data);
+    }
+
+    /** 下载导入模板 */
+    public static function template(): Response
+    {
+        return Csv::download('用户导入模板', array_merge(self::IMPORT_HEADERS, ['说明']), [
+            ['zhangsan', '张三', 'zhangsan@example.com', '13800000000', '1', '初始密码(至少6位)', '已存在的用户名会被更新；新用户必须填 password'],
+        ]);
+    }
+
+    /**
+     * 导入用户（CSV）。
+     *
+     * 约定：
+     *   - `username` 必填；已存在则**更新**（走 update，受数据范围约束），不存在则**新增**；
+     *   - 新增必须提供 `password`（不内置弱口令默认值，避免埋雷）；
+     *   - 单行失败不影响其余行，失败原因按行号汇总返回。
+     *
+     * @return array{total:int,created:int,updated:int,failed:array<int,string>}
+     */
+    public static function import(UploadFile $file): array
+    {
+        $parsed  = Csv::parse($file);
+        $headers = $parsed['headers'];
+
+        if (!in_array('username', $headers, true)) {
+            throw new ApiException('CSV 缺少 username 列，请先下载导入模板', 422);
+        }
+
+        $created = 0;
+        $updated = 0;
+        $failed  = [];
+
+        foreach ($parsed['rows'] as $index => $row) {
+            $line     = $index + 2;   // 第 1 行是表头
+            $username = trim((string)($row['username'] ?? ''));
+
+            if ($username === '') {
+                $failed[] = "第 {$line} 行：用户名为空";
+                continue;
+            }
+
+            try {
+                // 唯一性判断要看全量（含回收站），否则会撞唯一键
+                $exist = User::withoutGlobalScope()->withTrashed()->where('username', $username)->find();
+
+                $data = [
+                    'nickname' => (string)($row['nickname'] ?? ''),
+                    'email'    => (string)($row['email'] ?? ''),
+                    'phone'    => (string)($row['phone'] ?? ''),
+                    'status'   => self::parseStatus((string)($row['status'] ?? '1')),
+                ];
+
+                if ($exist) {
+                    self::update((int)$exist['id'], $data);
+                    $updated++;
+                    continue;
+                }
+
+                $password = (string)($row['password'] ?? '');
+                if ($password === '') {
+                    throw new ApiException('缺少初始密码', 422);
+                }
+                self::create($data + ['username' => $username, 'password' => $password]);
+                $created++;
+            } catch (Throwable $e) {
+                $failed[] = "第 {$line} 行：" . $e->getMessage();
+            }
+        }
+
+        return [
+            'total'   => count($parsed['rows']),
+            'created' => $created,
+            'updated' => $updated,
+            'failed'  => $failed,
+        ];
     }
 
     /**
@@ -227,5 +350,41 @@ final class UserLogic
         $value = $data[$key] ?? [];
         unset($data[$key]);
         return is_array($value) ? $value : [];
+    }
+
+    /**
+     * 批量取「用户 => 角色名列表」，避免导出时逐行查库（N+1）。
+     *
+     * @param  array<int,int> $userIds
+     * @return array<int,array<int,string>>
+     */
+    private static function roleNamesOf(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        $pairs   = UserRole::whereIn('user_id', $userIds)->select()->toArray();
+        $roleIds = array_values(array_unique(array_map('intval', array_column($pairs, 'role_id'))));
+        $names   = $roleIds === [] ? [] : Role::whereIn('id', $roleIds)->column('name', 'id');
+
+        $out = [];
+        foreach ($pairs as $pair) {
+            $out[(int)$pair['user_id']][] = (string)($names[(int)$pair['role_id']] ?? '');
+        }
+
+        return $out;
+    }
+
+    /** 导入时的状态取值容错：1/0、启用/禁用、是/否、true/false */
+    private static function parseStatus(string $value): int
+    {
+        $value = strtolower(trim($value));
+
+        if (in_array($value, ['0', '禁用', '否', 'false', 'no', 'off'], true)) {
+            return 0;
+        }
+
+        return 1;
     }
 }

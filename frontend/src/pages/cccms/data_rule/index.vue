@@ -30,12 +30,7 @@
         </el-form-item>
         <el-form-item label="目标表">
           <el-select v-model="query.table_name" clearable placeholder="全部" style="width: 170px">
-            <el-option
-              v-for="t in options.tables"
-              :key="t.table"
-              :label="t.label"
-              :value="t.table"
-            />
+            <el-option v-for="t in options.tables" :key="t.table" :label="t.label" :value="t.table" />
           </el-select>
         </el-form-item>
         <el-form-item label="字段名">
@@ -47,9 +42,7 @@
         <el-button v-auth="'cccms:data_rule:save'" type="primary" :icon="Plus" @click="openCreate">
           新增规则
         </el-button>
-        <el-button v-auth="'cccms:data_rule:table_index'" :icon="Setting" @click="openTables">
-          受控表
-        </el-button>
+        <el-button v-auth="'cccms:data_rule:table_index'" :icon="Setting" @click="openTables"> 受控表 </el-button>
       </template>
 
       <template #toolbar-right>
@@ -71,21 +64,13 @@
             size="small"
             :type="row.bind_mode === 'and' ? 'warning' : 'info'"
             class="bind-mode-tag"
-            :title="
-              row.bind_mode === 'and'
-                ? '已填写的绑定项全部命中才生效'
-                : '已填写的绑定项命中任意一项即生效'
-            "
+            :title="row.bind_mode === 'and' ? '已填写的绑定项全部命中才生效' : '已填写的绑定项命中任意一项即生效'"
           >
             {{ row.bind_mode === 'and' ? '且' : '或' }}
           </el-tag>
           <el-tag v-if="row.user_name" size="small" effect="plain">用户：{{ row.user_name }}</el-tag>
-          <el-tag v-if="row.post_name" size="small" effect="plain" class="bind-tag">
-            岗位：{{ row.post_name }}
-          </el-tag>
-          <el-tag v-if="row.role_name" size="small" effect="plain" class="bind-tag">
-            角色：{{ row.role_name }}
-          </el-tag>
+          <el-tag v-if="row.post_name" size="small" effect="plain" class="bind-tag"> 岗位：{{ row.post_name }} </el-tag>
+          <el-tag v-if="row.role_name" size="small" effect="plain" class="bind-tag"> 角色：{{ row.role_name }} </el-tag>
           <el-tag v-if="row.dept_names" size="small" effect="plain" class="bind-tag">
             部门：{{ row.dept_names }}
           </el-tag>
@@ -171,14 +156,7 @@
             </el-tabs>
 
             <div class="bind-add">
-              <el-button
-                type="primary"
-                plain
-                size="small"
-                :icon="Plus"
-                :disabled="!canAdd"
-                @click="addBinding"
-              >
+              <el-button type="primary" plain size="small" :icon="Plus" :disabled="!canAdd" @click="addBinding">
                 添加到已选
               </el-button>
               <span class="form-tip bind-add-tip">{{ addHint }}移除已选项请点下方标签上的 ×。</span>
@@ -188,13 +166,7 @@
             <div class="bind-selected">
               <div class="bind-selected-head">
                 <span>已选绑定对象</span>
-                <el-button
-                  v-if="selectedGroups.length"
-                  link
-                  type="danger"
-                  size="small"
-                  @click="clearBindings"
-                >
+                <el-button v-if="selectedGroups.length" link type="danger" size="small" @click="clearBindings">
                   清空全部
                 </el-button>
               </div>
@@ -226,7 +198,8 @@
             <el-radio value="and">全部命中（且）</el-radio>
           </el-radio-group>
           <div class="form-tip">
-            「或」= 已选的几项里，<b>命中任意一项</b>就生效（范围更宽）；「且」= 只对<b>同时满足所有已选项</b>的人生效（范围更窄，如「张三 且 在客服岗」）。<br />
+            「或」= 已选的几项里，<b>命中任意一项</b>就生效（范围更宽）；「且」=
+            只对<b>同时满足所有已选项</b>的人生效（范围更窄，如「张三 且 在客服岗」）。<br />
             某项没选则不参与判断；四项都不选 = 全局规则，此开关不生效。
           </div>
         </el-form-item>
@@ -247,12 +220,7 @@
 
         <el-form-item label="规则动作" prop="action">
           <el-select v-model="form.action" style="width: 100%">
-            <el-option
-              v-for="a in options.actions"
-              :key="a"
-              :label="`${actionLabel(a)}（${a}）`"
-              :value="a"
-            />
+            <el-option v-for="a in options.actions" :key="a" :label="`${actionLabel(a)}（${a}）`" :value="a" />
           </el-select>
           <div class="form-tip">row = 行级过滤；其余为字段级（作用于出参，readonly 作用于入参）。</div>
         </el-form-item>
@@ -260,12 +228,7 @@
         <template v-if="form.action === 'row'">
           <el-form-item label="操作符" prop="operator">
             <el-select v-model="form.operator" style="width: 100%">
-              <el-option
-                v-for="op in operatorOptions"
-                :key="op"
-                :label="`${operatorLabel(op)}（${op}）`"
-                :value="op"
-              />
+              <el-option v-for="op in operatorOptions" :key="op" :label="`${operatorLabel(op)}（${op}）`" :value="op" />
             </el-select>
           </el-form-item>
           <el-form-item label="取值类型" prop="value_type">
@@ -273,9 +236,7 @@
               <el-radio value="static">静态值</el-radio>
               <el-radio value="dynamic">动态变量</el-radio>
             </el-radio-group>
-            <div class="form-tip">
-              动态变量按<b>当前登录用户</b>实时解析，可表达「本部门及以下」这类动态范围。
-            </div>
+            <div class="form-tip">动态变量按<b>当前登录用户</b>实时解析，可表达「本部门及以下」这类动态范围。</div>
           </el-form-item>
 
           <el-form-item label="取值" prop="value">
@@ -312,13 +273,7 @@
     </el-dialog>
 
     <!-- 受控表：只有登记在此的表才会出现在「目标表」候选里 -->
-    <el-dialog
-      v-model="tableVisible"
-      title="数据权限受控表"
-      width="820px"
-      top="8vh"
-      :close-on-click-modal="false"
-    >
+    <el-dialog v-model="tableVisible" title="数据权限受控表" width="820px" top="8vh" :close-on-click-modal="false">
       <el-alert
         class="rule-tip"
         type="info"
@@ -375,20 +330,12 @@
         <el-table-column prop="field_count" label="字段数" width="80" align="center" />
         <el-table-column label="受控" width="80" align="center">
           <template #default="{ row }">
-            <el-switch
-              v-model="row.status"
-              :active-value="1"
-              :inactive-value="0"
-              @change="onUpdateTable(row)"
-            />
+            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="onUpdateTable(row)" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ row }">
-            <el-popconfirm
-              title="移除后，该表上的规则会暂停生效，确定？"
-              @confirm="onRemoveTable(row)"
-            >
+            <el-popconfirm title="移除后，该表上的规则会暂停生效，确定？" @confirm="onRemoveTable(row)">
               <template #reference>
                 <el-button v-auth="'cccms:data_rule:table_delete'" link type="danger">移除</el-button>
               </template>
@@ -472,9 +419,19 @@ const OPERATOR_LABELS: Record<string, string> = {
 
 /** 这些类型用 like 没有意义；反过来，字符串列也不该出现比较操作符 */
 const NUMERIC_TYPES = [
-  'tinyint', 'smallint', 'mediumint', 'int', 'bigint',
-  'decimal', 'float', 'double',
-  'date', 'datetime', 'timestamp', 'time', 'year',
+  'tinyint',
+  'smallint',
+  'mediumint',
+  'int',
+  'bigint',
+  'decimal',
+  'float',
+  'double',
+  'date',
+  'datetime',
+  'timestamp',
+  'time',
+  'year',
 ]
 
 const columns: ArtTableColumn[] = [
@@ -496,9 +453,10 @@ const { recycle, toggle, onRestore, onForceDelete } = useRecycle('data_rule', {
   reload: () => search(),
 })
 
-const {
-  list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange,
-} = useTable<DataRuleRow, Query>({
+const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
+  DataRuleRow,
+  Query
+>({
   api: (params) => dataRuleList({ ...params, trashed: recycle.value ? 1 : 0 }),
   initialQuery: { name: '', table_name: '', field: '' },
 })
@@ -700,7 +658,10 @@ const valueHint = computed(() => {
 type BindKey = 'user' | 'post' | 'role' | 'dept'
 
 const BIND_LABELS: Record<BindKey, string> = {
-  user: '用户', post: '岗位', role: '角色', dept: '部门',
+  user: '用户',
+  post: '岗位',
+  role: '角色',
+  dept: '部门',
 }
 
 /** 当前选项卡 */
@@ -711,12 +672,18 @@ const bindTab = ref<BindKey>('user')
  * 在树里点选不会立刻改规则，必须点「添加到已选」才生效 —— 避免误点即改动。
  */
 const draft = reactive<Record<BindKey, number | number[] | null>>({
-  user: null, post: null, role: null, dept: [],
+  user: null,
+  post: null,
+  role: null,
+  dept: [],
 })
 
 /** id → 展示名：把已选项渲染成人能看懂的标签（岗位/角色/部门候选已全量在手，用户靠搜索结果缓存） */
 const bindNames = reactive<Record<BindKey, Record<number, string>>>({
-  user: {}, post: {}, role: {}, dept: {},
+  user: {},
+  post: {},
+  role: {},
+  dept: {},
 })
 
 /** 展平树形候选（角色 / 部门是多层），登记 id 与名称 */
@@ -791,8 +758,8 @@ const addHint = computed(() =>
 /** 添加到已选：单选维度替换，部门并入 */
 function addBinding(): void {
   const category = bindTab.value
-  const raw      = draft[category]
-  const ids      = (Array.isArray(raw) ? raw : [raw]).map(Number).filter((id) => id > 0)
+  const raw = draft[category]
+  const ids = (Array.isArray(raw) ? raw : [raw]).map(Number).filter((id) => id > 0)
   if (ids.length === 0) {
     return
   }
@@ -834,14 +801,14 @@ function removeBinding(item: BindItem): void {
 
 /** 清空全部绑定（回到「全局规则」） */
 function clearBindings(): void {
-  form.user_id  = null
-  form.post_id  = null
-  form.role_id  = null
+  form.user_id = null
+  form.post_id = null
+  form.role_id = null
   form.dept_ids = []
-  draft.user    = null
-  draft.post    = null
-  draft.role    = null
-  draft.dept    = []
+  draft.user = null
+  draft.post = null
+  draft.role = null
+  draft.dept = []
 }
 
 /** 打开表单时把待添加项对齐到当前值，让选项卡里直接看到现状 */

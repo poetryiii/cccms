@@ -2,7 +2,8 @@
 
 declare module '*.vue' {
   import type { DefineComponent } from 'vue'
-  const component: DefineComponent<{}, {}, any>
+  // 不写泛型实参：默认即为最宽松的组件类型，同时避免 no-empty-object-type 报错
+  const component: DefineComponent
   export default component
 }
 

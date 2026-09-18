@@ -97,12 +97,7 @@ defineOptions({ name: 'profile' })
 
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import {
-  profileChangePassword,
-  profileRead,
-  profileUpdate,
-  type ProfileDetail,
-} from '@/api/profile'
+import { profileChangePassword, profileRead, profileUpdate, type ProfileDetail } from '@/api/profile'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()

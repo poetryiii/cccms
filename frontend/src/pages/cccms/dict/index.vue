@@ -2,28 +2,13 @@
   <div class="art-fill">
     <ArtSplitView aside-width="248px">
       <template #aside>
-        <ArtTreePanel
-          title="字典分类"
-          :data="treeData"
-          :current-key="currentId"
-          @node-click="onNodeClick"
-        >
+        <ArtTreePanel title="字典分类" :data="treeData" :current-key="currentId" @node-click="onNodeClick">
           <template #header>
             <el-tooltip content="新增顶级分类" placement="top">
-              <el-button
-                v-auth="'cccms:dict:category_save'"
-                text
-                circle
-                :icon="Plus"
-                @click="openCategoryCreate(0)"
-              />
+              <el-button v-auth="'cccms:dict:category_save'" text circle :icon="Plus" @click="openCategoryCreate(0)" />
             </el-tooltip>
             <!-- 只显示本模块的分类，避免看到附件模块的分类 -->
-            <RecycleToggle
-              :active="categoryRecycle"
-              label="字典分类"
-              @toggle="toggleCategoryRecycle"
-            />
+            <RecycleToggle :active="categoryRecycle" label="字典分类" @toggle="toggleCategoryRecycle" />
           </template>
 
           <template #node="{ data }">
@@ -73,9 +58,7 @@
           <el-button v-auth="'cccms:dict:save'" type="primary" :icon="Plus" @click="openTypeCreate">
             新增字典类型
           </el-button>
-          <el-tag v-if="currentId" type="info" closable @close="clearNode">
-            仅看：{{ currentNodeName }}
-          </el-tag>
+          <el-tag v-if="currentId" type="info" closable @close="clearNode"> 仅看：{{ currentNodeName }} </el-tag>
         </template>
 
         <template #toolbar-right>
@@ -83,9 +66,7 @@
         </template>
 
         <template #action="{ row }">
-          <el-button v-auth="'cccms:dict:data'" link type="primary" @click="openData(row)">
-            字典数据
-          </el-button>
+          <el-button v-auth="'cccms:dict:data'" link type="primary" @click="openData(row)"> 字典数据 </el-button>
           <el-button v-auth="'cccms:dict:update'" link type="primary" @click="openTypeEdit(row)">编辑</el-button>
           <el-popconfirm title="删除类型会同时删除其数据，确定？" @confirm="onTypeDelete(row.id)">
             <template #reference>
@@ -178,44 +159,22 @@
         </el-button>
         <RecycleToggle :active="dataRecycle" label="字典数据" @toggle="toggleDataRecycle" />
       </div>
-      <el-table
-        v-loading="dataLoading"
-        :data="dataList"
-        row-key="id"
-        stripe
-        border
-        max-height="460"
-      >
+      <el-table v-loading="dataLoading" :data="dataList" row-key="id" stripe border max-height="460">
         <el-table-column prop="label" label="显示名" min-width="140" />
         <el-table-column prop="value" label="值" min-width="120" />
         <el-table-column prop="sort" label="排序" width="80" align="center" />
         <el-table-column label="操作" width="130" fixed="right">
           <template #default="{ row }">
             <template v-if="dataRecycle">
-              <el-button
-                v-auth="'cccms:recycle:restore'"
-                link
-                type="primary"
-                @click="onDataRestore(row)"
-              >
+              <el-button v-auth="'cccms:recycle:restore'" link type="primary" @click="onDataRestore(row)">
                 还原
               </el-button>
-              <el-button
-                v-auth="'cccms:recycle:delete'"
-                link
-                type="danger"
-                @click="onDataForceDelete(row)"
-              >
+              <el-button v-auth="'cccms:recycle:delete'" link type="danger" @click="onDataForceDelete(row)">
                 彻底删除
               </el-button>
             </template>
             <template v-else>
-              <el-button
-                v-auth="'cccms:dict:update_data'"
-                link
-                type="primary"
-                @click="openDataEdit(row)"
-              >
+              <el-button v-auth="'cccms:dict:update_data'" link type="primary" @click="openDataEdit(row)">
                 编辑
               </el-button>
               <el-popconfirm title="确定删除？" @confirm="onDataDelete(row.id)">
@@ -228,12 +187,7 @@
         </el-table-column>
       </el-table>
 
-      <el-dialog
-        v-model="dataFormVisible"
-        :title="dataForm.id ? '编辑数据' : '新增数据'"
-        width="440px"
-        append-to-body
-      >
+      <el-dialog v-model="dataFormVisible" :title="dataForm.id ? '编辑数据' : '新增数据'" width="440px" append-to-body>
         <el-form ref="dataFormRef" :model="dataForm" :rules="dataRules" label-width="80px">
           <el-form-item label="显示名" prop="label">
             <el-input v-model="dataForm.label" />
@@ -266,13 +220,7 @@ import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { useTable } from '@/composables/useTable'
 import { useRecycle } from '@/composables/useRecycle'
-import {
-  categoryDelete,
-  categorySave,
-  categoryTree,
-  categoryUpdate,
-  type CategoryNode,
-} from '@/api/category'
+import { categoryDelete, categorySave, categoryTree, categoryUpdate, type CategoryNode } from '@/api/category'
 import {
   dictDataDelete,
   dictDataList,
@@ -325,11 +273,7 @@ const treeData = computed(() =>
   // 回收站视图里只列已删分类，不掺「全部 / 未分类」这两个虚拟节点
   categoryRecycle.value
     ? categories.value
-    : [
-        { id: ALL_ID, name: '全部' },
-        { id: NONE_ID, name: '未分类' },
-        ...categories.value,
-      ],
+    : [{ id: ALL_ID, name: '全部' }, { id: NONE_ID, name: '未分类' }, ...categories.value],
 )
 
 const currentNodeName = computed(() => {
@@ -387,12 +331,12 @@ const {
   onForceDelete: onDataForceDelete,
 } = useRecycle('dict_data', { reload: () => loadData() })
 
-const {
-  list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange,
-} = useTable<Row, Query>({
+const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
+  Row,
+  Query
+>({
   // category_id 在请求时注入：避免「重置」把树上的筛选一起清掉
-  api: (params) =>
-    dictTypeList({ ...params, category_id: currentId.value, trashed: recycle.value ? 1 : 0 }),
+  api: (params) => dictTypeList({ ...params, category_id: currentId.value, trashed: recycle.value ? 1 : 0 }),
   initialQuery: { name: '' },
 })
 

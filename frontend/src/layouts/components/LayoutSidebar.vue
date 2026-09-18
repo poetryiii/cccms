@@ -24,10 +24,7 @@
     </el-scrollbar>
 
     <!-- 备案号 / 版权来自后台配置 -->
-    <footer
-      v-if="(!collapsed || mobile) && (appStore.icp || appStore.copyright)"
-      class="sidebar-footer"
-    >
+    <footer v-if="(!collapsed || mobile) && (appStore.icp || appStore.copyright)" class="sidebar-footer">
       <div v-if="appStore.copyright" class="sidebar-footer-line">{{ appStore.copyright }}</div>
       <div v-if="appStore.icp" class="sidebar-footer-line">{{ appStore.icp }}</div>
     </footer>

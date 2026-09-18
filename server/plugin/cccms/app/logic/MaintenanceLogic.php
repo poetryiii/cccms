@@ -6,6 +6,7 @@ namespace plugin\cccms\app\logic;
 
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\MenuSyncer;
+use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\PermissionMeta;
 use plugin\cccms\support\PermScanner;
 use plugin\cccms\support\SqlFileRunner;
@@ -82,9 +83,11 @@ final class MaintenanceLogic
     {
         // Redis：sys_config（跨进程共享，清了立即生效）
         SysConfig::flush();
+        // Redis：角色 / 权限集合缓存（版本号 +1，所有用户立即重算）
+        PermissionCache::bump();
         // 本进程的注解元数据缓存；其余 worker 靠部署 reload 重建
         PermissionMeta::flush();
 
-        return ['config' => true, 'permission_meta' => true];
+        return ['config' => true, 'permission' => true, 'permission_meta' => true];
     }
 }

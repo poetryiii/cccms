@@ -90,6 +90,7 @@
           highlight-current-row
           @selection-change="onSelectionChange"
           @sort-change="onSortChange"
+          @header-dragend="onHeaderDragend"
         >
           <!--
             刻意不开 reserve-selection：勾选状态跨刷新保留会留下「勾着但已不在当前列表里」的
@@ -97,11 +98,7 @@
           -->
           <el-table-column v-if="selection" type="selection" width="46" />
 
-          <el-table-column
-            v-for="col in visibleColumns"
-            :key="col.prop"
-            v-bind="columnProps(col)"
-          >
+          <el-table-column v-for="col in visibleColumns" :key="col.prop" v-bind="columnProps(col)">
             <template v-if="col.slot" #default="scope">
               <slot
                 :name="col.slot"
@@ -115,20 +112,10 @@
           <!-- 回收站模式：操作列由表格统一渲染，页面的「操作」列（slot=action）被换掉 -->
           <el-table-column v-if="recycle" label="操作" width="170" fixed="right">
             <template #default="{ row }">
-              <el-button
-                v-auth="'cccms:recycle:restore'"
-                link
-                type="primary"
-                @click="emit('restore', row)"
-              >
+              <el-button v-auth="'cccms:recycle:restore'" link type="primary" @click="emit('restore', row)">
                 还原
               </el-button>
-              <el-button
-                v-auth="'cccms:recycle:delete'"
-                link
-                type="danger"
-                @click="emit('force-delete', row)"
-              >
+              <el-button v-auth="'cccms:recycle:delete'" link type="danger" @click="emit('force-delete', row)">
                 彻底删除
               </el-button>
             </template>
@@ -231,9 +218,7 @@ const selected = ref<any[]>([])
 const hasSearch = computed(() => !!slots.search)
 
 const isNarrow = useMediaQuery('(max-width: 768px)')
-const pagerLayout = computed(() =>
-  isNarrow.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper',
-)
+const pagerLayout = computed(() => (isNarrow.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'))
 
 /* ---- 列显隐（按页面持久化） ---- */
 const HIDDEN_PREFIX = 'cccms_table_hidden:'
@@ -277,24 +262,66 @@ watch(
 
 /** 直接按目标可见性写入，避免依赖「取反」推算导致的状态错位 */
 function toggleColumn(prop: string, visible: boolean): void {
-  hiddenColumns.value = visible
-    ? hiddenColumns.value.filter((p) => p !== prop)
-    : [...hiddenColumns.value, prop]
+  hiddenColumns.value = visible ? hiddenColumns.value.filter((p) => p !== prop) : [...hiddenColumns.value, prop]
   persistHidden()
 }
 
 function resetColumns(): void {
   hiddenColumns.value = defaultHidden()
   persistHidden()
+  // 列宽也一并恢复默认，否则「重置」只重置了一半
+  columnWidths.value = {}
+  persistWidths()
+}
+
+/* ---- 列宽记忆（拖拽表头后按页面持久化） ---- */
+const WIDTH_PREFIX = 'cccms_table_width:'
+
+function loadWidths(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(WIDTH_PREFIX + storageId())
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, number>
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    }
+  } catch {
+    // 解析异常时回落为「无自定义列宽」
+  }
+  return {}
+}
+
+function persistWidths(): void {
+  try {
+    localStorage.setItem(WIDTH_PREFIX + storageId(), JSON.stringify(columnWidths.value))
+  } catch {
+    // localStorage 不可用时忽略
+  }
+}
+
+const columnWidths = ref<Record<string, number>>(loadWidths())
+
+watch(
+  () => props.columns,
+  () => {
+    columnWidths.value = loadWidths()
+  },
+)
+
+/** el-table 的 header-dragend：column.property 即列的 prop */
+function onHeaderDragend(newWidth: number, _oldWidth: number, column: { property?: string }): void {
+  const prop = column?.property
+  if (!prop) {
+    return
+  }
+  columnWidths.value = { ...columnWidths.value, [prop]: Math.round(newWidth) }
+  persistWidths()
 }
 
 /**
  * 页面声明的列：回收站模式下「操作」列（约定 `slot='action'`）由表格统一接管，故剔除。
  * 列设置面板用的也是它 —— 否则会留下一个「勾了也不显示」的僵尸项。
  */
-const ownColumns = computed(() =>
-  props.recycle ? props.columns.filter((c) => c.slot !== 'action') : props.columns,
-)
+const ownColumns = computed(() => (props.recycle ? props.columns.filter((c) => c.slot !== 'action') : props.columns))
 
 const visibleColumns = computed(() =>
   ownColumns.value.filter((c) => c.lockVisible || !hiddenColumns.value.includes(c.prop)),
@@ -317,7 +344,11 @@ function columnProps(col: ArtTableColumn): Record<string, unknown> {
     headerAlign: col.align ?? 'left',
     showOverflowTooltip: col.showOverflowTooltip ?? true,
   }
-  if (col.width !== undefined) {
+  // 拖拽过的列宽优先于页面声明的宽度（用户意图优先）
+  const savedWidth = columnWidths.value[col.prop]
+  if (savedWidth) {
+    out.width = savedWidth
+  } else if (col.width !== undefined) {
     out.width = col.width
   }
   if (col.minWidth !== undefined) {

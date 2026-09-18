@@ -40,12 +40,7 @@
       </template>
 
       <!-- 自定义 -->
-      <el-input
-        v-else
-        v-model="expression"
-        class="cron-custom"
-        placeholder="六段：秒 分 时 日 月 周，如 0 0 2 * * *"
-      />
+      <el-input v-else v-model="expression" class="cron-custom" placeholder="六段：秒 分 时 日 月 周，如 0 0 2 * * *" />
     </div>
 
     <div class="cron-result">
@@ -146,6 +141,9 @@ const description = computed(() => {
       return `每月 ${state.day} 号 ${pad(state.hour)}:${pad(state.minute)}:${pad(state.second)} 执行`
     case 'custom':
       return '自定义表达式（六段：秒 分 时 日 月 周）'
+    default:
+      // 兜底：cycle 是联合类型，理论上不会走到这里
+      return ''
   }
 })
 
@@ -167,12 +165,16 @@ watch(built, (v) => {
 })
 
 // 外部值变化（编辑回显 / 点预设）→ 反向识别周期；自己刚生成的值、以及自定义编辑中都不回灌
-watch(expression, (v) => {
-  if (v === built.value) {
-    return
-  }
-  Object.assign(state, detectCycle(v ?? ''))
-}, { immediate: true })
+watch(
+  expression,
+  (v) => {
+    if (v === built.value) {
+      return
+    }
+    Object.assign(state, detectCycle(v ?? ''))
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>

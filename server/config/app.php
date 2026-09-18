@@ -15,7 +15,9 @@
 use support\Request;
 
 return [
-    'debug' => true,
+    // 安全默认：生产环境不得透出异常详情，故默认关闭。
+    // 本地开发在 server/.env 中设置 APP_DEBUG=true（见 .env.example）。
+    'debug' => (bool)filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'error_reporting' => E_ALL,
     'default_timezone' => 'Asia/Shanghai',
     'request_class' => Request::class,

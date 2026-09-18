@@ -29,10 +29,9 @@ export interface UseTableOptions<T, Q extends object> {
  *   const table = useTable<UserRow, Query>({ api: userList, initialQuery: { username: '' } })
  *   table.query.username / table.list / table.total ...
  */
-export function useTable<
-  T = Record<string, unknown>,
-  Q extends object = Record<string, unknown>,
->(options: UseTableOptions<T, Q>) {
+export function useTable<T = Record<string, unknown>, Q extends object = Record<string, unknown>>(
+  options: UseTableOptions<T, Q>,
+) {
   const list = ref([]) as Ref<T[]>
   const loading = ref(false)
   const total = ref(0)

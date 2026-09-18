@@ -25,6 +25,9 @@
         <el-form-item label="请求路径">
           <el-input v-model="query.path" placeholder="请输入" clearable style="width: 180px" />
         </el-form-item>
+        <el-form-item label="链路ID">
+          <el-input v-model="query.trace_id" placeholder="报错时的 trace_id" clearable style="width: 220px" />
+        </el-form-item>
       </template>
 
       <template #toolbar>
@@ -38,6 +41,10 @@
         >
           删除选中{{ selection.length ? `（${selection.length}）` : '' }}
         </el-button>
+      </template>
+
+      <template #toolbar-right>
+        <el-button v-auth="'cccms:log:export'" :icon="Download" @click="onExport"> 导出 </el-button>
       </template>
 
       <!-- 语义化操作：注解标题 + 权限节点 -->
@@ -58,9 +65,7 @@
 
       <template #action="{ row }">
         <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-        <el-button v-auth="'cccms:log:delete'" link type="danger" @click="onDeleteOne(row.id)">
-          删除
-        </el-button>
+        <el-button v-auth="'cccms:log:delete'" link type="danger" @click="onDeleteOne(row.id)"> 删除 </el-button>
       </template>
     </ArtTable>
 
@@ -79,6 +84,9 @@
           </el-descriptions-item>
           <el-descriptions-item label="IP">{{ current.ip || '—' }}</el-descriptions-item>
           <el-descriptions-item label="耗时">{{ current.cost ?? 0 }} ms</el-descriptions-item>
+          <el-descriptions-item label="链路ID" :span="2">
+            <span class="log-trace">{{ current.trace_id || '—' }}</span>
+          </el-descriptions-item>
           <el-descriptions-item label="User-Agent" :span="2">
             {{ current.ua || '—' }}
           </el-descriptions-item>
@@ -103,10 +111,10 @@ defineOptions({ name: 'cccms:log' })
 
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Download } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import { useTable } from '@/composables/useTable'
-import { logDelete, logList } from '@/api/log'
+import { logDelete, logExport, logList } from '@/api/log'
 import type { ArtTableColumn } from '@/types/table'
 
 interface Row {
@@ -124,6 +132,7 @@ interface Row {
   ua?: string
   status_code?: number
   cost?: number
+  trace_id?: string
   create_time?: string
   [key: string]: unknown
 }
@@ -132,6 +141,7 @@ interface Query {
   username: string
   title: string
   path: string
+  trace_id: string
 }
 
 const columns: ArtTableColumn[] = [
@@ -140,6 +150,7 @@ const columns: ArtTableColumn[] = [
   { prop: 'username', label: '操作人', width: 110 },
   { prop: 'method', label: '方法', width: 90, align: 'center', slot: 'method' },
   { prop: 'path', label: '请求路径', minWidth: 200 },
+  { prop: 'trace_id', label: '链路ID', width: 200, defaultHidden: true },
   { prop: 'ip', label: 'IP', width: 140, defaultHidden: true },
   { prop: 'status_code', label: '状态码', width: 100, align: 'center', slot: 'status_code' },
   { prop: 'cost', label: '耗时(ms)', width: 100, align: 'right' },
@@ -148,13 +159,28 @@ const columns: ArtTableColumn[] = [
 ]
 
 const {
-  list, loading, total, page, limit, query, selection,
-  load, search, reset, onPageChange, onLimitChange, onSelectionChange,
+  list,
+  loading,
+  total,
+  page,
+  limit,
+  query,
+  selection,
+  load,
+  search,
+  reset,
+  onPageChange,
+  onLimitChange,
+  onSelectionChange,
 } = useTable<Row, Query>({
   api: logList,
-  initialQuery: { username: '', title: '', path: '' },
+  initialQuery: { username: '', title: '', path: '', trace_id: '' },
   pageSize: 15,
 })
+
+function onExport(): void {
+  void logExport({ ...query })
+}
 
 /* ---- 详情 ---- */
 const detailVisible = ref(false)
@@ -226,6 +252,12 @@ async function onDeleteOne(id: number): Promise<void> {
   font-family: Consolas, Monaco, monospace;
   font-size: 11px;
   color: var(--art-muted);
+}
+
+.log-trace {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  user-select: all;
 }
 
 .log-block {

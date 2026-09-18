@@ -12,9 +12,7 @@
       @force-delete="onForceDelete"
     >
       <template #toolbar>
-        <el-button v-auth="'cccms:menu:save'" type="primary" :icon="Plus" @click="openCreate(0)">
-          新增
-        </el-button>
+        <el-button v-auth="'cccms:menu:save'" type="primary" :icon="Plus" @click="openCreate(0)"> 新增 </el-button>
         <span class="toolbar-tip">
           按钮节点由控制器 #[Permission] 注解经 cccms:perm-scan 生成，人工改动会在下次扫描时保留
         </span>
@@ -39,13 +37,7 @@
       </template>
 
       <template #action="{ row }">
-        <el-button
-          v-if="row.type !== 3"
-          v-auth="'cccms:menu:save'"
-          link
-          type="primary"
-          @click="openCreate(row.id)"
-        >
+        <el-button v-if="row.type !== 3" v-auth="'cccms:menu:save'" link type="primary" @click="openCreate(row.id)">
           新增子项
         </el-button>
         <el-button v-auth="'cccms:menu:update'" link type="primary" @click="openEdit(row)">编辑</el-button>

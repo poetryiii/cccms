@@ -10,13 +10,17 @@ use plugin\cccms\app\controller\DeptController;
 use plugin\cccms\app\controller\DictController;
 use plugin\cccms\app\controller\FileController;
 use plugin\cccms\app\controller\GeneratorController;
+use plugin\cccms\app\controller\LoginLogController;
 use plugin\cccms\app\controller\LogController;
 use plugin\cccms\app\controller\MaintenanceController;
 use plugin\cccms\app\controller\MenuController;
+use plugin\cccms\app\controller\NoticeController;
+use plugin\cccms\app\controller\OnlineController;
 use plugin\cccms\app\controller\PostController;
 use plugin\cccms\app\controller\ProfileController;
 use plugin\cccms\app\controller\RecycleController;
 use plugin\cccms\app\controller\RoleController;
+use plugin\cccms\app\controller\UpgradeController;
 use plugin\cccms\app\controller\UserController;
 use Webman\Route;
 
@@ -45,6 +49,10 @@ Route::post('/user/save', [UserController::class, 'save']);
 Route::post('/user/update', [UserController::class, 'update']);
 Route::post('/user/delete', [UserController::class, 'delete']);
 Route::post('/user/resetPassword', [UserController::class, 'resetPassword']);
+// 导入 / 导出（CSV）：导出直接返回文件流，不走统一信封
+Route::get('/user/export', [UserController::class, 'export']);
+Route::get('/user/template', [UserController::class, 'template']);
+Route::post('/user/import', [UserController::class, 'import']);
 
 // ---- 角色 ----
 Route::get('/role', [RoleController::class, 'index']);
@@ -116,7 +124,32 @@ Route::post('/recycle/delete', [RecycleController::class, 'delete']);
 
 // ---- 日志 ----
 Route::get('/log', [LogController::class, 'index']);
+Route::get('/log/export', [LogController::class, 'export']);
 Route::post('/log/delete', [LogController::class, 'delete']);
+
+// ---- 登录日志 ----
+Route::get('/login_log', [LoginLogController::class, 'index']);
+Route::get('/login_log/export', [LoginLogController::class, 'export']);
+Route::post('/login_log/delete', [LoginLogController::class, 'delete']);
+Route::post('/login_log/clear', [LoginLogController::class, 'clear']);
+
+// ---- 在线用户（Redis 会话索引 + 强制下线） ----
+Route::get('/online', [OnlineController::class, 'index']);
+Route::post('/online/kick', [OnlineController::class, 'kick']);
+Route::post('/online/kickUser', [OnlineController::class, 'kickUser']);
+
+// ---- 通知公告 ----
+// 管理侧
+Route::get('/notice', [NoticeController::class, 'index']);
+Route::get('/notice/read', [NoticeController::class, 'read']);
+Route::post('/notice/save', [NoticeController::class, 'save']);
+Route::post('/notice/update', [NoticeController::class, 'update']);
+Route::post('/notice/delete', [NoticeController::class, 'delete']);
+// 阅读侧（登录即可，只看自己的）
+Route::get('/notice/my', [NoticeController::class, 'my']);
+Route::get('/notice/unread', [NoticeController::class, 'unread']);
+Route::post('/notice/markRead', [NoticeController::class, 'markRead']);
+Route::post('/notice/markAllRead', [NoticeController::class, 'markAllRead']);
 
 // ---- 附件 ----
 Route::get('/file', [FileController::class, 'index']);
@@ -143,6 +176,13 @@ Route::get('/generator/tables', [GeneratorController::class, 'tables']);
 Route::get('/generator/columns', [GeneratorController::class, 'columns']);
 Route::post('/generator/preview', [GeneratorController::class, 'preview']);
 Route::post('/generator/generate', [GeneratorController::class, 'generate']);
+
+// ---- 自动升级（从上游镜像同步框架代码） ----
+Route::get('/upgrade', [UpgradeController::class, 'index']);
+Route::get('/upgrade/check', [UpgradeController::class, 'check']);
+Route::get('/upgrade/tags', [UpgradeController::class, 'tags']);
+Route::post('/upgrade/init', [UpgradeController::class, 'init']);
+Route::post('/upgrade/run', [UpgradeController::class, 'run']);
 
 // ---- 代码生成器产出的模块路由（config/route/*.php） ----
 foreach (glob(__DIR__ . '/route/*.php') ?: [] as $__routeFile) {

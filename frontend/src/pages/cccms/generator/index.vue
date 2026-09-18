@@ -52,9 +52,7 @@
           </el-form-item>
 
           <el-form-item>
-            <el-button type="primary" :loading="previewing" :icon="View" @click="onPreview">
-              预览
-            </el-button>
+            <el-button type="primary" :loading="previewing" :icon="View" @click="onPreview"> 预览 </el-button>
             <el-button
               v-auth="'cccms:generator:generate'"
               type="danger"
@@ -70,7 +68,9 @@
       </el-card>
 
       <el-card v-if="columns.length" shadow="never" class="gen-block">
-        <template #header><span>字段（{{ columns.length }}）</span></template>
+        <template #header
+          ><span>字段（{{ columns.length }}）</span></template
+        >
         <el-table :data="columns" stripe border size="small">
           <el-table-column prop="name" label="字段" min-width="160" />
           <el-table-column prop="type" label="类型" width="140" />
@@ -84,13 +84,11 @@
       </el-card>
 
       <el-card v-if="files.length" shadow="never" class="gen-block">
-        <template #header><span>生成预览（{{ files.length }} 个文件）</span></template>
+        <template #header
+          ><span>生成预览（{{ files.length }} 个文件）</span></template
+        >
         <el-tabs>
-          <el-tab-pane
-            v-for="f in files"
-            :key="f.path"
-            :label="f.path.split('/').pop()"
-          >
+          <el-tab-pane v-for="f in files" :key="f.path" :label="f.path.split('/').pop()">
             <div class="file-path">{{ f.path }}</div>
             <pre class="code-block">{{ f.content }}</pre>
           </el-tab-pane>
@@ -103,7 +101,10 @@
           <el-tag v-for="f in result.files" :key="f" type="success" effect="light">{{ f }}</el-tag>
         </div>
         <el-alert type="info" :closable="false" class="result-alert">
-          <div>已登记菜单：<b>{{ result.menu.path }}</b>（slug: {{ result.menu.slug }}）</div>
+          <div>
+            已登记菜单：<b>{{ result.menu.path }}</b
+            >（slug: {{ result.menu.slug }}）
+          </div>
           <div class="result-tip">
             如需纳入声明式源文件 <code>plugin/{{ form.plugin }}/db/menu.php</code>，可粘贴：
           </div>

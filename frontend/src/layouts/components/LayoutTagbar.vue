@@ -14,12 +14,7 @@
             <ArtIcon :name="tab.icon" />
           </el-icon>
           <span class="tagbar-item-text">{{ tab.title }}</span>
-          <el-icon
-            v-if="!tab.pinned"
-            class="tagbar-item-close"
-            :size="12"
-            @click.stop="close(tab.path)"
-          >
+          <el-icon v-if="!tab.pinned" class="tagbar-item-close" :size="12" @click.stop="close(tab.path)">
             <Close />
           </el-icon>
         </div>
@@ -49,11 +44,7 @@
     </div>
 
     <teleport to="body">
-      <ul
-        v-if="contextVisible"
-        class="tagbar-context"
-        :style="{ left: `${contextPos.x}px`, top: `${contextPos.y}px` }"
-      >
+      <ul v-if="contextVisible" class="tagbar-context" :style="{ left: `${contextPos.x}px`, top: `${contextPos.y}px` }">
         <li @click="runContext('refresh')">刷新</li>
         <li v-if="contextPinnable" @click="runContext('pin')">
           {{ contextPinned ? '取消固定' : '固定标签' }}
@@ -83,9 +74,7 @@ const contextPos = reactive({ x: 0, y: 0 })
 const contextTarget = ref<string>('')
 
 const contextPinnable = computed(() => contextTarget.value !== HOME_PATH)
-const contextPinned = computed(
-  () => worktab.tabs.find((t) => t.path === contextTarget.value)?.pinned ?? false,
-)
+const contextPinned = computed(() => worktab.tabs.find((t) => t.path === contextTarget.value)?.pinned ?? false)
 
 function go(path: string): void {
   worktab.setActive(path)

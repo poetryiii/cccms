@@ -42,7 +42,9 @@
 /* ---- 路由过渡 ---- */
 .fade-slide-enter-active,
 .fade-slide-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
 }
 
 .fade-slide-enter-from {
@@ -90,7 +92,9 @@
 }
 
 #nprogress .peg {
-  box-shadow: 0 0 10px var(--art-primary), 0 0 5px var(--art-primary) !important;
+  box-shadow:
+    0 0 10px var(--art-primary),
+    0 0 5px var(--art-primary) !important;
 }
 
 #nprogress .spinner-icon {

@@ -1,0 +1,1167 @@
+<?php
+
+declare(strict_types=1);
+
+namespace plugin\cccms\support;
+
+use FilesystemIterator;
+use RecursiveCallbackFilterIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use SplFileInfo;
+use Throwable;
+
+/**
+ * 上游代码同步器：把开源 CCCMS 仓库的框架更新安全地同步到本地。
+ *
+ * ## 解决什么问题
+ *
+ * 下游基于某个版本开发了大量业务插件后，框架自身也在演进。此时「哪些文件改过、
+ * 能不能覆盖」靠人工无法判断。本类用**三份哈希比对**给出机械结论：
+ *
+ * ```
+ * 基线(base)   —— 上次同步到的上游版本各文件哈希（state.json）
+ * 本地(local)  —— 当前磁盘上的文件哈希
+ * 上游(remote) —— 目标版本各文件哈希
+ * ```
+ *
+ * ## 分类与处置
+ *
+ * | 分类 | 条件 | 默认处置 |
+ * |---|---|---|
+ * | `new` | 上游有、本地无、基线也没有 | 直接写入（真·上游新增） |
+ * | `safe` | 本地 == 基线、上游 != 基线 | 覆盖（本地没改过，安全） |
+ * | `local` | 本地 != 基线、上游 == 基线 | 保留（本地定制，上游没动） |
+ * | `deleted` | 上游有、本地无、基线里有 | 保留（本地主动删除，不上演「复活」） |
+ * | `conflict` | 两边都改了 | 只报告；强制覆盖才写入（先备份） |
+ * | `removed` | 上游删除、本地 == 基线 | 只报告；清理才删除（先备份） |
+ * | `same` | 三方一致 | 跳过 |
+ *
+ * 本地独有文件（既不在基线也不在上游）**永远不动**，所以业务插件天然安全。
+ *
+ * ## 多源
+ *
+ * 可配置多个镜像源（如 Gitee 国内镜像 / GitHub 国外），每个源独立缓存一份仓库、
+ * 独立 fetch，互不影响；基线状态是**内容哈希**，与源无关，因此切换源不需要重建基线。
+ *
+ * ## 设计要点
+ *
+ * 1. **不依赖本地 git 仓库**：只在 `runtime/cccms-upgrade/repo/{源}` 缓存一份上游仓库，
+ *    在缓存里 fetch / reset。因此下游把代码拷成非 git 目录、或工作区有未提交改动，
+ *    都不影响同步，也不会污染本地版本历史。
+ * 2. **覆盖必先备份**：所有被覆盖 / 删除的文件按原相对路径复制到备份目录，可随时回滚。
+ * 3. **默认不覆盖冲突**：无人值守（定时任务 / 页面一键升级）场景下也不会丢代码。
+ * 4. **行尾归一化后再哈希**：避免 Windows(CRLF) 与仓库(LF) 的差异被误判成「本地改过」。
+ */
+final class Upgrader
+{
+    /** 上游新增，本地没有 */
+    public const NEW = 'new';
+
+    /** 本地没改过、上游改了 → 可安全覆盖 */
+    public const SAFE = 'safe';
+
+    /** 本地改了、上游没动 → 保留 */
+    public const LOCAL = 'local';
+
+    /** 两边都改了 → 需人工决定 */
+    public const CONFLICT = 'conflict';
+
+    /** 上游删除了该文件（本地未改） */
+    public const REMOVED = 'removed';
+
+    /** 本地删除了该文件，上游仍有 → 尊重本地（多为重命名 / 精简） */
+    public const DELETED = 'deleted';
+
+    /** 三方一致，无需处理 */
+    public const SAME = 'same';
+
+    /** 分类标签（输出用） */
+    public const LABELS = [
+        self::NEW      => '上游新增',
+        self::SAFE     => '可安全覆盖',
+        self::LOCAL    => '本地已改(保留)',
+        self::DELETED  => '本地已删除(保留)',
+        self::CONFLICT => '冲突(需合并)',
+        self::REMOVED  => '上游已移除',
+        self::SAME     => '已是最新',
+    ];
+
+    /** 界面展示顺序：越靠前越需要关注 */
+    public const ORDER = [
+        self::CONFLICT, self::SAFE, self::NEW, self::REMOVED, self::LOCAL, self::DELETED, self::SAME,
+    ];
+
+    // ---------------------------------------------------------------------
+    // 配置与路径
+    // ---------------------------------------------------------------------
+
+    /**
+     * 读取本模块配置（带默认值，兼容配置文件缺失的旧环境）。
+     *
+     * @return array<string,mixed>
+     */
+    public static function settings(): array
+    {
+        $defaults = [
+            'enable'         => true,
+            'remotes'        => [],
+            'default_source' => '',
+            'track'          => 'main',
+            'base'           => 'v0.0.1',
+            'include'        => [],
+            'exclude'        => [],
+            'cache_dir'      => 'runtime/cccms-upgrade/repo',
+            'state_file'     => 'runtime/cccms-upgrade/state.json',
+            'backup_dir'     => 'runtime/cccms-upgrade/backups',
+            'git'            => 'git',
+        ];
+
+        $conf = config('plugin.cccms.upgrade');
+
+        return array_merge($defaults, is_array($conf) ? $conf : []);
+    }
+
+    /**
+     * 可用同步源。
+     *
+     * @return array<int,array{key:string,label:string,url:string}>
+     */
+    public static function sources(): array
+    {
+        $sources = [];
+
+        foreach ((array)self::settings()['remotes'] as $key => $conf) {
+            // 允许简写：'gitee' => 'https://...'
+            if (is_string($conf)) {
+                $conf = ['url' => $conf];
+            }
+            if (!is_array($conf)) {
+                continue;
+            }
+
+            $sources[] = [
+                'key'   => (string)$key,
+                'label' => (string)($conf['label'] ?? $key),
+                'url'   => (string)($conf['url'] ?? ''),
+            ];
+        }
+
+        return array_values(array_filter($sources, static fn (array $s): bool => $s['url'] !== ''));
+    }
+
+    /** 默认源 key（配置无效时退化为第一个可用源） */
+    public static function defaultSource(): string
+    {
+        $configured = (string)self::settings()['default_source'];
+        $keys       = array_column(self::sources(), 'key');
+
+        if ($configured !== '' && in_array($configured, $keys, true)) {
+            return $configured;
+        }
+
+        return (string)($keys[0] ?? '');
+    }
+
+    /**
+     * 解析源：不传用默认源；key 非法则报错。
+     *
+     * @return array{key:string,label:string,url:string}
+     */
+    public static function resolveSource(?string $source = null): array
+    {
+        $all = self::sources();
+        if ($all === []) {
+            throw new ApiException('未配置任何上游仓库地址（plugin.cccms.upgrade.remotes）', 500);
+        }
+
+        $key = $source !== null && $source !== '' ? $source : self::defaultSource();
+
+        foreach ($all as $item) {
+            if ($item['key'] === $key) {
+                return $item;
+            }
+        }
+
+        $keys = implode(' / ', array_column($all, 'key'));
+
+        throw new ApiException("未知的同步源「{$key}」，可用：{$keys}", 422);
+    }
+
+    /** 项目根（server 的上一级，即仓库根） */
+    public static function root(): string
+    {
+        return rtrim(str_replace('\\', '/', dirname(base_path())), '/');
+    }
+
+    /** 项目根内的相对路径 → 绝对路径 */
+    public static function path(string $relative): string
+    {
+        return self::root() . '/' . ltrim(str_replace('\\', '/', $relative), '/');
+    }
+
+    /** 绝对路径 → 项目根内的相对路径 */
+    public static function relative(string $absolute): string
+    {
+        $absolute = str_replace('\\', '/', $absolute);
+        $root     = self::root() . '/';
+
+        return str_starts_with($absolute, $root) ? substr($absolute, strlen($root)) : $absolute;
+    }
+
+    /** 配置里的目录项（相对 server 根）→ 绝对路径；已是绝对路径则原样返回 */
+    private static function resolve(string $path): string
+    {
+        $path = str_replace('\\', '/', $path);
+        if (preg_match('#^([A-Za-z]:/|/)#', $path) === 1) {
+            return $path;
+        }
+
+        return rtrim(str_replace('\\', '/', base_path()), '/') . '/' . ltrim($path, '/');
+    }
+
+    /** 某个源的缓存仓库目录（每个源独立一份，互不干扰） */
+    private static function repoDir(string $source): string
+    {
+        return self::resolve((string)self::settings()['cache_dir']) . '/' . $source;
+    }
+
+    private static function stateFile(): string
+    {
+        return self::resolve((string)self::settings()['state_file']);
+    }
+
+    private static function backupDir(): string
+    {
+        return self::resolve((string)self::settings()['backup_dir']);
+    }
+
+    // ---------------------------------------------------------------------
+    // 清单过滤
+    // ---------------------------------------------------------------------
+
+    /** 是否被排除（仅供目录剪枝与文件判断复用） */
+    public static function excluded(string $relative): bool
+    {
+        $path = trim(str_replace('\\', '/', $relative), '/');
+        if ($path === '') {
+            return false;
+        }
+
+        foreach ((array)self::settings()['exclude'] as $prefix) {
+            $prefix = trim(str_replace('\\', '/', (string)$prefix), '/');
+            if ($prefix !== '' && ($path === $prefix || str_starts_with($path, $prefix . '/'))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** 是否属于同步范围（未被排除，且命中 include 白名单——白名单为空即全部） */
+    public static function accepts(string $relative): bool
+    {
+        $path = trim(str_replace('\\', '/', $relative), '/');
+        if ($path === '' || self::excluded($path)) {
+            return false;
+        }
+
+        $include = array_filter(array_map(
+            static fn ($v): string => trim(str_replace('\\', '/', (string)$v), '/'),
+            (array)self::settings()['include']
+        ));
+        if ($include === []) {
+            return true;
+        }
+
+        foreach ($include as $prefix) {
+            if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // ---------------------------------------------------------------------
+    // 哈希
+    // ---------------------------------------------------------------------
+
+    /**
+     * 内容摘要。
+     *
+     * 文本文件先归一化行尾，避免 CRLF / LF 差异被误判成「改过」；
+     * 二进制（含 NUL 字节）原样哈希 —— git 本来也不会对它们做行尾转换。
+     */
+    public static function digest(string $content): string
+    {
+        if (str_contains($content, "\0")) {
+            return sha1($content);
+        }
+
+        return sha1(str_replace("\r\n", "\n", $content));
+    }
+
+    /** 文件摘要；文件不存在返回 null */
+    public static function digestFile(string $path): ?string
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $content = @file_get_contents($path);
+
+        return $content === false ? null : self::digest($content);
+    }
+
+    // ---------------------------------------------------------------------
+    // git
+    // ---------------------------------------------------------------------
+
+    /**
+     * 执行 git 命令。
+     *
+     * 用 proc_open 的**数组形式**参数（不经过 shell），避免路径含空格 / 特殊字符时出错，
+     * 也顺带避免了命令注入。
+     *
+     * 统一注入 `core.autocrlf=false` / `core.eol=lf`：缓存仓库的工作区必须是 blob 原样，
+     * 否则 Windows 上 checkout 会自动把 LF 转成 CRLF，让同一版本在不同时刻算出不同哈希，
+     * 分类结果随之漂移。
+     *
+     * @param  array<int,string> $args
+     * @return array{0:int,1:string,2:string} [退出码, stdout, stderr]
+     */
+    private static function git(array $args, ?string $cwd = null): array
+    {
+        $bin = (string)self::settings()['git'];
+        $cmd = array_merge(
+            [
+                $bin,
+                '-c', 'core.autocrlf=false',
+                '-c', 'core.eol=lf',
+                // 中文文件名不能被转义成 \xxx，否则 diffStat 的 path 与 ls-tree 的 path 对不上
+                '-c', 'core.quotepath=false',
+            ],
+            $args
+        );
+
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = @proc_open($cmd, $descriptors, $pipes, $cwd);
+        if (!is_resource($process)) {
+            throw new ApiException(
+                '无法执行 git，请确认已安装并加入 PATH（当前配置：' . $bin . '）',
+                500
+            );
+        }
+
+        fclose($pipes[0]);
+        $stdout = (string)stream_get_contents($pipes[1]);
+        $stderr = (string)stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return [proc_close($process), $stdout, $stderr];
+    }
+
+    /** git 是否可用 */
+    public static function gitAvailable(): bool
+    {
+        try {
+            return self::git(['--version'])[0] === 0;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * 确保缓存里有一份可用的上游仓库，返回仓库目录。
+     *
+     * 首次 clone，之后按需 fetch；`$fetch = false` 表示只用已有缓存（离线模式）。
+     * 缓存损坏（半删、缺 origin 配置）时自动重建一次，避免卡在无法诊断的 git 报错上。
+     */
+    private static function ensureRepo(string $source, bool $fetch = true): string
+    {
+        $repo = self::repoDir($source);
+        $url  = self::resolveSource($source)['url'];
+
+        if (!is_dir($repo . '/.git')) {
+            self::createRepo($repo, $url);
+
+            return $repo;
+        }
+
+        if ($fetch) {
+            [$code, , $err] = self::git(['-C', $repo, 'fetch', '--quiet', '--tags', '--force', 'origin']);
+            if ($code !== 0) {
+                // 目录还在但结构已坏（例如手动删了一半）→ 重建后再用
+                self::createRepo($repo, $url);
+            }
+        }
+
+        return $repo;
+    }
+
+    /** 清空并重新 clone 缓存仓库 */
+    private static function createRepo(string $repo, string $remote): void
+    {
+        self::rmdir($repo);
+        if (is_dir($repo . '/.git')) {
+            throw new ApiException('缓存目录无法清理，请手动删除后重试：' . $repo, 500);
+        }
+
+        @mkdir(dirname($repo), 0755, true);
+
+        [$code, , $err] = self::git(['clone', '--quiet', $remote, $repo]);
+        if ($code !== 0) {
+            throw new ApiException('拉取上游仓库失败：' . trim($err ?: 'clone 退出码 ' . $code), 500);
+        }
+    }
+
+    /**
+     * 切到目标版本（无条件重写工作区），返回该版本的 commit。
+     *
+     * 用 `reset --hard` 而不是 `checkout`：checkout 在「已处于该 ref 且工作区干净」时会跳过写文件，
+     * 于是行尾转换配置变化后旧工作区不会被修正；reset --hard 每次都按当前配置重写。
+     */
+    private static function checkout(string $repo, string $ref): string
+    {
+        [$code, , $err] = self::git(['-C', $repo, 'reset', '--hard', '--quiet', $ref]);
+
+        if ($code !== 0) {
+            // 目标可能是刚发布的 tag：补一次 fetch 再试
+            self::git(['-C', $repo, 'fetch', '--quiet', '--tags', '--force', 'origin']);
+            [$code, , $err] = self::git(['-C', $repo, 'reset', '--hard', '--quiet', $ref]);
+        }
+
+        if ($code !== 0) {
+            throw new ApiException("切换上游版本失败（{$ref}）：" . trim($err), 500);
+        }
+
+        [$ok, $out] = self::git(['-C', $repo, 'rev-parse', 'HEAD']);
+
+        return $ok === 0 ? trim($out) : '';
+    }
+
+    /** 解析某个 ref 的 commit（不存在返回空串，不抛异常） */
+    private static function resolveCommit(string $repo, string $ref): string
+    {
+        if ($ref === '') {
+            return '';
+        }
+
+        [$code, $out] = self::git(['-C', $repo, 'rev-parse', '--verify', '--quiet', $ref]);
+
+        return $code === 0 ? trim($out) : '';
+    }
+
+    /**
+     * 上游提交记录（`from..to`）。
+     *
+     * @return array<int,array{hash:string,short:string,author:string,date:string,message:string}>
+     */
+    public static function commits(string $repo, string $from, string $to, int $limit = 100): array
+    {
+        if ($from === '' || $to === '' || $from === $to) {
+            return [];
+        }
+
+        [$code, $out] = self::git([
+            '-C', $repo, 'log', '--no-merges',
+            '--date=format:%Y-%m-%d %H:%M',
+            '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s',
+            '-n', (string)$limit,
+            $from . '..' . $to,
+        ]);
+        if ($code !== 0) {
+            return [];
+        }
+
+        $rows = [];
+        foreach (explode("\n", trim($out)) as $line) {
+            if ($line === '') {
+                continue;
+            }
+            $parts = explode("\x1f", $line);
+            if (count($parts) < 5) {
+                continue;
+            }
+            $rows[] = [
+                'hash'    => $parts[0],
+                'short'   => $parts[1],
+                'author'  => $parts[2],
+                'date'    => $parts[3],
+                'message' => $parts[4],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * 文件行数统计（`from..to`）。
+     *
+     * 用 `-z` 分隔，避免文件名含制表符 / 空格时解析出错。
+     *
+     * @return array<string,array{added:int,deleted:int,binary:bool}>
+     */
+    public static function diffStat(string $repo, string $from, string $to): array
+    {
+        if ($from === '' || $to === '' || $from === $to) {
+            return [];
+        }
+
+        [$code, $out] = self::git(['-C', $repo, 'diff', '--numstat', '--no-renames', '-z', $from, $to]);
+        if ($code !== 0) {
+            return [];
+        }
+
+        $stats = [];
+        foreach (explode("\0", $out) as $entry) {
+            $entry = trim($entry, "\n");
+            if ($entry === '') {
+                continue;
+            }
+            $parts = explode("\t", $entry);
+            if (count($parts) < 3) {
+                continue;
+            }
+
+            $binary           = $parts[0] === '-';
+            $stats[$parts[2]] = [
+                'added'   => $binary ? 0 : (int)$parts[0],
+                'deleted' => $binary ? 0 : (int)$parts[1],
+                'binary'  => $binary,
+            ];
+        }
+
+        return $stats;
+    }
+
+    /**
+     * 上游当前工作区（= 目标版本）内的文件清单。
+     *
+     * 以 `git ls-tree` 为准（只含被跟踪的文件），再套用 include / exclude 过滤。
+     *
+     * @return array<string,string> 相对路径 => sha1
+     */
+    private static function upstreamFiles(string $repo): array
+    {
+        [$code, $out, $err] = self::git(['-C', $repo, 'ls-tree', '-r', '-z', '--name-only', 'HEAD']);
+        if ($code !== 0) {
+            throw new ApiException('读取上游文件清单失败：' . trim($err), 500);
+        }
+
+        $files = [];
+        foreach (explode("\0", $out) as $relative) {
+            $relative = trim($relative);
+            if ($relative === '' || !self::accepts($relative)) {
+                continue;
+            }
+            $digest = self::digestFile($repo . '/' . $relative);
+            if ($digest !== null) {
+                $files[$relative] = $digest;
+            }
+        }
+        ksort($files);
+
+        return $files;
+    }
+
+    /**
+     * 扫描本地文件（按 include / exclude 过滤，被排除的目录整体剪枝）。
+     *
+     * @return array<string,string> 相对路径 => sha1
+     */
+    public static function scanLocal(): array
+    {
+        $root = self::root();
+        if (!is_dir($root)) {
+            return [];
+        }
+
+        $directory = new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS);
+        $filter    = new RecursiveCallbackFilterIterator(
+            $directory,
+            static function (SplFileInfo $current): bool {
+                $relative = self::relative($current->getPathname());
+
+                // 目录：只按排除规则剪枝（include 白名单不用于剪枝，否则根目录会被剪掉）
+                if ($current->isDir()) {
+                    return !self::excluded($relative);
+                }
+
+                return self::accepts($relative);
+            }
+        );
+
+        $files = [];
+        foreach (new RecursiveIteratorIterator($filter) as $file) {
+            /** @var SplFileInfo $file */
+            $digest = self::digestFile($file->getPathname());
+            if ($digest !== null) {
+                $files[self::relative($file->getPathname())] = $digest;
+            }
+        }
+        ksort($files);
+
+        return $files;
+    }
+
+    // ---------------------------------------------------------------------
+    // 基线状态
+    // ---------------------------------------------------------------------
+
+    /**
+     * 读取基线状态。
+     *
+     * 基线是**内容哈希**，与源无关：换源不需要重建基线。
+     *
+     * @return array<string,mixed> 空数组代表尚未初始化
+     */
+    public static function state(): array
+    {
+        $file = self::stateFile();
+        if (!is_file($file)) {
+            return [];
+        }
+
+        $data = json_decode((string)file_get_contents($file), true);
+
+        return is_array($data) ? $data : [];
+    }
+
+    private static function saveState(array $state): void
+    {
+        $file = self::stateFile();
+        @mkdir(dirname($file), 0755, true);
+        file_put_contents(
+            $file,
+            json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+    }
+
+    public static function initialized(): bool
+    {
+        return self::state() !== [];
+    }
+
+    /** 当前版本信息（界面顶部展示） */
+    public static function current(): array
+    {
+        $state = self::state();
+
+        return [
+            'initialized' => $state !== [],
+            'base'        => (string)($state['base'] ?? ''),
+            'commit'      => (string)($state['base_commit'] ?? ''),
+            'synced_at'   => (string)($state['synced_at'] ?? ''),
+            'files'       => count((array)($state['files'] ?? [])),
+        ];
+    }
+
+    // ---------------------------------------------------------------------
+    // 对外动作
+    // ---------------------------------------------------------------------
+
+    private static function assertEnabled(): void
+    {
+        if (!(bool)self::settings()['enable']) {
+            throw new ApiException('上游同步已关闭（plugin.cccms.upgrade.enable = false）', 500);
+        }
+    }
+
+    /**
+     * 建立基线：记录「当前代码基于的上游版本」。
+     *
+     * 首次使用必须走这一步，同时回答「我相对上游改了哪些文件」。
+     *
+     * @return array<string,mixed>
+     */
+    public static function init(?string $ref = null, bool $fetch = true, ?string $source = null): array
+    {
+        self::assertEnabled();
+
+        $setting = self::settings();
+        $src     = self::resolveSource($source);
+        $ref     = $ref ?: (string)$setting['base'];
+        $repo    = self::ensureRepo($src['key'], $fetch);
+
+        // 上游还没打该 tag 时回退到跟踪分支：否则首次使用会因为「版本不存在」直接卡住
+        $fallback = '';
+        try {
+            $commit = self::checkout($repo, $ref);
+        } catch (ApiException $e) {
+            $track = (string)$setting['track'];
+            if ($ref === $track) {
+                throw $e;
+            }
+            $commit   = self::checkout($repo, $track);
+            $fallback = $ref;
+            $ref      = $track;
+        }
+
+        $files = self::upstreamFiles($repo);
+
+        $modified = [];
+        $missing  = [];
+        foreach ($files as $path => $digest) {
+            $local = self::digestFile(self::path($path));
+            if ($local === null) {
+                $missing[] = $path;
+            } elseif ($local !== $digest) {
+                $modified[] = $path;
+            }
+        }
+
+        $localOnly = [];
+        foreach (self::scanLocal() as $path => $digest) {
+            if (!isset($files[$path])) {
+                $localOnly[] = $path;
+            }
+        }
+
+        self::saveState([
+            'base'        => $ref,
+            'base_commit' => $commit,
+            'source'      => $src['key'],
+            'synced_at'   => date('Y-m-d H:i:s'),
+            'files'       => $files,
+        ]);
+
+        return [
+            'source'    => $src,
+            'ref'       => $ref,
+            'commit'    => $commit,
+            'fallback'  => $fallback,
+            'total'     => count($files),
+            'modified'  => $modified,
+            'missing'   => $missing,
+            'localOnly' => $localOnly,
+        ];
+    }
+
+    /**
+     * 生成同步计划（只读，不写任何文件）。
+     *
+     * @param  string|null $ref    目标版本（分支 / tag / commit），null 用配置的 track
+     * @param  bool        $fetch  是否联网刷新上游仓库
+     * @param  string|null $source 同步源 key，null 用默认源
+     * @return array<string,mixed>
+     */
+    public static function plan(?string $ref = null, bool $fetch = true, ?string $source = null): array
+    {
+        self::assertEnabled();
+
+        $state = self::state();
+        if ($state === []) {
+            throw new ApiException('尚未建立基线，请先初始化（php webman cccms:update --init）', 500);
+        }
+
+        $src     = self::resolveSource($source);
+        $ref     = $ref ?: (string)self::settings()['track'];
+        $repo    = self::ensureRepo($src['key'], $fetch);
+        $commit  = self::checkout($repo, $ref);
+        $remote  = self::upstreamFiles($repo);
+        $base    = (array)($state['files'] ?? []);
+        $baseRef = (string)($state['base'] ?? '');
+
+        $items = [];
+        foreach ($remote as $path => $digest) {
+            $local = self::digestFile(self::path($path));
+
+            if ($local === null) {
+                // 基线里也没有 → 上游新增；基线里有 → 是本地主动删除，不能写回（否则重命名会被复活）
+                $items[$path] = isset($base[$path]) ? self::DELETED : self::NEW;
+            } elseif ($local === $digest) {
+                $items[$path] = self::SAME;
+            } elseif (!isset($base[$path])) {
+                // 上游新增的路径，本地恰好已有同名文件（多半是下游自建）→ 不能覆盖
+                $items[$path] = self::CONFLICT;
+            } elseif ($local === $base[$path]) {
+                $items[$path] = self::SAFE;
+            } elseif ($digest === $base[$path]) {
+                $items[$path] = self::LOCAL;
+            } else {
+                $items[$path] = self::CONFLICT;
+            }
+        }
+
+        // 基线里有、上游新版没有 → 上游移除了该文件
+        foreach ($base as $path => $digest) {
+            if (isset($remote[$path])) {
+                continue;
+            }
+            $local = self::digestFile(self::path($path));
+            if ($local === null) {
+                continue; // 本地也删了，无需处理
+            }
+            $items[$path] = $local === $digest ? self::REMOVED : self::LOCAL;
+        }
+
+        // 上游从基线到目标的变化：提交记录 + 每文件行数
+        $stats   = self::diffStat($repo, $baseRef, $ref);
+        $commits = self::commits($repo, $baseRef, $ref);
+
+        $files  = [];
+        $added  = 0;
+        $deleted = 0;
+        foreach (self::ORDER as $kind) {
+            foreach ($items as $path => $itemKind) {
+                if ($itemKind !== $kind || $kind === self::SAME) {
+                    continue;
+                }
+                $stat = $stats[$path] ?? ['added' => 0, 'deleted' => 0, 'binary' => false];
+                $added   += $stat['added'];
+                $deleted += $stat['deleted'];
+
+                $files[] = [
+                    'path'       => $path,
+                    'kind'       => $kind,
+                    'kind_label' => self::LABELS[$kind],
+                    'added'      => $stat['added'],
+                    'deleted'    => $stat['deleted'],
+                    'binary'     => (bool)$stat['binary'],
+                ];
+            }
+        }
+
+        return [
+            'source'      => $src,
+            'source_key'  => $src['key'],
+            'repo'        => $repo,
+            'ref'         => $ref,
+            'commit'      => $commit,
+            'base'        => $baseRef,
+            'base_commit' => self::resolveCommit($repo, $baseRef),
+            'items'       => $items,
+            'files'       => $files,
+            'summary'     => self::summarize($items),
+            'commits'     => $commits,
+            'lines'       => ['added' => $added, 'deleted' => $deleted],
+            'localOnly'   => self::localOnly($remote, $base),
+            'modified'    => array_keys(array_filter(
+                $items,
+                static fn (string $kind): bool => $kind === self::LOCAL
+            )),
+        ];
+    }
+
+    /**
+     * 执行计划：写入 / 覆盖 / 删除，并更新基线。
+     *
+     * @param  array<string,mixed> $plan  plan() 的返回值
+     * @return array{written:int,removed:int,backed:int,skipped:array<int,string>,backupDir:string,report:string}
+     */
+    public static function apply(array $plan, bool $force = false, bool $prune = false): array
+    {
+        $repo   = (string)($plan['repo'] ?? '');
+        if ($repo === '' || !is_dir($repo)) {
+            throw new ApiException('同步计划已失效，请重新检查更新', 500);
+        }
+
+        $backup = self::backupDir() . '/' . date('YmdHis');
+        $items  = (array)($plan['items'] ?? []);
+
+        $written = 0;
+        $removed = 0;
+        $backed  = 0;
+        $skipped = [];
+
+        foreach ($items as $path => $kind) {
+            $absolute = self::path($path);
+
+            $overwrite = $kind === self::SAFE || $kind === self::NEW || $kind === self::CONFLICT;
+            if ($overwrite) {
+                if ($kind === self::CONFLICT && !$force) {
+                    $skipped[] = $path;
+                    continue;
+                }
+                $backed += self::backup($absolute, $backup, $path) ? 1 : 0;
+                self::copy($repo . '/' . $path, $absolute);
+                $written++;
+                continue;
+            }
+
+            if ($kind === self::REMOVED) {
+                if (!$prune) {
+                    $skipped[] = $path;
+                    continue;
+                }
+                $backed += self::backup($absolute, $backup, $path) ? 1 : 0;
+                @unlink($absolute);
+                $removed++;
+            }
+        }
+
+        $report = self::writeReport($backup, $plan, $written, $removed, $backed, $skipped);
+
+        // 基线推进到目标版本：已覆盖的文件下次即视为「未改动」，
+        // 未覆盖的冲突文件仍保留本地内容，下次依旧会被识别成「本地已改」
+        self::saveState([
+            'base'        => (string)($plan['ref'] ?? ''),
+            'base_commit' => (string)($plan['commit'] ?? ''),
+            'source'      => (string)($plan['source_key'] ?? ''),
+            'synced_at'   => date('Y-m-d H:i:s'),
+            'files'       => self::upstreamFiles($repo),
+        ]);
+
+        return [
+            'written'   => $written,
+            'removed'   => $removed,
+            'backed'    => $backed,
+            'skipped'   => $skipped,
+            'backupDir' => $backed > 0 ? $backup : '',
+            'report'    => $report,
+        ];
+    }
+
+    /**
+     * 监控 / 页面用的只读状态：任何异常都转成「不可用」而不是抛出。
+     *
+     * @return array<string,mixed>
+     */
+    public static function status(?string $source = null, ?string $ref = null): array
+    {
+        $result = [
+            'enabled'     => (bool)self::settings()['enable'],
+            'initialized' => false,
+            'ok'          => false,
+            'message'     => '',
+            'ref'         => '',
+            'base'        => '',
+            'summary'     => [],
+            'conflicts'   => [],
+        ];
+
+        if (!$result['enabled']) {
+            $result['message'] = '上游同步已关闭';
+
+            return $result;
+        }
+
+        try {
+            if (!self::gitAvailable()) {
+                $result['message'] = '未检测到 git 可执行文件';
+
+                return $result;
+            }
+
+            if (!self::initialized()) {
+                $result['message'] = '尚未建立基线';
+
+                return $result;
+            }
+
+            $plan = self::plan($ref, true, $source);
+            $result['initialized'] = true;
+            $result['ok']          = true;
+            $result['ref']         = (string)$plan['ref'];
+            $result['base']        = (string)$plan['base'];
+            $result['summary']     = (array)$plan['summary'];
+            $result['conflicts']   = array_keys(array_filter(
+                (array)$plan['items'],
+                static fn (string $kind): bool => $kind === self::CONFLICT
+            ));
+            $result['message']     = self::summarizeText($plan);
+
+            return $result;
+        } catch (Throwable $e) {
+            $result['message'] = '检查失败：' . $e->getMessage();
+
+            return $result;
+        }
+    }
+
+    /**
+     * 远端可用版本（tag）列表。
+     *
+     * @return array<int,string>
+     */
+    public static function remoteTags(?string $source = null): array
+    {
+        self::assertEnabled();
+
+        $url = self::resolveSource($source)['url'];
+
+        [$code, $out, $err] = self::git(['ls-remote', '--tags', '--refs', $url]);
+        if ($code !== 0) {
+            throw new ApiException('读取远端版本失败：' . trim($err), 500);
+        }
+
+        $tags = [];
+        foreach (explode("\n", trim($out)) as $line) {
+            if ($line === '') {
+                continue;
+            }
+            $parts = preg_split('/\s+/', trim($line)) ?: [];
+            $ref   = $parts[1] ?? '';
+            if (str_starts_with($ref, 'refs/tags/')) {
+                $tags[] = substr($ref, strlen('refs/tags/'));
+            }
+        }
+
+        // 版本号倒序（v0.0.10 应排在 v0.0.9 前面）
+        usort($tags, static fn (string $a, string $b): int => version_compare(
+            ltrim($b, 'vV'),
+            ltrim($a, 'vV')
+        ));
+
+        return $tags;
+    }
+
+    /** 用文字概括一份计划（命令输出与监控摘要共用） */
+    public static function summarizeText(array $plan): string
+    {
+        $summary = (array)($plan['summary'] ?? []);
+        $parts   = [];
+
+        foreach ([self::NEW, self::SAFE, self::CONFLICT, self::REMOVED, self::LOCAL, self::DELETED] as $kind) {
+            $count = (int)($summary[$kind] ?? 0);
+            if ($count > 0) {
+                $parts[] = self::LABELS[$kind] . ' ' . $count;
+            }
+        }
+
+        if ($parts === []) {
+            return '已是最新（目标 ' . ($plan['ref'] ?? '') . '）';
+        }
+
+        return implode('，', $parts);
+    }
+
+    // ---------------------------------------------------------------------
+    // 内部工具
+    // ---------------------------------------------------------------------
+
+    /**
+     * 分类计数。
+     *
+     * @param  array<string,string> $items
+     * @return array<string,int>
+     */
+    public static function summarize(array $items): array
+    {
+        $summary = array_fill_keys(array_keys(self::LABELS), 0);
+        foreach ($items as $kind) {
+            $summary[$kind] = ($summary[$kind] ?? 0) + 1;
+        }
+
+        return $summary;
+    }
+
+    /**
+     * 本地独有文件（既不在上游也不在基线）。
+     *
+     * @return array<int,string>
+     */
+    private static function localOnly(array $remote, array $base): array
+    {
+        $paths = [];
+        foreach (self::scanLocal() as $path => $digest) {
+            if (!isset($remote[$path]) && !isset($base[$path])) {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
+    /** 覆盖前备份（保持相对路径，便于整棵回滚） */
+    private static function backup(string $absolute, string $backupDir, string $relative): bool
+    {
+        if (!is_file($absolute)) {
+            return false;
+        }
+
+        $target = $backupDir . '/' . $relative;
+        @mkdir(dirname($target), 0755, true);
+
+        return @copy($absolute, $target);
+    }
+
+    private static function copy(string $from, string $to): void
+    {
+        if (!is_file($from)) {
+            throw new ApiException("上游文件缺失，无法写入：{$from}", 500);
+        }
+        @mkdir(dirname($to), 0755, true);
+        if (!@copy($from, $to)) {
+            throw new ApiException("写入失败：{$to}", 500);
+        }
+    }
+
+    /** 写一份人可读的报告到备份目录，方便回看与回滚 */
+    private static function writeReport(
+        string $backupDir,
+        array $plan,
+        int $written,
+        int $removed,
+        int $backed,
+        array $skipped
+    ): string {
+        if ($written === 0 && $removed === 0) {
+            return '';
+        }
+
+        @mkdir($backupDir, 0755, true);
+        $file = $backupDir . '/report.txt';
+
+        $lines = [
+            'CCCMS 上游同步报告',
+            '时间：' . date('Y-m-d H:i:s'),
+            '同步源：' . (string)($plan['source']['label'] ?? $plan['source_key'] ?? ''),
+            '目标版本：' . ($plan['ref'] ?? '') . ' @ ' . ($plan['commit'] ?? ''),
+            '原基线：' . ($plan['base'] ?? ''),
+            '写入 / 覆盖：' . $written . '，删除：' . $removed . '，备份：' . $backed,
+            '',
+            '文件清单：',
+        ];
+
+        foreach ((array)($plan['items'] ?? []) as $path => $kind) {
+            if ($kind === self::SAME || $kind === self::LOCAL) {
+                continue;
+            }
+            $mark = in_array($path, $skipped, true) ? '（跳过）' : '';
+            $lines[] = sprintf('  [%s] %s %s', $kind, $path, $mark);
+        }
+
+        $lines[] = '';
+        $lines[] = '回滚方式：把本目录下的文件按相对路径覆盖回项目根即可。';
+
+        file_put_contents($file, implode(PHP_EOL, $lines));
+
+        return $file;
+    }
+
+    /** 递归删除目录（清缓存用）。Windows 下 git 的对象文件是只读的，删除前先去掉只读位 */
+    private static function rmdir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $items = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+
+        foreach ($items as $item) {
+            /** @var SplFileInfo $item */
+            $path = $item->getPathname();
+            if ($item->isDir()) {
+                @rmdir($path);
+                continue;
+            }
+
+            @chmod($path, 0644);
+            @unlink($path);
+        }
+
+        @rmdir($dir);
+    }
+}

@@ -7,9 +7,7 @@
         <span class="not-found-digit">4</span>
       </div>
       <h1 class="not-found-title">页面不存在</h1>
-      <p class="not-found-desc">
-        你访问的页面可能已被移除、改名，或者从未存在过。
-      </p>
+      <p class="not-found-desc">你访问的页面可能已被移除、改名，或者从未存在过。</p>
       <div class="not-found-actions">
         <el-button type="primary" @click="goHome">返回首页</el-button>
         <el-button @click="goBack">返回上一页</el-button>

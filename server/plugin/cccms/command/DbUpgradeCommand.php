@@ -50,6 +50,54 @@ CREATE TABLE IF NOT EXISTS `%sdata_scope_table` (
   UNIQUE KEY `uk_table` (`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据权限受控表'
 SQL,
+        'login_log' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%slogin_log` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '成功时为用户ID，失败时为0',
+  `username`    varchar(64)  NOT NULL DEFAULT '' COMMENT '尝试登录的账号',
+  `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1成功 0失败',
+  `message`     varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(失败原因)',
+  `ip`          varchar(64)  NOT NULL DEFAULT '',
+  `ua`          varchar(255) NOT NULL DEFAULT '',
+  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_username` (`username`),
+  KEY `idx_status` (`status`),
+  KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='登录日志'
+SQL,
+        'notice' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%snotice` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `title`       varchar(128) NOT NULL COMMENT '标题',
+  `type`        tinyint      NOT NULL DEFAULT 1 COMMENT '1通知 2公告',
+  `level`       tinyint      NOT NULL DEFAULT 1 COMMENT '1普通 2重要',
+  `content`     text         COMMENT '正文',
+  `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1已发布 0草稿',
+  `publish_at`  datetime     DEFAULT NULL COMMENT '发布时间',
+  `expire_at`   datetime     DEFAULT NULL COMMENT '过期时间(NULL=不过期)',
+  `read_count`  int          NOT NULL DEFAULT 0 COMMENT '已读人数(冗余计数)',
+  `create_by`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '创建人',
+  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
+  PRIMARY KEY (`id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_publish_at` (`publish_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告'
+SQL,
+        'notice_read' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%snotice_read` (
+  `id`        bigint unsigned NOT NULL AUTO_INCREMENT,
+  `notice_id` bigint unsigned NOT NULL,
+  `user_id`   bigint unsigned NOT NULL,
+  `read_time` datetime     DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_notice_user` (`notice_id`, `user_id`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告已读'
+SQL,
     ];
 
     /** 软删除列定义（NULL = 未删除） */
@@ -68,6 +116,22 @@ SQL,
         'log' => [
             'node'  => "varchar(128) NOT NULL DEFAULT '' COMMENT '权限节点 slug(路径语义化标识)' AFTER `path`",
             'title' => "varchar(128) NOT NULL DEFAULT '' COMMENT '语义化操作名(取自权限注解)' AFTER `node`",
+            'trace_id' => "varchar(32) NOT NULL DEFAULT '' COMMENT '请求链路 ID' AFTER `title`",
+        ],
+        // 定时任务增强：重叠保护 / 超时 / 失败重试 / 分组
+        'crontab' => [
+            'group_name'     => "varchar(32) NOT NULL DEFAULT '' COMMENT '任务分组' AFTER `name`",
+            'overlap'        => "varchar(8) NOT NULL DEFAULT 'skip' COMMENT '重叠策略 skip/allow' AFTER `status`",
+            'timeout'        => "int NOT NULL DEFAULT 0 COMMENT '超时秒数，0=不限' AFTER `overlap`",
+            'retry_times'    => "tinyint NOT NULL DEFAULT 0 COMMENT '失败重试次数' AFTER `timeout`",
+            'retry_interval' => "int NOT NULL DEFAULT 60 COMMENT '重试间隔(秒)' AFTER `retry_times`",
+            'retry_left'     => "tinyint NOT NULL DEFAULT 0 COMMENT '剩余重试次数(运行时)' AFTER `retry_interval`",
+            'retry_at'       => "datetime DEFAULT NULL COMMENT '下次重试时间(运行时)' AFTER `retry_left`",
+            'running'        => "tinyint NOT NULL DEFAULT 0 COMMENT '是否运行中(运行时)' AFTER `retry_at`",
+            'running_at'     => "datetime DEFAULT NULL COMMENT '本次开始运行时间(运行时)' AFTER `running`",
+        ],
+        'crontab_log' => [
+            'source' => "varchar(16) NOT NULL DEFAULT 'cron' COMMENT '触发来源 cron/retry/manual' AFTER `status`",
         ],
         'data_rule' => [
             'bind_mode'  => "varchar(8) NOT NULL DEFAULT 'or' COMMENT '绑定组合方式 or=任一命中 and=已填写的全部命中' AFTER `role_id`",
@@ -101,7 +165,11 @@ SQL,
     private const INDEXES = [
         'dict_type' => ['idx_category' => '`category_id`'],
         'file'      => ['idx_category' => '`category_id`'],
-        'log'       => ['idx_node' => '`node`'],
+        'log'       => [
+            'idx_node'     => '`node`',
+            'idx_trace_id' => '`trace_id`',
+        ],
+        'crontab'   => ['idx_retry' => '`retry_left`, `retry_at`'],
     ];
 
     protected function execute(InputInterface $input, OutputInterface $output): int

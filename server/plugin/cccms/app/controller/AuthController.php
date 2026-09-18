@@ -11,6 +11,8 @@ use plugin\cccms\support\attribute\NoLogin;
 use plugin\cccms\support\attribute\Restrict;
 use plugin\cccms\support\Captcha;
 use plugin\cccms\support\SysConfig;
+use plugin\cccms\support\TokenService;
+use Throwable;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -63,7 +65,19 @@ class AuthController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function logout(Request $request): Response
     {
-        AuthLogic::logout($request->user);
+        // 登出要拿到 jti / exp 才能精确作废令牌，因此这里再解析一次请求头里的 token。
+        // 令牌已损坏 / 已过期时按「登出成功」处理（本来就是无效令牌），保证登出接口幂等。
+        $claims = [];
+        $token  = TokenService::fromRequest($request);
+        if ($token !== null) {
+            try {
+                $claims = TokenService::verify($token);
+            } catch (Throwable) {
+                $claims = [];
+            }
+        }
+
+        AuthLogic::logout($request->user, $claims);
         return $this->ok(null, '已退出');
     }
 }

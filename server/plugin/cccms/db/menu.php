@@ -76,6 +76,10 @@ return [
             ['slug' => 'cccms:crontab',   'title' => '定时任务', 'type' => 2, 'path' => '/cccms/crontab',   'component' => 'cccms/crontab/index',   'icon' => 'icon-clock',  'sort' => 4],
             ['slug' => 'cccms:generator', 'title' => '代码生成', 'type' => 2, 'path' => '/cccms/generator', 'component' => 'cccms/generator/index', 'icon' => 'icon-code',   'sort' => 5],
             ['slug' => 'cccms:log',       'title' => '操作日志', 'type' => 2, 'path' => '/cccms/log',       'component' => 'cccms/log/index',       'icon' => 'icon-file',   'sort' => 6],
+            ['slug' => 'cccms:login_log', 'title' => '登录日志', 'type' => 2, 'path' => '/cccms/login_log', 'component' => 'cccms/login_log/index', 'icon' => 'icon-dataline', 'sort' => 7],
+            ['slug' => 'cccms:online',    'title' => '在线用户', 'type' => 2, 'path' => '/cccms/online',    'component' => 'cccms/online/index',    'icon' => 'icon-monitor',  'sort' => 8],
+            ['slug' => 'cccms:notice',    'title' => '通知公告', 'type' => 2, 'path' => '/cccms/notice',    'component' => 'cccms/notice/index',    'icon' => 'icon-tickets',  'sort' => 9],
+            ['slug' => 'cccms:upgrade',   'title' => '自动升级', 'type' => 2, 'path' => '/cccms/upgrade',   'component' => 'cccms/upgrade/index',   'icon' => 'icon-refresh',  'sort' => 10],
         ],
     ],
 ];

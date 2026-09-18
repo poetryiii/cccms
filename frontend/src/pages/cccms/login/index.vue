@@ -51,29 +51,29 @@
           :title="appStore.notice"
         />
 
-        <el-form
-          ref="formRef"
-          :model="form"
-          :rules="rules"
-          size="large"
-          @keyup.enter="onSubmit"
-        >
+        <el-form ref="formRef" :model="form" :rules="rules" size="large" @keyup.enter="onSubmit">
           <el-form-item prop="username">
             <el-input v-model="form.username" placeholder="用户名" clearable>
-              <template #prefix><el-icon><User /></el-icon></template>
+              <template #prefix
+                ><el-icon><User /></el-icon
+              ></template>
             </el-input>
           </el-form-item>
 
           <el-form-item prop="password">
             <el-input v-model="form.password" type="password" show-password placeholder="密码">
-              <template #prefix><el-icon><Lock /></el-icon></template>
+              <template #prefix
+                ><el-icon><Lock /></el-icon
+              ></template>
             </el-input>
           </el-form-item>
 
           <el-form-item v-if="captchaImage" prop="captcha">
             <div class="login-captcha">
               <el-input v-model="form.captcha" placeholder="验证码">
-                <template #prefix><el-icon><Key /></el-icon></template>
+                <template #prefix
+                  ><el-icon><Key /></el-icon
+                ></template>
               </el-input>
               <img class="login-captcha-img" :src="captchaImage" alt="验证码" @click="loadCaptcha" />
             </div>
@@ -83,13 +83,7 @@
             <el-checkbox v-model="rememberMe">记住用户名</el-checkbox>
           </div>
 
-          <el-button
-            type="primary"
-            size="large"
-            class="login-submit"
-            :loading="loading"
-            @click="onSubmit"
-          >
+          <el-button type="primary" size="large" class="login-submit" :loading="loading" @click="onSubmit">
             登 录
           </el-button>
         </el-form>
@@ -204,8 +198,7 @@ onMounted(() => {
   overflow: hidden;
   background:
     radial-gradient(circle at 12% 18%, rgb(43 108 255 / 14%), transparent 42%),
-    radial-gradient(circle at 88% 82%, rgb(43 108 255 / 10%), transparent 40%),
-    var(--art-body-bg);
+    radial-gradient(circle at 88% 82%, rgb(43 108 255 / 10%), transparent 40%), var(--art-body-bg);
 }
 
 .login-theme {

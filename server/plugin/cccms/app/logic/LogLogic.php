@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\OperationLog;
+use plugin\cccms\support\Csv;
+use Webman\Http\Response;
 
 /**
  * 操作日志逻辑。
@@ -17,7 +19,49 @@ use plugin\cccms\app\model\OperationLog;
  */
 final class LogLogic
 {
+    /** 导出上限：避免一次导出把内存打满 */
+    private const EXPORT_LIMIT = 10000;
+
     public static function paginate(array $params): array
+    {
+        $query = self::filtered($params);
+
+        $page  = max(1, (int)($params['page'] ?? 1));
+        $limit = max(1, (int)($params['limit'] ?? 15));
+        $total = $query->count();
+        $list  = $query->page($page, $limit)->order('id', 'desc')->select()->toArray();
+
+        return ['total' => $total, 'list' => $list];
+    }
+
+    /** 导出 CSV（按当前筛选与数据范围） */
+    public static function export(array $params): Response
+    {
+        $rows = self::filtered($params)->order('id', 'desc')->limit(self::EXPORT_LIMIT)->select()->toArray();
+
+        $data = array_map(static fn (array $row): array => [
+            (string)($row['id'] ?? ''),
+            (string)($row['username'] ?? ''),
+            (string)($row['method'] ?? ''),
+            (string)($row['path'] ?? ''),
+            (string)($row['node'] ?? ''),
+            (string)($row['title'] ?? ''),
+            (string)($row['ip'] ?? ''),
+            (string)($row['status_code'] ?? ''),
+            (string)($row['cost'] ?? ''),
+            (string)($row['trace_id'] ?? ''),
+            (string)($row['create_time'] ?? ''),
+        ], $rows);
+
+        return Csv::download(
+            '操作日志',
+            ['ID', '账号', '方法', '路径', '节点', '操作名', 'IP', '状态码', '耗时(ms)', '链路ID', '时间'],
+            $data
+        );
+    }
+
+    /** @return \think\db\BaseQuery */
+    private static function filtered(array $params)
     {
         $query = OperationLog::newScopedQuery();
         if (!empty($params['username'])) {
@@ -36,12 +80,18 @@ final class LogLogic
         if (!empty($params['title'])) {
             $query->where('title', 'like', '%' . $params['title'] . '%');
         }
-        $page  = max(1, (int)($params['page'] ?? 1));
-        $limit = max(1, (int)($params['limit'] ?? 15));
-        $total = $query->count();
-        $list  = $query->page($page, $limit)->order('id', 'desc')->select()->toArray();
+        // 链路 ID：拿到一次请求的报错 trace 后可直接检索
+        if (!empty($params['trace_id'])) {
+            $query->where('trace_id', trim((string)$params['trace_id']));
+        }
+        if (!empty($params['start'])) {
+            $query->where('create_time', '>=', $params['start'] . ' 00:00:00');
+        }
+        if (!empty($params['end'])) {
+            $query->where('create_time', '<=', $params['end'] . ' 23:59:59');
+        }
 
-        return ['total' => $total, 'list' => $list];
+        return $query;
     }
 
     public static function delete(array $ids): void

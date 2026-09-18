@@ -10,6 +10,7 @@ use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Firebase\JWT\SignatureInvalidException;
 use Throwable;
+use Webman\Http\Request;
 
 /** JWT 签发 / 校验。 */
 final class TokenService
@@ -37,7 +38,7 @@ final class TokenService
      *
      * @param int                   $userId
      * @param array<string,mixed>   $claims
-     * @return array{token:string,expires_in:int,expires_at:int}
+     * @return array{token:string,jti:string,expires_in:int,expires_at:int}
      */
     public static function issue(int $userId, array $claims = []): array
     {
@@ -53,9 +54,27 @@ final class TokenService
 
         return [
             'token'      => JWT::encode($payload, self::secret(), self::ALG),
+            // 回传 jti：在线会话登记与登出黑名单都要用它（JWT 解出来也一样，这里省一次解码）
+            'jti'        => (string)$payload['jti'],
             'expires_in' => self::ttl(),
             'expires_at' => $now + self::ttl(),
         ];
+    }
+
+    /**
+     * 从请求头解析 Bearer 令牌。
+     *
+     * 同时供 `CheckLogin`（鉴权）与 `AuthController::logout`（登出）使用，
+     * 避免同一段正则散落两处。
+     */
+    public static function fromRequest(Request $request): ?string
+    {
+        $auth = $request->header('Authorization', '');
+        if (is_string($auth) && preg_match('/^Bearer\s+(\S+)$/i', trim($auth), $m)) {
+            return $m[1];
+        }
+
+        return null;
     }
 
     /**

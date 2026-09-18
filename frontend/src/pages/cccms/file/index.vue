@@ -2,28 +2,13 @@
   <div class="art-fill">
     <ArtSplitView aside-width="248px">
       <template #aside>
-        <ArtTreePanel
-          title="附件分类"
-          :data="treeData"
-          :current-key="currentId"
-          @node-click="onNodeClick"
-        >
+        <ArtTreePanel title="附件分类" :data="treeData" :current-key="currentId" @node-click="onNodeClick">
           <template #header>
             <el-tooltip content="新增顶级分类" placement="top">
-              <el-button
-                v-auth="'cccms:file:category_save'"
-                text
-                circle
-                :icon="Plus"
-                @click="openCategoryCreate(0)"
-              />
+              <el-button v-auth="'cccms:file:category_save'" text circle :icon="Plus" @click="openCategoryCreate(0)" />
             </el-tooltip>
             <!-- 只显示附件模块的分类，避免看到字典模块的分类 -->
-            <RecycleToggle
-              :active="categoryRecycle"
-              label="附件分类"
-              @toggle="toggleCategoryRecycle"
-            />
+            <RecycleToggle :active="categoryRecycle" label="附件分类" @toggle="toggleCategoryRecycle" />
           </template>
 
           <template #node="{ data }">
@@ -100,9 +85,7 @@
             移动到分类{{ selection.length ? `（${selection.length}）` : '' }}
           </el-button>
 
-          <el-tag v-if="currentId" type="info" closable @close="clearNode">
-            仅看：{{ currentNodeName }}
-          </el-tag>
+          <el-tag v-if="currentId" type="info" closable @close="clearNode"> 仅看：{{ currentNodeName }} </el-tag>
           <span v-else class="toolbar-tip">单文件上限 10MB；相同内容自动去重</span>
         </template>
 
@@ -206,13 +189,7 @@ import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { useTable } from '@/composables/useTable'
 import { useRecycle } from '@/composables/useRecycle'
-import {
-  categoryDelete,
-  categorySave,
-  categoryTree,
-  categoryUpdate,
-  type CategoryNode,
-} from '@/api/category'
+import { categoryDelete, categorySave, categoryTree, categoryUpdate, type CategoryNode } from '@/api/category'
 import { FILE_UPLOAD_URL, fileDelete, fileList, fileMove, type FileRow } from '@/api/file'
 import { getToken } from '@/utils/auth'
 import { UPLOAD_PROGRESS, progressDone, progressStart } from '@/utils/progress'
@@ -250,11 +227,7 @@ const treeData = computed(() =>
   // 回收站视图里只列已删分类，不掺「全部 / 未分类」这两个虚拟节点
   categoryRecycle.value
     ? categories.value
-    : [
-        { id: ALL_ID, name: '全部' },
-        { id: NONE_ID, name: '未分类' },
-        ...categories.value,
-      ],
+    : [{ id: ALL_ID, name: '全部' }, { id: NONE_ID, name: '未分类' }, ...categories.value],
 )
 
 const currentNodeName = computed(() => {
@@ -310,8 +283,19 @@ const {
 } = useRecycle('category', { reload: () => loadCategories() })
 
 const {
-  list, loading, total, page, limit, query, selection,
-  load, search, reset, onPageChange, onLimitChange, onSelectionChange,
+  list,
+  loading,
+  total,
+  page,
+  limit,
+  query,
+  selection,
+  load,
+  search,
+  reset,
+  onPageChange,
+  onLimitChange,
+  onSelectionChange,
 } = useTable<FileRow, Query>({
   api: (params) => fileList({ ...params, category_id: currentId.value, trashed: recycle.value ? 1 : 0 }),
   initialQuery: { original_name: '', ext: '' },

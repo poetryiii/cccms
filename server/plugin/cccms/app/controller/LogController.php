@@ -19,6 +19,13 @@ class LogController extends BaseController
         return $this->ok(LogLogic::paginate($request->get()));
     }
 
+    /** 导出 CSV（按当前筛选与数据范围） */
+    #[Permission(slug: 'cccms:log:export', title: '导出操作日志')]
+    public function export(Request $request): Response
+    {
+        return LogLogic::export($request->get());
+    }
+
     #[Permission(slug: 'cccms:log:delete', title: '删除日志')]
     #[Restrict(methods: ['POST'])]
     public function delete(Request $request): Response

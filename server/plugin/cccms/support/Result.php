@@ -25,7 +25,16 @@ final class Result
 
     public static function fail(string $message, int $code = 1, mixed $data = null): Response
     {
-        return self::encode(['code' => $code, 'message' => $message, 'data' => $data], self::httpStatus($code));
+        $payload = ['code' => $code, 'message' => $message, 'data' => $data];
+
+        // 链路 ID（Cors 中间件生成）：出错时一并返回，便于用户报障时直接提供。
+        // 只在失败响应里加，成功响应保持原有信封不变。
+        $traceId = self::currentTraceId();
+        if ($traceId !== '') {
+            $payload['trace_id'] = $traceId;
+        }
+
+        return self::encode($payload, self::httpStatus($code));
     }
 
     public static function encode(array $payload, int $status = 200): Response
@@ -48,6 +57,14 @@ final class Result
     {
         $request = request();
         return (string)($request->encode ?? 'json');
+    }
+
+    /** 当前请求的链路 ID；CLI / 无请求上下文时为空串 */
+    private static function currentTraceId(): string
+    {
+        $request = function_exists('request') ? request() : null;
+
+        return (string)($request?->traceId ?? '');
     }
 
     private static function json(array $payload, int $status): Response

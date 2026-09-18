@@ -10,19 +10,48 @@ use plugin\cccms\support\AuthService;
 use plugin\cccms\support\Captcha;
 use plugin\cccms\support\Cipher;
 use plugin\cccms\support\LoginThrottle;
+use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\SysConfig;
+use plugin\cccms\support\TokenBlacklist;
 use plugin\cccms\support\TokenService;
 use plugin\cccms\support\UserContext;
 
 /** 登录认证逻辑。 */
 final class AuthLogic
 {
-    /** 账号密码登录，返回 token 与用户信息。 */
+    /**
+     * 账号密码登录，返回 token 与用户信息。
+     *
+     * 成功与失败都会写入登录日志（`sys_login_log`）——失败记录是审计的重点。
+     */
     public static function login(
         string $username,
         string $password,
         string $captcha = '',
         string $captchaId = '',
+    ): array {
+        try {
+            $result = self::attempt($username, $password, $captcha, $captchaId);
+        } catch (ApiException $e) {
+            LoginLogLogic::record(0, $username, false, $e->getMessage());
+            throw $e;
+        }
+
+        LoginLogLogic::record((int)($result['user']['id'] ?? 0), $username, true, '登录成功');
+
+        return $result;
+    }
+
+    /**
+     * 登录的实际执行体：失败一律抛 `ApiException`，由 `login()` 统一落登录日志。
+     *
+     * @return array{token:array<string,mixed>,user:array<string,mixed>}
+     */
+    private static function attempt(
+        string $username,
+        string $password,
+        string $captcha,
+        string $captchaId,
     ): array {
         if ($username === '' || $password === '') {
             throw new ApiException('请输入用户名和密码', 422);
@@ -59,14 +88,32 @@ final class AuthLogic
 
         LoginThrottle::clear($username);
 
+        $ip = (string)(request()->getRealIp() ?: '');
+
         // 更新登录信息（登录链路同样没有当前用户上下文，显式跳出作用域）
         User::withoutGlobalScope()->where('id', $user['id'])->update([
             'login_time' => date('Y-m-d H:i:s'),
-            'login_ip'   => request()->getRealIp() ?: '',
+            'login_ip'   => $ip,
         ]);
 
+        $token = TokenService::issue((int)$user['id']);
+
+        // 「强制下线」是按用户记录的签发时间分界线（`iat <= cutoff` 即失效）。
+        // 登录成功必须清除它，否则与该分界线**同一秒**签发的新令牌会被立刻判成失效。
+        TokenBlacklist::clearUser((int)$user['id']);
+
+        // 登记在线会话，供「在线用户 / 强制下线」使用（Redis 不可用时静默降级）
+        OnlineSession::register(
+            (int)$user['id'],
+            (string)$user['username'],
+            (string)$user['nickname'],
+            (string)$token['jti'],
+            $ip,
+            (string)$request->header('user-agent', ''),
+        );
+
         return [
-            'token' => TokenService::issue((int)$user['id']),
+            'token' => $token,
             'user'  => self::profile($context),
         ];
     }
@@ -81,10 +128,19 @@ final class AuthLogic
         return $data;
     }
 
-    /** 登出（一期：客户端丢弃 token；Redis 黑名单见 TODO）。 */
-    public static function logout(UserContext $user): void
+    /**
+     * 登出：作废当前令牌（写入 jti 黑名单）+ 移除在线会话。
+     *
+     * 令牌是无状态的，只靠前端丢弃 token 并不能阻止旧 token 在有效期内继续使用，
+     * 因此这里把 jti 记入 Redis 黑名单（TTL = 剩余有效期），`CheckLogin` 每次校验。
+     *
+     * @param array<string,mixed> $claims 当前令牌的 claims（由控制器解析后传入）
+     */
+    public static function logout(UserContext $user, array $claims = []): void
     {
-        // TODO: 将 jti 加入 Redis 黑名单
+        $jti = (string)($claims['jti'] ?? '');
+        TokenBlacklist::revoke($jti, (int)($claims['exp'] ?? 0));
+        OnlineSession::remove($jti);
     }
 
     /** 密码错误时附带剩余次数提示（未启用锁定时不提示） */

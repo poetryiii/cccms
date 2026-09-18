@@ -96,6 +96,8 @@ class OperationLog implements MiddlewareInterface
                 'path'        => '/' . ltrim($request->path(), '/'),
                 'node'        => (string)($meta['slug'] ?? ''),
                 'title'       => (string)($meta['title'] ?? ''),
+                // 由 Cors（中间件链第一环）生成，可把一次请求的多条记录串起来
+                'trace_id'    => (string)($request->traceId ?? ''),
                 'ip'          => (string)($request->getRealIp() ?: ''),
                 'ua'          => self::clip((string)$request->header('User-Agent', ''), 255),
                 'params'      => self::encode($params),

@@ -23,12 +23,26 @@ use think\facade\Db;
  */
 final class CrontabLogic
 {
+    /**
+     * 可写字段白名单。
+     *
+     * 运行时列（`running` / `running_at` / `retry_left` / `retry_at`）**不允许**通过接口改写 ——
+     * 它们由调度进程维护，手工改会造成「锁没释放」或「重试乱序」。
+     */
+    private const FIELDS = [
+        'name', 'group_name', 'expression', 'target', 'params',
+        'status', 'overlap', 'timeout', 'retry_times', 'retry_interval', 'remark',
+    ];
+
     public static function paginate(array $params): array
     {
         // trashed=1 → 回收站视图（只看已删除）
         $query = !empty($params['trashed']) ? Crontab::onlyTrashed() : Crontab::newScopedQuery();
         if (!empty($params['name'])) {
             $query->where('name', 'like', '%' . $params['name'] . '%');
+        }
+        if (!empty($params['group_name'])) {
+            $query->where('group_name', $params['group_name']);
         }
         if (isset($params['status']) && $params['status'] !== '') {
             $query->where('status', (int)$params['status']);
@@ -81,6 +95,7 @@ final class CrontabLogic
     public static function create(array $data): int
     {
         self::assertValid($data);
+        $data = self::prepare($data);
         $data['params'] = self::encodeParams($data['params'] ?? []);
         $next = CronMatcher::nextRunTime((string)$data['expression'], time());
         $data['next_run_time'] = $next ? date('Y-m-d H:i:s', $next) : null;
@@ -93,6 +108,7 @@ final class CrontabLogic
     {
         self::assertInScope($id);
         self::assertValid($data);
+        $data = self::prepare($data);
         if (array_key_exists('params', $data)) {
             $data['params'] = self::encodeParams($data['params']);
         }
@@ -109,13 +125,19 @@ final class CrontabLogic
         Crontab::destroy($id);
     }
 
-    /** 立即执行一次（不改变调度周期）。 */
+    /**
+     * 立即执行一次（不改变调度周期，也不改动失败重试状态）。
+     *
+     * 走 `execute()` 而不是 `run()`：同样受重叠保护约束 ——
+     * 如果该任务正在执行中，手工触发也会被跳过（返回 status=2），避免并发跑同一任务。
+     */
     public static function runOnce(int $id): array
     {
-        $task = self::assertInScope($id);
-        $now = time();
-        $result = CrontabRunner::run($task);
-        CrontabRunner::writeLog($task, $result, $now);
+        $task   = self::assertInScope($id);
+        $now    = time();
+        $result = CrontabRunner::execute($task, $now, 'manual');
+        CrontabRunner::writeLog($task, $result, $now, 'manual');
+
         return $result;
     }
 
@@ -153,6 +175,47 @@ final class CrontabLogic
         if (!class_exists($target) || !is_subclass_of($target, CrontabTask::class)) {
             throw new ApiException('执行目标非法：必须是在代码中实现 CrontabTask 的类', 422);
         }
+
+        // ---- 重叠保护 / 超时 / 重试 / 分组 ----
+        $overlap = strtolower(trim((string)($data['overlap'] ?? 'skip')));
+        if (!in_array($overlap, ['skip', 'allow'], true)) {
+            throw new ApiException('重叠策略只能是 skip（跳过）或 allow（允许并发）', 422);
+        }
+
+        if ((int)($data['timeout'] ?? 0) < 0) {
+            throw new ApiException('超时秒数不能为负数（0 表示不限）', 422);
+        }
+
+        $retryTimes = (int)($data['retry_times'] ?? 0);
+        if ($retryTimes < 0 || $retryTimes > 10) {
+            throw new ApiException('失败重试次数需在 0~10 之间', 422);
+        }
+
+        if ((int)($data['retry_interval'] ?? 60) < 1) {
+            throw new ApiException('重试间隔至少 1 秒', 422);
+        }
+
+        if (mb_strlen((string)($data['group_name'] ?? '')) > 32) {
+            throw new ApiException('任务分组不能超过 32 个字符', 422);
+        }
+    }
+
+    /**
+     * 字段白名单过滤：运行时列（running / retry_left…）不允许通过接口改写。
+     *
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    private static function prepare(array $data): array
+    {
+        $out = [];
+        foreach (self::FIELDS as $field) {
+            if (array_key_exists($field, $data)) {
+                $out[$field] = $data[$field];
+            }
+        }
+
+        return $out;
     }
 
     /** @return string */

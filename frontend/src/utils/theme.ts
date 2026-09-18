@@ -50,9 +50,13 @@ const LIGHT_STEPS: Array<[string, number]> = [
 
 function hexToRgb(hex: string): [number, number, number] {
   const value = hex.replace('#', '').trim()
-  const full = value.length === 3
-    ? value.split('').map((c) => c + c).join('')
-    : value.padEnd(6, '0').slice(0, 6)
+  const full =
+    value.length === 3
+      ? value
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : value.padEnd(6, '0').slice(0, 6)
   const num = Number.parseInt(full, 16)
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255]
 }
@@ -112,10 +116,7 @@ export function applyRadius(radius: number): void {
 
 /** 应用内容区最大宽度 */
 export function applyContainerWidth(width: number): void {
-  document.documentElement.style.setProperty(
-    '--art-container-width',
-    width > 0 ? `${width}px` : '100%',
-  )
+  document.documentElement.style.setProperty('--art-container-width', width > 0 ? `${width}px` : '100%')
 }
 
 /** 切换过程中临时关掉 transition，避免整页颜色渐变动画造成的闪烁 */

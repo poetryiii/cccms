@@ -5,9 +5,7 @@
         <div class="cfg-head">
           <div class="cfg-head-left">
             <span class="cfg-title">系统配置</span>
-            <el-tag v-if="dirtyCount" type="warning" effect="light" size="small">
-              {{ dirtyCount }} 项未保存
-            </el-tag>
+            <el-tag v-if="dirtyCount" type="warning" effect="light" size="small"> {{ dirtyCount }} 项未保存 </el-tag>
             <span v-else class="cfg-count">共 {{ items.length }} 项</span>
           </div>
 
@@ -43,12 +41,7 @@
               <span>全部</span>
               <em>{{ filtered.length }}</em>
             </li>
-            <li
-              v-for="g in groups"
-              :key="g.name"
-              :class="{ 'is-active': group === g.name }"
-              @click="group = g.name"
-            >
+            <li v-for="g in groups" :key="g.name" :class="{ 'is-active': group === g.name }" @click="group = g.name">
               <span>{{ g.name }}</span>
               <em>{{ g.count }}</em>
             </li>
@@ -59,21 +52,14 @@
         <div class="cfg-main">
           <el-skeleton v-if="loading" :rows="8" animated />
 
-          <el-empty
-            v-else-if="!visibleGroups.length"
-            :description="keyword ? '没有匹配的配置项' : '暂无配置项'"
-          />
+          <el-empty v-else-if="!visibleGroups.length" :description="keyword ? '没有匹配的配置项' : '暂无配置项'" />
 
           <template v-else>
             <section v-for="g in visibleGroups" :key="g.name" class="cfg-section">
               <h3 class="cfg-section-title">{{ g.name }}</h3>
 
               <el-form label-width="180px" label-position="right">
-                <el-form-item
-                  v-for="item in g.items"
-                  :key="item.name"
-                  :class="{ 'is-dirty': isDirty(item.name) }"
-                >
+                <el-form-item v-for="item in g.items" :key="item.name" :class="{ 'is-dirty': isDirty(item.name) }">
                   <template #label>
                     <div class="cfg-label">
                       <span class="cfg-label-text">{{ item.title || item.name }}</span>
@@ -91,15 +77,8 @@
                       :inactive-value="0"
                     />
 
-                    <el-radio-group
-                      v-else-if="item.type === 'radio'"
-                      v-model="values[item.name]"
-                    >
-                      <el-radio
-                        v-for="opt in parseOptions(item)"
-                        :key="String(opt.value)"
-                        :value="opt.value"
-                      >
+                    <el-radio-group v-else-if="item.type === 'radio'" v-model="values[item.name]">
+                      <el-radio v-for="opt in parseOptions(item)" :key="String(opt.value)" :value="opt.value">
                         {{ opt.label }}
                       </el-radio>
                     </el-radio-group>
@@ -143,12 +122,7 @@
                       style="max-width: 420px"
                     />
 
-                    <el-input
-                      v-else
-                      v-model="values[item.name]"
-                      placeholder="请输入"
-                      style="max-width: 420px"
-                    />
+                    <el-input v-else v-model="values[item.name]" placeholder="请输入" style="max-width: 420px" />
 
                     <div v-if="item.remark" class="cfg-remark">{{ item.remark }}</div>
                   </div>
@@ -250,9 +224,7 @@ const groups = computed(() => {
 })
 
 const visibleGroups = computed(() => {
-  const list = group.value
-    ? filtered.value.filter((item) => (item.group || UNGROUPED) === group.value)
-    : filtered.value
+  const list = group.value ? filtered.value.filter((item) => (item.group || UNGROUPED) === group.value) : filtered.value
 
   const bucket = new Map<string, ConfigItem[]>()
   for (const item of list) {

@@ -35,14 +35,29 @@ INSERT IGNORE INTO `sys_data_scope_table` (`table_name`, `label`, `status`, `rem
 ('user',    '',       1, '已接入：用户管理', NOW(), NOW()),
 ('file',    '附件',    1, '模型声明参与：owner=create_by，本部门落到可见部门成员', NOW(), NOW()),
 ('log',     '操作日志', 1, '模型声明参与：owner=user_id，本部门落到可见部门成员', NOW(), NOW()),
-('crontab', '定时任务', 1, '模型声明 no_baseline（无归属列），隔离依赖自定义规则', NOW(), NOW());
+('crontab', '定时任务', 1, '模型声明 no_baseline（无归属列），隔离依赖自定义规则', NOW(), NOW()),
+('dept',    '部门',    1, '模型声明参与；「本部门及以下」档下部门页只见自己子树（见 docs/06）', NOW(), NOW());
+
+-- ---------------------------------------------------------------------
+-- 内置定时任务：清理历史操作日志
+--
+-- 需要它「自动清理日志」配置（log.auto_clean / log.keep_days）才真正生效。
+-- 用 INSERT ... SELECT ... WHERE NOT EXISTS 实现幂等（sys_crontab 没有可去重的唯一键，
+-- 因此不能用 INSERT IGNORE）。
+-- ---------------------------------------------------------------------
+INSERT INTO `sys_crontab` (`name`, `expression`, `target`, `params`, `status`, `group_name`, `overlap`, `timeout`, `retry_times`, `retry_interval`, `remark`, `create_time`, `update_time`)
+SELECT '清理历史日志', '0 0 3 * * *', 'plugin\\cccms\\command\\task\\LogCleanTask', NULL, 1, '系统', 'skip', 600, 1, 300, '每天 03:00 清理 log.keep_days 之前的操作日志', NOW(), NOW()
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `sys_crontab` WHERE `target` = 'plugin\\cccms\\command\\task\\LogCleanTask'
+);
 
 -- ---------------------------------------------------------------------
 -- 系统配置默认值
 --
--- 这些配置项定义了系统的「可配置面」，由对应业务模块按需读取。
--- 当前状态：结构、类型、分组、默认值均已就绪，但**尚未被后端业务代码消费**
--- （即改值暂时不会改变系统行为）；后续接入时直接读 sys_config 即可，无需改表。
+-- 这些配置项定义了系统的「可配置面」。
+-- 当前状态：**已全部被后端业务代码消费**（品牌/界面/安全/上传/日志），
+-- 保存后立即生效（SysConfig 走 Redis 缓存，保存时 flush），无需重启。
 -- 已确认「不做密钥轮换」的 data_encrypt_key 不在此表，它在 config/auth.php。
 -- ---------------------------------------------------------------------
 INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `group`, `sort`, `status`, `remark`, `create_time`, `update_time`) VALUES

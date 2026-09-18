@@ -29,17 +29,9 @@ export async function decryptField(encoded: string, keyBase64: string): Promise<
   data.set(cipher, 0)
   data.set(tag, cipher.length)
 
-  const key = await crypto.subtle.importKey(
-    'raw',
-    toSource(base64ToBytes(keyBase64)),
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt'],
-  )
-  const plain = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: toSource(iv) },
-    key,
-    toSource(data),
-  )
+  const key = await crypto.subtle.importKey('raw', toSource(base64ToBytes(keyBase64)), { name: 'AES-GCM' }, false, [
+    'decrypt',
+  ])
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: toSource(iv) }, key, toSource(data))
   return new TextDecoder().decode(plain)
 }

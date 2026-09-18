@@ -58,4 +58,31 @@ class UserController extends BaseController
         );
         return $this->ok(null, '重置成功');
     }
+
+    /** 导出 CSV（按当前筛选与数据范围，直接返回文件流而非统一信封） */
+    #[Permission(slug: 'cccms:user:export', title: '导出用户')]
+    public function export(Request $request): Response
+    {
+        return UserLogic::export($request->get());
+    }
+
+    /** 下载导入模板 */
+    #[Permission(slug: 'cccms:user:template', title: '下载用户导入模板')]
+    public function template(Request $request): Response
+    {
+        return UserLogic::template();
+    }
+
+    /** 导入 CSV */
+    #[Permission(slug: 'cccms:user:import', title: '导入用户')]
+    #[Restrict(methods: ['POST'])]
+    public function import(Request $request): Response
+    {
+        $file = $request->file('file');
+        if ($file === null) {
+            return $this->fail('请上传 CSV 文件', 422);
+        }
+
+        return $this->ok(UserLogic::import($file), '导入完成');
+    }
 }

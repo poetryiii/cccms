@@ -31,6 +31,7 @@ CCCMS 是一套基于 **Webman 2.x（PHP 常驻内存框架）+ Vue 3** 的中�
 - **数据权限下沉到模型层**：行级范围由全局查询作用域自动注入，字段级出、入参分别由 `toArray()` 与 `ScopedQuery` 处理，不依赖开发者记忆。
 - **插件化隔离**：`plugin/cccms` 只放框架级基础功能，业务功能新建插件，中间件与路由按插件作用域生效。
 - **可用的校验命令**：`perm-scan` / `data-scope-check` / `data-rule-check` 把「容易漏掉的正确做法」变成 CI 能拦住的检查。
+- **可观测与可运维**：请求链路 ID、操作日志 / 登录日志、在线用户与强制下线、定时任务重叠保护与失败重试。
 
 > 本仓库为全新工程，不迁移、不兼容老 CCCMS（ThinkPHP 8 版本）数据。
 
@@ -67,6 +68,20 @@ CCCMS 是一套基于 **Webman 2.x（PHP 常驻内存框架）+ Vue 3** 的中�
 | 多存储 | `StorageManager` 驱动抽象 + local / OSS / COS / 七牛 |
 | 前台应用 | 独立 `plugin/index` 插件（公开路由 `/site/*`，与后台中间件隔离） |
 
+### 三期（P2）· 能力补齐与工程化
+
+| 模块 | 内容 |
+|------|------|
+| 登录日志 | 登录成功与失败都记录（账号、结果、原因、IP、UA），支持筛选 / 导出 / 清空 |
+| 在线用户 | Redis 会话索引；按会话或按用户**强制下线**（同时作废已发出的令牌） |
+| 通知公告 | 管理端发布 + 顶栏「我的消息」抽屉与未读角标 |
+| 导入导出 | 通用 CSV（BOM、RFC 4180、**公式注入防护**）；用户导入导出、日志导出 |
+| 定时任务增强 | 重叠保护（跳过 / 并发）、超时释放运行锁、失败非阻塞重试、任务分组 |
+| 可观测性 | 请求链路 ID：响应头 `X-Trace-Id` + `sys_log.trace_id` + 失败响应体 |
+| 会话与缓存 | 令牌失效名单（`jti` 黑名单 + 用户级分界线）、权限集合 Redis 缓存 + 版本号失效 |
+| 前端体验 | 快捷导航（Ctrl / ⌘ + K）、面包屑可点击、列表**列宽拖拽记忆** |
+| 工程化 | GitHub Actions（后端 / 前端）、零依赖测试运行器、ESLint + Prettier、Docker 多阶段与完整编排 |
+
 ---
 
 ## 技术栈
@@ -86,19 +101,22 @@ CCCMS 是一套基于 **Webman 2.x（PHP 常驻内存框架）+ Vue 3** 的中�
 
 ```
 cccms/
-├── docs/          # 完整项目文档（安装 / 框架 / 权限 / 开发规范 / 前端 / FAQ）
+├── .github/       # CI 工作流（后端 php.yml / 前端 frontend.yml）
+├── docs/          # 完整项目文档（含更新日志与开发计划）
 ├── server/        # 后端（Webman）
 │   ├── app/       # 主应用（仅入口与全局配置）
 │   ├── config/    # 全局配置
-│   └── plugin/
-│       ├── cccms/ # 框架级基础功能插件（核心）
-│       └── index/ # 前台公开应用插件
+│   ├── plugin/
+│   │   ├── cccms/ # 框架级基础功能插件（核心）
+│   │   └── index/ # 前台公开应用插件
+│   ├── tests/     # 零依赖测试运行器与用例
+│   └── .env.example
 ├── frontend/      # 前端（Vue 3 + Vite + TS + Element Plus）
+│   ├── eslint.config.js
 │   └── src/
 │       ├── api/ components/ composables/ layouts/ pages/ router/ stores/ utils/
 │       └── ...
-├── README.md
-└── 待办.md
+└── README.md
 ```
 
 详细目录职责与命名约定见 [docs/03-目录结构.md](docs/03-目录结构.md)。
@@ -117,6 +135,7 @@ cccms/
 ```bash
 cd server
 composer install
+cp .env.example .env           # 本地开发记得设 APP_DEBUG=true
 
 # 建库并导入（自行建库）
 #   CREATE DATABASE cccms DEFAULT CHARSET utf8mb4;
@@ -154,9 +173,15 @@ npm run build    # 产物 dist/
 
 ### Docker
 
+`docker-compose.yml` 一键启动 **Webman + MySQL + Redis**，首次初始化自动导入表结构与种子数据：
+
 ```bash
 cd server
-docker compose up -d --build   # 容器暴露 8787
+cp .env.example .env           # 必须设置 JWT_SECRET / DATA_ENCRYPT_KEY / DB_PASSWORD
+docker compose up -d --build   # 暴露 8787
+
+docker compose exec webman php webman cccms:menu-sync
+docker compose exec webman php webman cccms:perm-scan
 ```
 
 完整的安装、配置、生产部署与升级说明见 [docs/02-安装部署.md](docs/02-安装部署.md)。
@@ -193,9 +218,10 @@ docker compose up -d --build   # 容器暴露 8787
 | [docs/08-后端开发规范.md](docs/08-后端开发规范.md) | 分层规范、编码约定、新增接口 / 插件步骤 |
 | [docs/09-前端开发规范.md](docs/09-前端开发规范.md) | 前端架构、路由、状态、主题、开发约定 |
 | [docs/10-前端组件参考.md](docs/10-前端组件参考.md) | `ArtTable` / `useTable` 等组件与 Hooks API |
-| [docs/11-常用命令与运维.md](docs/11-常用命令与运维.md) | CLI 命令、Redis 键、配置项、备份、安全加固 |
+| [docs/11-常用命令与运维.md](docs/11-常用命令与运维.md) | CLI 命令、Redis 键、配置项、备份、安全加固、CI |
 | [docs/12-常见问题与排错.md](docs/12-常见问题与排错.md) | 按现象检索的 FAQ |
-| [待办.md](待办.md) | 开发待办与决策记录 |
+| [docs/更新日志.md](docs/更新日志.md) | 版本变更记录 + 未发布待办 + 历史决策与验证记录 |
+| [docs/开发计划.md](docs/开发计划.md) | 里程碑、功能清单（已开发 / 未开发）、后续规划 |
 
 ---
 
@@ -206,8 +232,19 @@ php webman cccms:perm-scan            # 扫描注解 → 校验 + 同步按钮�
 php webman cccms:perm-scan --check    # 只校验不写库（CI 用）
 php webman cccms:menu-sync            # 同步 db/menu.php 的目录 / 菜单
 php webman cccms:db-upgrade           # 已有库补新增表 / 列 / 索引（幂等）
+php webman cccms:update               # 从上游仓库同步框架更新（安全覆盖 + 自动备份）
 php webman cccms:data-scope-check     # 校验数据权限接入
 php webman cccms:data-rule-check      # 体检数据权限规则（有冲突时退出码 1）
+composer test                         # 后端单元测试（库不可用时相关用例自动跳过）
+```
+
+前端：
+
+```bash
+cd frontend
+npm run lint           # ESLint
+npm run format:check   # Prettier 格式校验
+npm run build          # vue-tsc --noEmit + vite build
 ```
 
 ---
@@ -220,13 +257,17 @@ php webman cccms:data-rule-check      # 体检数据权限规则（有冲突时�
 - [docs/09-前端开发规范.md](docs/09-前端开发规范.md)
 - [docs/README.md §三 文档编写规范](docs/README.md#三文档编写规范)
 
-提交前请确保以下检查通过：
+提交前请确保以下检查通过（也已在 CI 中自动执行）：
 
 ```bash
-php server/webman cccms:perm-scan --check
-php server/webman cccms:data-scope-check
-php server/webman cccms:data-rule-check
-cd frontend && npm run build
+cd server
+php webman cccms:perm-scan --check
+php webman cccms:data-scope-check
+php webman cccms:data-rule-check
+composer test
+
+cd ../frontend
+npm run format:check && npm run lint && npm run build
 ```
 
 ---

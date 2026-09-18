@@ -9,6 +9,7 @@ use plugin\cccms\app\model\Menu;
 use plugin\cccms\app\model\RoleNode;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FileStorage;
+use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SoftDelete;
 use think\facade\Db;
 
@@ -39,6 +40,7 @@ final class RecycleLogic
         'data_rule' => ['table' => 'data_rule', 'label' => '数据权限规则', 'name' => 'name',         'sub' => 'field'],
         'file'      => ['table' => 'file',      'label' => '附件',        'name' => 'original_name', 'sub' => 'ext'],
         'menu'      => ['table' => 'menu',      'label' => '菜单/权限节点', 'name' => 'title',        'sub' => 'node'],
+        'notice'    => ['table' => 'notice',    'label' => '通知公告',    'name' => 'title',         'sub' => 'type'],
     ];
 
     /** 带唯一键的表：恢复前要检查唯一值是否已被占用 */
@@ -111,7 +113,12 @@ final class RecycleLogic
 
         self::assertRestorable($type, $meta, $ids);
 
-        return SoftDelete::restore(self::query($meta), $ids);
+        $affected = SoftDelete::restore(self::query($meta), $ids);
+
+        // 恢复的可能是角色 / 菜单 / 用户：权限集合要立即重算
+        PermissionCache::bump();
+
+        return $affected;
     }
 
     /** 彻底删除（附件连同物理文件一起删） */
@@ -139,7 +146,12 @@ final class RecycleLogic
             }
         }
 
-        return SoftDelete::force(self::query($meta), $ids);
+        $affected = SoftDelete::force(self::query($meta), $ids);
+
+        // 彻底删除可能清掉了 role_node 授权，或让「回收站里的同名角色」不再占用标识
+        PermissionCache::bump();
+
+        return $affected;
     }
 
     /** 恢复前的约束检查 */

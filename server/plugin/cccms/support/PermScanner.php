@@ -217,6 +217,9 @@ final class PermScanner
             $created++;
         }
 
+        // 按钮节点即权限节点：同步后所有用户的权限集合都要重算
+        PermissionCache::bump();
+
         return ['created' => $created, 'skipped' => $skipped];
     }
 

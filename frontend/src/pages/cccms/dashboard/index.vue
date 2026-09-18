@@ -11,17 +11,10 @@
               <span>{{ todayText }}</span>
               <span class="hello-divider" />
               <span>当前角色</span>
-              <el-tag
-                v-for="r in userStore.profile?.roles || []"
-                :key="r"
-                size="small"
-                effect="light"
-              >
+              <el-tag v-for="r in userStore.profile?.roles || []" :key="r" size="small" effect="light">
                 {{ r }}
               </el-tag>
-              <el-tag v-if="userStore.superAdmin" size="small" type="danger" effect="light">
-                超级管理员
-              </el-tag>
+              <el-tag v-if="userStore.superAdmin" size="small" type="danger" effect="light"> 超级管理员 </el-tag>
             </p>
           </div>
         </div>
@@ -111,12 +104,54 @@ const todayText = computed(() => {
 const cards = computed(() => {
   const c = stats.value?.counts
   return [
-    { key: 'user', label: '启用用户', value: c?.user ?? 0, icon: 'icon-user', color: '#2b6cff', bg: 'rgb(43 108 255 / 12%)' },
-    { key: 'role', label: '启用角色', value: c?.role ?? 0, icon: 'icon-safe', color: '#722ed1', bg: 'rgb(114 46 209 / 12%)' },
-    { key: 'dept', label: '部门', value: c?.dept ?? 0, icon: 'icon-tree', color: '#13c2c2', bg: 'rgb(19 194 194 / 12%)' },
-    { key: 'post', label: '岗位', value: c?.post ?? 0, icon: 'icon-badge', color: '#fa8c16', bg: 'rgb(250 140 22 / 14%)' },
-    { key: 'file', label: '附件', value: c?.file ?? 0, icon: 'icon-upload', color: '#21c26b', bg: 'rgb(33 194 107 / 12%)' },
-    { key: 'today_log', label: '今日操作', value: c?.today_log ?? 0, icon: 'icon-file', color: '#f4524d', bg: 'rgb(244 82 77 / 12%)' },
+    {
+      key: 'user',
+      label: '启用用户',
+      value: c?.user ?? 0,
+      icon: 'icon-user',
+      color: '#2b6cff',
+      bg: 'rgb(43 108 255 / 12%)',
+    },
+    {
+      key: 'role',
+      label: '启用角色',
+      value: c?.role ?? 0,
+      icon: 'icon-safe',
+      color: '#722ed1',
+      bg: 'rgb(114 46 209 / 12%)',
+    },
+    {
+      key: 'dept',
+      label: '部门',
+      value: c?.dept ?? 0,
+      icon: 'icon-tree',
+      color: '#13c2c2',
+      bg: 'rgb(19 194 194 / 12%)',
+    },
+    {
+      key: 'post',
+      label: '岗位',
+      value: c?.post ?? 0,
+      icon: 'icon-badge',
+      color: '#fa8c16',
+      bg: 'rgb(250 140 22 / 14%)',
+    },
+    {
+      key: 'file',
+      label: '附件',
+      value: c?.file ?? 0,
+      icon: 'icon-upload',
+      color: '#21c26b',
+      bg: 'rgb(33 194 107 / 12%)',
+    },
+    {
+      key: 'today_log',
+      label: '今日操作',
+      value: c?.today_log ?? 0,
+      icon: 'icon-file',
+      color: '#f4524d',
+      bg: 'rgb(244 82 77 / 12%)',
+    },
   ]
 })
 

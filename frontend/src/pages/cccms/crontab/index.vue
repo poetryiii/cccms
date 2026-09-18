@@ -20,6 +20,9 @@
         <el-form-item label="任务名称">
           <el-input v-model="query.name" placeholder="请输入" clearable style="width: 180px" />
         </el-form-item>
+        <el-form-item label="分组">
+          <el-input v-model="query.group_name" placeholder="如 系统" clearable style="width: 140px" />
+        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="query.status" placeholder="全部" clearable style="width: 130px">
             <el-option label="启用" :value="1" />
@@ -29,9 +32,7 @@
       </template>
 
       <template #toolbar>
-        <el-button v-auth="'cccms:crontab:save'" type="primary" :icon="Plus" @click="openCreate">
-          新增任务
-        </el-button>
+        <el-button v-auth="'cccms:crontab:save'" type="primary" :icon="Plus" @click="openCreate"> 新增任务 </el-button>
         <span class="toolbar-tip">调度进程仅跑在 Linux/macOS，Windows 可用「立即执行」验证</span>
       </template>
 
@@ -47,16 +48,16 @@
         <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
           {{ row.status === 1 ? '启用' : '停用' }}
         </el-tag>
+        <el-tag v-if="row.running === 1" type="warning" effect="dark" size="small" class="status-extra">
+          运行中
+        </el-tag>
+        <el-tag v-else-if="row.retry_left > 0" type="danger" effect="plain" size="small" class="status-extra">
+          待重试({{ row.retry_left }})
+        </el-tag>
       </template>
 
       <template #action="{ row }">
-        <el-button
-          v-auth="'cccms:crontab:run'"
-          link
-          type="primary"
-          :loading="running === row.id"
-          @click="onRun(row)"
-        >
+        <el-button v-auth="'cccms:crontab:run'" link type="primary" :loading="running === row.id" @click="onRun(row)">
           立即执行
         </el-button>
         <el-button v-auth="'cccms:crontab:logs'" link type="primary" @click="openLogs(row)">日志</el-button>
@@ -96,11 +97,30 @@
             placeholder='如 {"keep_days": 30}'
           />
         </el-form-item>
+        <el-form-item label="任务分组" prop="group_name">
+          <el-input v-model="form.group_name" placeholder="如 系统 / 报表（仅用于归类与筛选）" />
+        </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-radio-group v-model="form.status">
             <el-radio :value="1">启用</el-radio>
             <el-radio :value="0">停用</el-radio>
           </el-radio-group>
+        </el-form-item>
+        <el-form-item label="重叠策略" prop="overlap">
+          <el-radio-group v-model="form.overlap">
+            <el-radio value="skip">跳过（上次未结束则本次不跑）</el-radio>
+            <el-radio value="allow">允许并发</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="超时(秒)" prop="timeout">
+          <el-input-number v-model="form.timeout" :min="0" :max="86400" />
+          <span class="form-tip">0 = 不限。超时会释放运行锁并记一条「超时释放」日志（无法强杀进程内代码）</span>
+        </el-form-item>
+        <el-form-item label="失败重试" prop="retry_times">
+          <el-input-number v-model="form.retry_times" :min="0" :max="10" />
+          <span class="form-tip">次，间隔</span>
+          <el-input-number v-model="form.retry_interval" :min="1" :max="86400" />
+          <span class="form-tip">秒</span>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" placeholder="请输入备注" />
@@ -116,11 +136,16 @@
     <el-drawer v-model="logVisible" :title="`执行日志 - ${currentTask.name}`" size="760px">
       <el-table v-loading="logLoading" :data="logs" row-key="id" stripe border max-height="480">
         <el-table-column prop="run_time" label="时间" width="170" />
-        <el-table-column label="结果" width="90" align="center">
+        <el-table-column label="结果" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'danger'" effect="light" size="small">
-              {{ row.status === 1 ? '成功' : '失败' }}
+            <el-tag :type="logStatusMeta(row.status).type" effect="light" size="small">
+              {{ logStatusMeta(row.status).label }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源" width="90" align="center">
+          <template #default="{ row }">
+            {{ sourceLabel(row.source) }}
           </template>
         </el-table-column>
         <el-table-column prop="cost" label="耗时(ms)" width="100" align="right" />
@@ -160,6 +185,7 @@ import {
   crontabSave,
   crontabTargets,
   crontabUpdate,
+  type CrontabLogRow,
   type CrontabRow,
   type TaskTarget,
 } from '@/api/crontab'
@@ -167,12 +193,14 @@ import type { ArtTableColumn } from '@/types/table'
 
 interface Query {
   name: string
+  group_name: string
   status?: number
 }
 
 const columns: ArtTableColumn[] = [
   { prop: 'id', label: 'ID', width: 70 },
   { prop: 'name', label: '任务名称', minWidth: 170 },
+  { prop: 'group_name', label: '分组', width: 110 },
   { prop: 'expression', label: '表达式', width: 160, align: 'center', slot: 'expression' },
   { prop: 'target', label: '执行目标', minWidth: 210, defaultHidden: true },
   { prop: 'status', label: '状态', width: 90, align: 'center', slot: 'status' },
@@ -186,11 +214,12 @@ const { recycle, toggle, onRestore, onForceDelete } = useRecycle('crontab', {
   reload: () => search(),
 })
 
-const {
-  list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange,
-} = useTable<CrontabRow, Query>({
+const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
+  CrontabRow,
+  Query
+>({
   api: (params) => crontabList({ ...params, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { name: '', status: undefined },
+  initialQuery: { name: '', group_name: '', status: undefined },
 })
 
 const targets = ref<TaskTarget[]>([])
@@ -203,11 +232,16 @@ const formVisible = ref(false)
 const emptyForm = {
   id: 0,
   name: '',
+  group_name: '',
   target: '',
   // 6 段：每天 2 点整（编辑器始终生成 6 段，秒=0 即整分钟触发）
   expression: '0 0 2 * * *',
   params: '',
   status: 1,
+  overlap: 'skip',
+  timeout: 0,
+  retry_times: 0,
+  retry_interval: 60,
   remark: '',
 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
@@ -286,7 +320,7 @@ async function onRun(record: CrontabRow): Promise<void> {
 /* ---- 日志 ---- */
 const logVisible = ref(false)
 const logLoading = ref(false)
-const logs = ref<Record<string, unknown>[]>([])
+const logs = ref<CrontabLogRow[]>([])
 const logPage = ref(1)
 const logLimit = ref(10)
 const logTotal = ref(0)
@@ -320,6 +354,31 @@ function onLogPageChange(value: number): void {
   void loadLogs()
 }
 
+/** 执行日志状态：1 成功 · 0 失败 · 2 跳过 · 3 超时释放 */
+function logStatusMeta(status: number): { label: string; type: 'success' | 'danger' | 'info' | 'warning' } {
+  switch (status) {
+    case 1:
+      return { label: '成功', type: 'success' }
+    case 2:
+      return { label: '跳过', type: 'info' }
+    case 3:
+      return { label: '超时释放', type: 'warning' }
+    default:
+      return { label: '失败', type: 'danger' }
+  }
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  cron: '调度',
+  retry: '重试',
+  manual: '手工',
+  timeout: '超时',
+}
+
+function sourceLabel(source?: string): string {
+  return SOURCE_LABELS[String(source ?? 'cron')] ?? String(source ?? '—')
+}
+
 onMounted(async () => {
   targets.value = await crontabTargets()
 })
@@ -327,6 +386,16 @@ onMounted(async () => {
 
 <style scoped>
 .toolbar-tip {
+  font-size: 12px;
+  color: var(--art-muted);
+}
+
+.status-extra {
+  margin-left: 4px;
+}
+
+.form-tip {
+  margin-left: 8px;
   font-size: 12px;
   color: var(--art-muted);
 }

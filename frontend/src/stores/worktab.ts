@@ -33,9 +33,7 @@ export const useWorktabStore = defineStore('worktab', () => {
    * keep-alive 的 include 名单 = 已打开标签的组件名。
    * 关闭标签即从名单移除，实例才会真正销毁。
    */
-  const cached = computed<string[]>(() =>
-    tabs.value.map((t) => t.name).filter((n) => !excluded.value.includes(n)),
-  )
+  const cached = computed<string[]>(() => tabs.value.map((t) => t.name).filter((n) => !excluded.value.includes(n)))
 
   function findIndex(path: string): number {
     return tabs.value.findIndex((t) => t.path === path)
@@ -111,10 +109,7 @@ export const useWorktabStore = defineStore('worktab', () => {
       return
     }
     tab.pinned = !tab.pinned
-    tabs.value = [
-      ...tabs.value.filter((t) => t.pinned),
-      ...tabs.value.filter((t) => !t.pinned),
-    ]
+    tabs.value = [...tabs.value.filter((t) => t.pinned), ...tabs.value.filter((t) => !t.pinned)]
   }
 
   /**

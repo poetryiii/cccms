@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\Role;
 use plugin\cccms\app\model\RoleNode;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\PermissionCache;
 
 /**
  * 角色管理逻辑（含继承与节点授权）。
@@ -83,6 +84,9 @@ final class RoleLogic
         $id = (int)Role::withoutGlobalScope()->insertGetId($data);
         self::assignNodes($id, $nodes);
 
+        // 角色的权限集合变了：让所有用户的权限缓存立即失效
+        PermissionCache::bump();
+
         return $id;
     }
 
@@ -106,6 +110,8 @@ final class RoleLogic
         if ($hasNodes) {
             self::assignNodes($id, $nodes);
         }
+
+        PermissionCache::bump();
     }
 
     public static function delete(int $id): void
@@ -122,6 +128,7 @@ final class RoleLogic
         // 已软删的角色在 AuthService（登录/鉴权）与 DataScope（数据范围）里都会被过滤，
         // 因此不会继续授予任何权限。
         Role::destroy($id);
+        PermissionCache::bump();
     }
 
     /** 角色的节点（含继承标记）。 */

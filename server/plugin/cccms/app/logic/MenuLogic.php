@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\UserContext;
 use think\facade\Db;
@@ -89,7 +90,11 @@ final class MenuLogic
     public static function create(array $data): int
     {
         $data['node'] = $data['node'] ?? '';
-        return (int)Db::name('menu')->insertGetId($data);
+        $id = (int)Db::name('menu')->insertGetId($data);
+        // 菜单即权限节点：变更后所有用户的可见菜单 / 权限集合都要重新计算
+        PermissionCache::bump();
+
+        return $id;
     }
 
     public static function update(int $id, array $data): void
@@ -98,6 +103,7 @@ final class MenuLogic
             throw new \RuntimeException('菜单不存在');
         }
         Db::name('menu')->where('id', $id)->update($data);
+        PermissionCache::bump();
     }
 
     public static function delete(int $id): void
@@ -110,6 +116,7 @@ final class MenuLogic
         // 授权侧（AuthService::permissions）会把「回收站里的菜单节点」排除，所以删了就是真的没权限。
         // 「彻底删除」时才清理 role_node（见 RecycleLogic::forceDelete）。
         SoftDelete::remove(Db::name('menu'), $id);
+        PermissionCache::bump();
     }
 
     private static function buildTree(array $items, int $parentId): array

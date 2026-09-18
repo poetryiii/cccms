@@ -148,14 +148,7 @@ export const CRON_RANGES = RANGES
 /* ---- 宝塔式「执行周期」与六段表达式的互转 ---- */
 
 export type CronCycle =
-  | 'every_second'
-  | 'every_n_seconds'
-  | 'every_n_minutes'
-  | 'every_n_hours'
-  | 'daily'
-  | 'weekly'
-  | 'monthly'
-  | 'custom'
+  'every_second' | 'every_n_seconds' | 'every_n_minutes' | 'every_n_hours' | 'daily' | 'weekly' | 'monthly' | 'custom'
 
 export interface CronCycleState {
   cycle: CronCycle

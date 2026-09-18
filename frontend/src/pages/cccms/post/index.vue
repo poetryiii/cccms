@@ -23,9 +23,7 @@
       </template>
 
       <template #toolbar>
-        <el-button v-auth="'cccms:post:save'" type="primary" :icon="Plus" @click="openCreate">
-          新增
-        </el-button>
+        <el-button v-auth="'cccms:post:save'" type="primary" :icon="Plus" @click="openCreate"> 新增 </el-button>
       </template>
 
       <template #toolbar-right>
@@ -119,9 +117,10 @@ const { recycle, toggle, onRestore, onForceDelete } = useRecycle('post', {
   reload: () => search(),
 })
 
-const {
-  list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange,
-} = useTable<Row, Query>({
+const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
+  Row,
+  Query
+>({
   api: (params) => postList({ ...params, trashed: recycle.value ? 1 : 0 }),
   initialQuery: { name: '' },
 })

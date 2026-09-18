@@ -112,8 +112,7 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:modelValue': [value: number | number[] | null] }>()
 
 const keyOf = (row: NodeRow): number => Number(row[props.nodeKey])
-const labelOf = (row: NodeRow): string =>
-  props.labelFn ? props.labelFn(row) : String(row[props.labelField] ?? '')
+const labelOf = (row: NodeRow): string => (props.labelFn ? props.labelFn(row) : String(row[props.labelField] ?? ''))
 
 /** 已选 key（0 / NaN 视为未选） */
 const selectedKeys = computed<number[]>(() => {
@@ -121,9 +120,7 @@ const selectedKeys = computed<number[]>(() => {
   if (value === null || value === undefined) {
     return []
   }
-  return (Array.isArray(value) ? value : [value])
-    .map(Number)
-    .filter((k) => Number.isInteger(k) && k > 0)
+  return (Array.isArray(value) ? value : [value]).map(Number).filter((k) => Number.isInteger(k) && k > 0)
 })
 
 function applyEmit(keys: number[]): void {

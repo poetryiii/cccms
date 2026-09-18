@@ -8,10 +8,33 @@ use support\Log;
 use think\facade\Db;
 use Throwable;
 
-/** 定时任务执行器（调度进程与「立即执行」共用）。 */
+/**
+ * 定时任务执行器（调度进程、失败重试、「立即执行」共用）。
+ *
+ * 执行前会做一层**重叠保护**（`overlap`）与**超时判定**（`timeout`）：
+ *   - 任务表里的 `running` / `running_at` 是运行锁。上一轮还没跑完时，
+ *     `overlap=skip`（默认）直接跳过本次，`overlap=allow` 允许并发；
+ *   - `timeout > 0` 且锁已超过该秒数，视为上一轮**卡死**：强制释放锁并写一条
+ *     `status=3`（超时释放）的日志，然后继续本轮执行。
+ *
+ * ⚠️ 已知限制：任务在调度进程**同一个进程内**执行，PHP 无法从外部强杀正在执行的调用，
+ * 因此「超时」只能做到「解锁 + 留痕 + 让后续调度恢复」，不能真正中断卡住的代码。
+ * 需要硬超时的任务请自行在代码里做分段/协作式检查，或改用独立进程执行。
+ *
+ * 执行结果状态码（`sys_crontab_log.status`）：
+ *   1 = 成功 · 0 = 失败 · 2 = 跳过（上次未结束） · 3 = 超时释放
+ */
 final class CrontabRunner
 {
+    /** 跳过日志的写入节流（秒）：长任务每个调度周期都跳过，不节流会刷爆日志表 */
+    private const SKIP_LOG_INTERVAL = 60;
+
+    /** @var array<int,int> 任务 id => 上次写「跳过」日志的时间 */
+    private static array $lastSkipLog = [];
+
     /**
+     * 纯执行（不做锁与超时判定），供需要自行控制调度时机的场景使用。
+     *
      * @param array<string,mixed> $task
      * @return array{status:int,output:string,cost:int}
      */
@@ -47,22 +70,47 @@ final class CrontabRunner
     }
 
     /**
+     * 带重叠保护与超时判定地执行一次（**不写日志**，由调用方决定是否落库）。
+     *
+     * @param array<string,mixed> $task
+     * @param string              $source cron / retry / manual
+     * @return array{status:int,output:string,cost:int}
+     */
+    public static function execute(array $task, int $now, string $source = 'cron'): array
+    {
+        $id      = (int)($task['id'] ?? 0);
+        $overlap = strtolower(trim((string)($task['overlap'] ?? 'skip')));
+        $timeout = (int)($task['timeout'] ?? 0);
+
+        if ($overlap !== 'allow' && $id > 0) {
+            $claimed = self::claim($task, $now, $timeout);
+            if ($claimed !== '') {
+                // 上一轮仍在运行：跳过；日志按分钟节流
+                self::logSkip($task, $now, $claimed);
+
+                return ['status' => 2, 'output' => $claimed, 'cost' => 0];
+            }
+        }
+
+        try {
+            return self::run($task);
+        } finally {
+            if ($overlap !== 'allow' && $id > 0) {
+                self::release($id);
+            }
+        }
+    }
+
+    /**
      * 记录执行日志并更新任务的上次 / 下次执行时间。
      *
-     * @param array<string,mixed>          $task
+     * @param array<string,mixed>                      $task
      * @param array{status:int,output:string,cost:int} $result
      */
-    public static function writeLog(array $task, array $result, int $now): void
+    public static function writeLog(array $task, array $result, int $now, string $source = 'cron'): void
     {
         try {
-            Db::name('crontab_log')->insert([
-                'crontab_id' => (int)($task['id'] ?? 0),
-                'name'       => (string)($task['name'] ?? ''),
-                'status'     => (int)$result['status'],
-                'output'     => mb_substr($result['output'], 0, 2000),
-                'cost'       => (int)$result['cost'],
-                'run_time'   => date('Y-m-d H:i:s', $now),
-            ]);
+            self::insertLog($task, $result, $now, $source);
 
             if (!empty($task['id'])) {
                 $next = CronMatcher::nextRunTime((string)$task['expression'], $now);
@@ -75,5 +123,134 @@ final class CrontabRunner
             // 日志写入失败不影响任务本身
             Log::error('crontab: write log failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * 维护失败重试状态。
+     *
+     * 语义：`retry_times = N` 表示「失败后再试 N 次」，所以总执行次数最多 N + 1。
+     * 成功后清零；跳过（status=2）不动重试状态。
+     *
+     * @param array<string,mixed>                      $task
+     * @param array{status:int,output:string,cost:int} $result
+     */
+    public static function updateRetry(array $task, array $result, int $now, string $source): void
+    {
+        $id = (int)($task['id'] ?? 0);
+        if ($id <= 0) {
+            return;
+        }
+
+        $status = (int)$result['status'];
+        if ($status === 2) {
+            return;   // 跳过：不改动重试状态
+        }
+
+        try {
+            if ($status === 1) {
+                Db::name('crontab')->where('id', $id)->update(['retry_left' => 0, 'retry_at' => null]);
+                return;
+            }
+
+            $times = max(0, (int)($task['retry_times'] ?? 0));
+            if ($times === 0) {
+                Db::name('crontab')->where('id', $id)->update(['retry_left' => 0, 'retry_at' => null]);
+                return;
+            }
+
+            // 初次失败装载次数；重试再失败则递减
+            $left = $source === 'cron'
+                ? $times
+                : max(0, (int)($task['retry_left'] ?? 0) - 1);
+
+            if ($left <= 0) {
+                Db::name('crontab')->where('id', $id)->update(['retry_left' => 0, 'retry_at' => null]);
+                return;
+            }
+
+            $interval = max(1, (int)($task['retry_interval'] ?? 60));
+            Db::name('crontab')->where('id', $id)->update([
+                'retry_left' => $left,
+                'retry_at'   => date('Y-m-d H:i:s', $now + $interval),
+            ]);
+        } catch (Throwable $e) {
+            Log::error('crontab: update retry failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * 尝试获取运行锁。
+     *
+     * @return string 空串 = 获取成功；非空 = 跳过原因
+     */
+    private static function claim(array $task, int $now, int $timeout): string
+    {
+        $id  = (int)$task['id'];
+        $row = Db::name('crontab')->where('id', $id)->field('running,running_at')->find();
+
+        if ($row && (int)$row['running'] === 1) {
+            $runningAt = strtotime((string)($row['running_at'] ?? '')) ?: 0;
+            $stuck     = $timeout > 0 && $runningAt > 0 && ($now - $runningAt) >= $timeout;
+
+            if (!$stuck) {
+                return '上次执行尚未结束，本次跳过（overlap=skip）';
+            }
+
+            // 超时：解锁并留痕（进程内无法真正中断，只能让后续调度恢复）
+            Db::name('crontab')->where('id', $id)->update(['running' => 0, 'running_at' => null]);
+            self::insertLog(
+                $task,
+                ['status' => 3, 'output' => "上次执行超过 {$timeout} 秒仍未结束，已强制释放运行锁", 'cost' => 0],
+                $now,
+                'timeout'
+            );
+        }
+
+        Db::name('crontab')->where('id', $id)->update([
+            'running'    => 1,
+            'running_at' => date('Y-m-d H:i:s', $now),
+        ]);
+
+        return '';
+    }
+
+    private static function release(int $id): void
+    {
+        try {
+            Db::name('crontab')->where('id', $id)->update(['running' => 0, 'running_at' => null]);
+        } catch (Throwable $e) {
+            Log::error('crontab: release lock failed: ' . $e->getMessage());
+        }
+    }
+
+    /** 跳过日志按任务节流，避免「每秒任务 + 长执行」把日志表刷爆 */
+    private static function logSkip(array $task, int $now, string $reason): void
+    {
+        $id   = (int)($task['id'] ?? 0);
+        $last = self::$lastSkipLog[$id] ?? 0;
+        if ($now - $last < self::SKIP_LOG_INTERVAL) {
+            return;
+        }
+        self::$lastSkipLog[$id] = $now;
+
+        try {
+            self::insertLog($task, ['status' => 2, 'output' => $reason, 'cost' => 0], $now, 'cron');
+        } catch (Throwable $e) {
+            Log::error('crontab: write skip log failed: ' . $e->getMessage());
+        }
+    }
+
+    /** @param array{status:int,output:string,cost:int} $result */
+    private static function insertLog(array $task, array $result, int $now, string $source): void
+    {
+        Db::name('crontab_log')->insert([
+            'crontab_id' => (int)($task['id'] ?? 0),
+            'name'       => (string)($task['name'] ?? ''),
+            'status'     => (int)$result['status'],
+            'source'     => $source,
+            'output'     => mb_substr((string)$result['output'], 0, 2000),
+            'cost'       => (int)$result['cost'],
+            'run_time'   => date('Y-m-d H:i:s', $now),
+        ]);
     }
 }

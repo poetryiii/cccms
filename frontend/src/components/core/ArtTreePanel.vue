@@ -96,7 +96,10 @@ function syncCurrentKey(): void {
   treeRef.value?.setCurrentKey(props.currentKey === null ? undefined : props.currentKey)
 }
 
-watch(() => props.currentKey, () => void nextTick(syncCurrentKey))
+watch(
+  () => props.currentKey,
+  () => void nextTick(syncCurrentKey),
+)
 onMounted(syncCurrentKey)
 
 function onNodeClick(data: Record<string, any>): void {

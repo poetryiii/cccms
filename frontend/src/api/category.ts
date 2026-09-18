@@ -37,10 +37,7 @@ export function categoryDelete(module: CategoryModule, id: number) {
 }
 
 /** 把分类树拍平（下拉选择用，带缩进名） */
-export function flattenCategories(
-  nodes: CategoryNode[],
-  depth = 0,
-): Array<CategoryNode & { indentName: string }> {
+export function flattenCategories(nodes: CategoryNode[], depth = 0): Array<CategoryNode & { indentName: string }> {
   const out: Array<CategoryNode & { indentName: string }> = []
   for (const node of nodes) {
     out.push({ ...node, indentName: `${'　'.repeat(depth)}${node.name}` })

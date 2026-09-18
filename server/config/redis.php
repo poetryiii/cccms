@@ -18,10 +18,11 @@ return [
     'client' => extension_loaded('redis') ? 'phpredis' : 'predis',
 
     'default' => [
-        'password' => '',
-        'host' => '127.0.0.1',
-        'port' => 6379,
-        'database' => 0,
+        // 支持环境变量覆盖（部署 / Docker Compose 用），见 server/.env.example
+        'password' => getenv('REDIS_PASSWORD') ?: '',
+        'host' => getenv('REDIS_HOST') ?: '127.0.0.1',
+        'port' => (int)(getenv('REDIS_PORT') ?: 6379),
+        'database' => (int)(getenv('REDIS_DB') ?: 0),
         'pool' => [
             'max_connections' => 5,
             'min_connections' => 1,

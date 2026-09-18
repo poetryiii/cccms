@@ -4,13 +4,35 @@ import type { PageResult } from './types'
 export interface CrontabRow {
   id: number
   name: string
+  /** 任务分组（仅用于归类与筛选） */
+  group_name: string
   expression: string
   target: string
   params: unknown
   status: number
+  /** skip = 上次未结束则跳过 · allow = 允许并发 */
+  overlap: 'skip' | 'allow'
+  /** 超时秒数，0 = 不限 */
+  timeout: number
+  retry_times: number
+  retry_interval: number
+  /** 运行时：剩余重试次数 / 是否运行中 */
+  retry_left?: number
+  running?: number
   remark: string
   last_run_time: string | null
   next_run_time: string | null
+}
+
+export interface CrontabLogRow {
+  id: number
+  run_time: string
+  /** 1 成功 · 0 失败 · 2 跳过 · 3 超时释放 */
+  status: number
+  /** cron / retry / manual / timeout */
+  source: string
+  cost: number
+  output: string
 }
 
 export interface TaskTarget {
@@ -49,5 +71,5 @@ export function crontabRun(id: number) {
 }
 
 export function crontabLogs(params: Record<string, unknown>) {
-  return http.get<PageResult>('/crontab/logs', params)
+  return http.get<PageResult<CrontabLogRow>>('/crontab/logs', params)
 }
