@@ -166,14 +166,19 @@
           <div class="notice-item-title">
             <span class="notice-dot" :class="{ 'is-hidden': item.is_read }" />
             <span class="notice-text">{{ item.title }}</span>
-            <el-tag v-if="item.level === 2" type="danger" size="small" effect="plain">
-              {{ t('layout.noticeImportant') }}
-            </el-tag>
-            <el-tag v-else-if="item.type === 2" type="primary" size="small" effect="plain">
-              {{ t('layout.noticeAnnouncement') }}
+            <el-tag :type="item.level === 2 ? 'danger' : 'info'" size="small" effect="plain">
+              {{ item.level === 2 ? t('layout.noticeImportant') : t('layout.noticeNormal') }}
             </el-tag>
           </div>
-          <div class="notice-item-time">{{ item.publish_at || item.create_time }}</div>
+          <div class="notice-item-meta">
+            <el-tag :type="item.type === 2 ? 'primary' : 'success'" size="small" effect="plain">
+              {{ item.type === 2 ? t('layout.noticeAnnouncement') : t('layout.noticeNotification') }}
+            </el-tag>
+            <span class="notice-item-time">{{ item.publish_at || item.create_time }}</span>
+            <span class="notice-item-status" :class="{ 'is-read': item.is_read }">
+              {{ item.is_read ? t('layout.noticeRead') : t('layout.noticeUnread') }}
+            </span>
+          </div>
         </div>
       </div>
     </el-drawer>
@@ -614,9 +619,29 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   visibility: hidden;
 }
 
-.notice-item-time {
-  margin-top: 4px;
+.notice-item-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-left: 13px;
+  margin-top: 6px;
   font-size: 12px;
+  color: var(--art-muted);
+}
+
+.notice-item-time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice-item-status {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--art-danger);
+}
+
+.notice-item-status.is-read {
   color: var(--art-muted);
 }
 
