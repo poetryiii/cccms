@@ -13,6 +13,7 @@ use Throwable;
  * JWT 无状态，服务端本无会话可言；这里用 Redis 维护一份**辅助索引**：
  *
  *   - `cccms:online:s:{jti}`  Hash，一条会话的明细（用户、IP、UA、登录时间、最后活跃、过期时间）；
+ *     设备类型 / 操作系统 / 浏览器由 UA 在读取时派生，不单独落库；
  *   - `cccms:online:index`    ZSet，member = jti，score = 最后活跃时间（按活跃度倒序取列表）。
  *
  * 设计取舍：
@@ -384,24 +385,123 @@ final class OnlineSession
     /** @param array<string,mixed> $row */
     private static function decorate(string $jti, array $row): array
     {
+        $ua     = (string)($row['ua'] ?? '');
+        $client = self::parseUa($ua);
+
         return [
-            'jti'      => $jti,
-            'user_id'  => (int)($row['user_id'] ?? 0),
-            'username' => (string)($row['username'] ?? ''),
-            'nickname' => (string)($row['nickname'] ?? ''),
-            'ip'       => (string)($row['ip'] ?? ''),
-            'ua'       => (string)($row['ua'] ?? ''),
-            'login_at' => self::date((int)($row['login_at'] ?? 0)),
-            'last_at'  => self::date((int)($row['last_at'] ?? 0)),
+            'jti'       => $jti,
+            'user_id'   => (int)($row['user_id'] ?? 0),
+            'username'  => (string)($row['username'] ?? ''),
+            'nickname'  => (string)($row['nickname'] ?? ''),
+            'ip'        => (string)($row['ip'] ?? ''),
+            'ua'        => $ua,
+            'device'    => $client['device'],
+            'os'        => $client['os'],
+            'browser'   => $client['browser'],
+            'login_at'  => self::date((int)($row['login_at'] ?? 0)),
+            'last_at'   => self::date((int)($row['last_at'] ?? 0)),
+            // 令牌过期时间（签发时固定，`touch()` 不延长）
+            'expire_at' => self::date((int)($row['exp'] ?? 0)),
         ];
     }
 
     /** @param array<string,mixed> $row */
     private static function match(array $row, string $keyword): bool
     {
-        return str_contains((string)($row['username'] ?? ''), $keyword)
+        if (
+            str_contains((string)($row['username'] ?? ''), $keyword)
             || str_contains((string)($row['nickname'] ?? ''), $keyword)
-            || str_contains((string)($row['ip'] ?? ''), $keyword);
+            || str_contains((string)($row['ip'] ?? ''), $keyword)
+        ) {
+            return true;
+        }
+
+        // 终端信息由 UA 派生，Redis 里没有独立字段，只能在这里逐个比对
+        $client = self::parseUa((string)($row['ua'] ?? ''));
+
+        return str_contains($client['device'], $keyword)
+            || str_contains($client['os'], $keyword)
+            || str_contains($client['browser'], $keyword);
+    }
+
+    /**
+     * 从 UA 派生终端信息（设备类型 / 操作系统 / 浏览器）。
+     *
+     * 只存 UA、展示时再派生：旧会话无需迁移，UA 解析规则调整后历史记录同样生效。
+     *
+     * @return array{device:string,os:string,browser:string}
+     */
+    private static function parseUa(string $ua): array
+    {
+        $s = strtolower($ua);
+
+        $device = '电脑';
+        if ($s === '') {
+            $device = '未知';
+        } elseif (self::containsAny($s, ['bot', 'spider', 'crawler', 'curl/', 'wget/', 'python-requests', 'headless'])) {
+            $device = '爬虫';
+        } elseif (str_contains($s, 'ipad') || (str_contains($s, 'android') && !str_contains($s, 'mobile'))) {
+            $device = '平板';
+        } elseif (self::containsAny($s, ['mobile', 'iphone', 'ipod', 'android', 'windows phone'])) {
+            $device = '移动端';
+        }
+
+        $os = '';
+        if (self::containsAny($s, ['iphone', 'ipad', 'ipod'])) {
+            $os = 'iOS';
+        } elseif (str_contains($s, 'harmony')) {
+            $os = 'HarmonyOS';
+        } elseif (str_contains($s, 'android')) {
+            $os = 'Android';
+        } elseif (str_contains($s, 'windows')) {
+            $os = 'Windows';
+        } elseif (str_contains($s, 'mac os x') || str_contains($s, 'macintosh')) {
+            $os = 'macOS';
+        } elseif (str_contains($s, 'linux')) {
+            $os = 'Linux';
+        }
+
+        return ['device' => $device, 'os' => $os, 'browser' => self::detectBrowser($s)];
+    }
+
+    /** @param string $s 已转小写的 UA；顺序敏感：微信/Edge 等的 UA 里同时含有 Chrome/Safari */
+    private static function detectBrowser(string $s): string
+    {
+        if (str_contains($s, 'micromessenger')) {
+            return '微信';
+        }
+        if (self::containsAny($s, ['edg/', 'edga', 'edgios'])) {
+            return 'Edge';
+        }
+        if (str_contains($s, 'opr/') || str_contains($s, 'opera')) {
+            return 'Opera';
+        }
+        if (str_contains($s, 'firefox/') || str_contains($s, 'fxios')) {
+            return 'Firefox';
+        }
+        if (str_contains($s, 'chrome/') || str_contains($s, 'crios')) {
+            return 'Chrome';
+        }
+        if (str_contains($s, 'safari/')) {
+            return 'Safari';
+        }
+        if (str_contains($s, 'msie') || str_contains($s, 'trident/')) {
+            return 'IE';
+        }
+
+        return '其他';
+    }
+
+    /** @param string[] $needles */
+    private static function containsAny(string $haystack, array $needles): bool
+    {
+        foreach ($needles as $needle) {
+            if (str_contains($haystack, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function date(int $timestamp): string

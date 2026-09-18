@@ -16,7 +16,12 @@
     >
       <template #search>
         <el-form-item label="关键词">
-          <el-input v-model="query.keyword" placeholder="账号 / 昵称 / IP" clearable style="width: 220px" />
+          <el-input
+            v-model="query.keyword"
+            placeholder="账号 / 昵称 / IP / 设备 / 系统 / 浏览器"
+            clearable
+            style="width: 280px"
+          />
         </el-form-item>
       </template>
 
@@ -59,9 +64,13 @@ interface Query {
 
 const columns: ArtTableColumn[] = [
   { prop: 'username', label: '用户', slot: 'username' },
-  { prop: 'ip', label: 'IP', width: 150 },
+  { prop: 'device', label: '设备', width: 90 },
+  { prop: 'os', label: '系统', width: 110 },
+  { prop: 'browser', label: '浏览器', width: 100 },
+  { prop: 'ip', label: 'IP', width: 140 },
   { prop: 'login_at', label: '登录时间', width: 170 },
   { prop: 'last_at', label: '最后活跃', width: 170 },
+  { prop: 'expire_at', label: '会话过期', width: 170, defaultHidden: true },
   { prop: 'ua', label: 'User-Agent', minWidth: 240, defaultHidden: true },
   { prop: 'action', label: '操作', width: 210, fixed: 'right', slot: 'action', lockVisible: true },
 ]
