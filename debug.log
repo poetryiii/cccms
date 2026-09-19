@@ -1,5 +1,0 @@
-[30924:34548:0918/162904.771:ERROR:biz_prom_shiply_util.cpp(219)] BIZ Failed to open file: C:\ProgramData\SogouInput\ShiplyUpdate\suggestion_general_config_3\meta.dat
-[30924:34548:0918/162904.784:ERROR:biz_prom_shiply_util.cpp(219)] BIZ Failed to open file: C:\ProgramData\SogouInput\ShiplyUpdate\ime_perf_1\meta.dat
-[30924:34548:0918/162904.786:WARNING:t_skinfilemap.cpp(63)] SGRenderLog:CheckUpdate newMem.OpenMem Suc, szNewMem:Local\sgime_skin.v6.filemap.sogouime
-[30924:34548:0918/162904.786:WARNING:t_skinfilemap.cpp(65)] SGRenderLog:CheckUpdate finish: old version:1
-[30924:34548:0918/162904.786:WARNING:t_skinfilemap.cpp(67)] SGRenderLog:CheckUpdate finish: new version:6
