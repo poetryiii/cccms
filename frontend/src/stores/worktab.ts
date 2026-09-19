@@ -19,7 +19,9 @@ export const HOME_PATH = '/dashboard'
 const REFRESH_DELAY = 60
 
 function createHomeTab(): TabItem {
-  return { path: HOME_PATH, name: 'dashboard', title: '仪表盘', icon: 'icon-home', pinned: true }
+  // title 存 i18n key 而非成品文案：标签栏渲染时经 translateTitle() 翻译，
+  // 这样切换语言无需重建标签页。
+  return { path: HOME_PATH, name: 'dashboard', title: 'route.dashboard', icon: 'icon-home', pinned: true }
 }
 
 export const useWorktabStore = defineStore('worktab', () => {

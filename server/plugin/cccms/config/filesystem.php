@@ -8,8 +8,12 @@ return [
     'url_prefix' => '/storage',
 
     // 上传白名单与大小上限（所有驱动共用）
+    //
+    // ⚠️ 安全约束：**不要加入 svg / html / xml**。本地驱动落盘 `public/storage` 且与后台
+    // 同域直出，这类文件被浏览器按 Content-Type 内联渲染时会执行其中的脚本，
+    // 形成存储型 XSS（可读取 localStorage 中的 token）。如需 SVG，请先二次渲染为 PNG。
     'allow_ext'  => [
-        'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg',
+        'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp',
         'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
         'txt', 'csv', 'md', 'zip', 'rar', '7z',
         'mp3', 'mp4', 'webm',

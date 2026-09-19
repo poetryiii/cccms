@@ -19,7 +19,10 @@ export interface ConfigItem {
   options: ConfigOption[] | string | null
   /** 仅 type=password 返回：敏感项是否已配置过（密文本身不下发） */
   has_value?: boolean
+  /** 分组原始值：用于 `?group=` 过滤，不可用于展示 */
   group: string
+  /** 分组展示名（后端按请求语言翻译下发）：仅用于展示，缺失时回退 group */
+  group_label?: string
   sort: number
   status: number
   remark: string
@@ -44,9 +47,16 @@ export interface AppUiDefaults {
   container_width: number
 }
 
+export interface AppSecurityConfig {
+  /** 找回密码可用渠道（email / sms；空数组 = 未开启找回入口） */
+  reset_channels: string[]
+}
+
 export interface AppUiConfig {
   system: AppSystemConfig
   ui: AppUiDefaults
+  /** 安全相关公开开关（不含任何密钥） */
+  security?: AppSecurityConfig
   /** 后台默认语言（本机无语言偏好时应用） */
   locale?: string
   /** 后端支持的可用语言列表 */

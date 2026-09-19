@@ -77,6 +77,33 @@
         </el-dropdown>
       </el-tooltip>
 
+      <!-- 租户切换（超管专属）：租户是硬边界，跨租户只能显式切换，不做「超管看全部」 -->
+      <el-dropdown v-if="userStore.superAdmin" trigger="click" @command="onTenantCommand">
+        <el-tooltip :content="t('tenant.switchTenant')" placement="bottom">
+          <el-button text class="header-tenant">
+            <el-icon :size="15"><OfficeBuilding /></el-icon>
+            <span class="header-tenant-name">{{ currentTenantName }}</span>
+            <el-icon :size="12"><ArrowDown /></el-icon>
+          </el-button>
+        </el-tooltip>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item disabled>
+              <span class="header-user-role">{{ t('tenant.currentTenant') }}：{{ currentTenantName }}</span>
+            </el-dropdown-item>
+            <el-dropdown-item
+              v-for="(item, index) in tenantChoices"
+              :key="item.id"
+              :command="item.id"
+              :disabled="item.current"
+              :divided="index === 0"
+            >
+              {{ item.name }}
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
       <el-dropdown trigger="click" @command="onUserCommand">
         <div class="header-user">
           <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
@@ -196,7 +223,8 @@
         </el-tag>
         <span>{{ currentNotice?.publish_at || currentNotice?.create_time }}</span>
       </div>
-      <div class="notice-detail-content">{{ currentNotice?.content }}</div>
+      <!-- 正文是富文本 HTML：必须过 sanitizeHtml 再 v-html，否则历史脏数据可触发 XSS -->
+      <div class="notice-detail-content" v-html="safeContent"></div>
     </el-dialog>
   </header>
 </template>
@@ -212,6 +240,7 @@ import {
   Expand,
   Fold,
   FullScreen,
+  OfficeBuilding,
   Refresh,
   RefreshRight,
   Search,
@@ -223,13 +252,16 @@ import ArtSettingsDrawer from '@/components/core/ArtSettingsDrawer.vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import { reloadMenus, resetAfterLogout } from '@/router'
 import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
+import { tenantOptions, type TenantOption } from '@/api/tenant'
 import type { MenuNode } from '@/api/types'
 import type { NoticeRow } from '@/api/notice'
 import { useAppStore } from '@/stores/app'
+import { translateTitle } from '@/locales/title'
 import { useMenuStore } from '@/stores/menu'
 import { useNoticeStore } from '@/stores/notice'
 import { HOME_PATH, useWorktabStore } from '@/stores/worktab'
 import { useUserStore } from '@/stores/user'
+import { sanitizeHtml } from '@/utils/richText'
 
 const props = defineProps<{ collapsed: boolean }>()
 const emit = defineEmits<{ 'update:collapsed': [value: boolean] }>()
@@ -251,7 +283,8 @@ const crumbs = computed(() =>
   route.matched
     .slice(1)
     .filter((r) => r.meta?.title)
-    .map((r) => ({ path: r.path, title: String(r.meta.title) })),
+    // meta.title 可能是静态路由的 i18n key，也可能是后端已翻译好的菜单标题
+    .map((r) => ({ path: r.path, title: translateTitle(r.meta.title) })),
 )
 
 const avatarText = computed(() => (userStore.nickname || 'U').charAt(0).toUpperCase())
@@ -345,16 +378,61 @@ function onHotkey(event: KeyboardEvent): void {
 onMounted(() => {
   window.addEventListener('keydown', onHotkey)
   void noticeStore.refreshUnread()
+  void loadTenantChoices()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onHotkey)
 })
 
+/* ---- 租户切换（超管专属） ---- */
+const tenantChoices = ref<TenantOption[]>([])
+
+/** 当前生效租户名：优先取候选里的名字，拉取失败时回落到「当前租户」 */
+const currentTenantName = computed(() => {
+  const hit = tenantChoices.value.find((item) => item.id === userStore.tenantId)
+  return hit?.name || t('tenant.currentTenant')
+})
+
+async function loadTenantChoices(): Promise<void> {
+  if (!userStore.superAdmin) {
+    return
+  }
+  try {
+    tenantChoices.value = await tenantOptions()
+  } catch {
+    // 拦截器已提示，顶栏少一个入口不影响其它功能
+  }
+}
+
+async function onTenantCommand(command: string | number | object): Promise<void> {
+  const id = Number(command)
+  if (!Number.isInteger(id) || id === userStore.tenantId) {
+    return
+  }
+
+  const name = tenantChoices.value.find((item) => item.id === id)?.name ?? ''
+  try {
+    await ElMessageBox.confirm(t('tenant.switchConfirm', { name }), t('tenant.switchTitle'), { type: 'warning' })
+  } catch {
+    return
+  }
+
+  await userStore.switchTenant(id)
+  ElMessage.success(t('tenant.switchSuccess', { name }))
+
+  // 页面上的每一份数据都属于切换前的租户，且 `keep_alive` 的页面还会被缓存复用，
+  // 只有整体重载才能保证不残留旧租户数据（令牌在 localStorage，重载不会丢登录态）。
+  window.location.reload()
+}
+
 /* ---- 我的消息 ---- */
 const noticeVisible = ref(false)
 const noticeDetailVisible = ref(false)
 const currentNotice = ref<NoticeRow | null>(null)
+
+/** 详情正文净化后渲染（库中可能存有编辑器接入前录入的历史内容） */
+const safeContent = computed(() => sanitizeHtml(currentNotice.value?.content ?? ''))
 
 function openNoticeDrawer(): void {
   noticeVisible.value = true
@@ -530,6 +608,20 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   color: var(--art-muted);
 }
 
+/* ---- 租户切换 ---- */
+.header-tenant {
+  gap: 4px;
+  height: 32px;
+  font-size: 13px;
+}
+
+.header-tenant-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- 快捷导航 ---- */
 .header-search-list {
   max-height: 320px;
@@ -658,7 +750,110 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   font-size: 14px;
   line-height: 1.7;
   color: var(--art-main);
+  /* 历史数据是纯文本（换行需保留），HTML 正文由块级元素自身排版，pre-wrap 不影响 */
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/*
+ * 正文由 v-html 注入，子节点不带 scoped 属性，必须走 :deep()。
+ * Tailwind preflight 清掉了标题与列表样式，这里按编辑器的排版显式恢复，
+ * 保证顶栏「我的消息」详情与 ArtRichEditor 里所见一致。
+ */
+.notice-detail-content :deep(p) {
+  margin: 0 0 8px;
+}
+
+.notice-detail-content :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.notice-detail-content :deep(h1),
+.notice-detail-content :deep(h2),
+.notice-detail-content :deep(h3),
+.notice-detail-content :deep(h4) {
+  margin: 12px 0 8px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.notice-detail-content :deep(h1) {
+  font-size: 22px;
+}
+
+.notice-detail-content :deep(h2) {
+  font-size: 19px;
+}
+
+.notice-detail-content :deep(h3) {
+  font-size: 16px;
+}
+
+.notice-detail-content :deep(h4) {
+  font-size: 15px;
+}
+
+.notice-detail-content :deep(ul),
+.notice-detail-content :deep(ol) {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+.notice-detail-content :deep(ul) {
+  list-style: disc;
+}
+
+.notice-detail-content :deep(ol) {
+  list-style: decimal;
+}
+
+.notice-detail-content :deep(li) {
+  margin: 0 0 4px;
+}
+
+.notice-detail-content :deep(blockquote) {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  color: var(--art-sub);
+  border-left: 3px solid var(--el-border-color);
+}
+
+.notice-detail-content :deep(code) {
+  padding: 2px 4px;
+  font-family: Consolas, Menlo, monospace;
+  font-size: 13px;
+  background: var(--el-fill-color);
+  border-radius: 4px;
+}
+
+.notice-detail-content :deep(pre) {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: Consolas, Menlo, monospace;
+  font-size: 13px;
+  background: var(--el-fill-color-dark);
+  border-radius: 6px;
+}
+
+.notice-detail-content :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.notice-detail-content :deep(a) {
+  color: var(--art-primary);
+  text-decoration: underline;
+}
+
+.notice-detail-content :deep(img) {
+  max-width: 100%;
+  height: auto;
+}
+
+.notice-detail-content :deep(hr) {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 </style>

@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\DataRule;
 use plugin\cccms\app\model\DataScopeTable;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use think\facade\Db;
 
 /**
@@ -55,7 +56,7 @@ final class DataScopeTableLogic
             ];
         }
 
-        $used      = array_map(static fn ($row) => (string)$row['table_name'], $rows);
+        $used      = array_map(static fn ($name) => (string)$name, DataScopeTable::withoutAllScopes()->column('table_name'));
         $available = [];
         foreach ($tables as $bare => $meta) {
             if (in_array($bare, $used, true)) {
@@ -77,10 +78,14 @@ final class DataScopeTableLogic
         $tables = self::dbTables();
 
         if ($table === '' || !isset($tables[$table])) {
-            throw new ApiException('表不存在：' . ($table === '' ? '(空)' : $table), 422);
+            throw new ApiException(I18n::t('data_scope_table.table_not_found', [
+                'table' => $table === '' ? I18n::t('data_scope_table.empty_table') : $table,
+            ]), 422);
         }
-        if (DataScopeTable::where('table_name', $table)->count() > 0) {
-            throw new ApiException('该表已在受控表内', 422);
+        // `uk_table` 是**全局唯一索引**：受控表名单不随租户重复登记，
+        // 因此查重必须绕过租户作用域，否则会撞唯一键（列表候选也据此排除，见 index()）。
+        if (DataScopeTable::withoutAllScopes()->where('table_name', $table)->count() > 0) {
+            throw new ApiException(I18n::t('data_scope_table.table_exists'), 422);
         }
 
         return (int)DataScopeTable::withoutGlobalScope()->insertGetId([
@@ -187,7 +192,7 @@ final class DataScopeTableLogic
     {
         $row = DataScopeTable::where('id', $id)->find();
         if (!$row) {
-            throw new ApiException('受控表不存在', 404);
+            throw new ApiException(I18n::t('data_scope_table.not_found'), 404);
         }
 
         return $row->toArray();

@@ -17,27 +17,34 @@
       @force-delete="onForceDelete"
     >
       <template #search>
-        <el-form-item label="任务名称">
-          <el-input v-model="query.name" placeholder="请输入" clearable style="width: 180px" />
+        <el-form-item :label="t('crontab.nameLabel')">
+          <el-input v-model="query.name" :placeholder="t('crontab.searchPlaceholder')" clearable style="width: 180px" />
         </el-form-item>
-        <el-form-item label="分组">
-          <el-input v-model="query.group_name" placeholder="如 系统" clearable style="width: 140px" />
+        <el-form-item :label="t('crontab.groupLabel')">
+          <el-input
+            v-model="query.group_name"
+            :placeholder="t('crontab.groupPlaceholder')"
+            clearable
+            style="width: 140px"
+          />
         </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" clearable style="width: 130px">
-            <el-option label="启用" :value="1" />
-            <el-option label="停用" :value="0" />
+        <el-form-item :label="t('crontab.statusLabel')">
+          <el-select v-model="query.status" :placeholder="t('crontab.allPlaceholder')" clearable style="width: 130px">
+            <el-option :label="t('crontab.enabled')" :value="1" />
+            <el-option :label="t('crontab.disabled')" :value="0" />
           </el-select>
         </el-form-item>
       </template>
 
       <template #toolbar>
-        <el-button v-auth="'cccms:crontab:save'" type="primary" :icon="Plus" @click="openCreate"> 新增任务 </el-button>
-        <span class="toolbar-tip">调度进程仅跑在 Linux/macOS，Windows 可用「立即执行」验证</span>
+        <el-button v-auth="'cccms:crontab:save'" type="primary" :icon="Plus" @click="openCreate">
+          {{ t('crontab.create') }}
+        </el-button>
+        <span class="toolbar-tip">{{ t('crontab.toolbarTip') }}</span>
       </template>
 
       <template #toolbar-right>
-        <RecycleToggle :active="recycle" label="定时任务" @toggle="toggle" />
+        <RecycleToggle :active="recycle" :label="t('crontab.recycleLabel')" @toggle="toggle" />
       </template>
 
       <template #expression="{ row }">
@@ -46,25 +53,29 @@
 
       <template #status="{ row }">
         <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
-          {{ row.status === 1 ? '启用' : '停用' }}
+          {{ row.status === 1 ? t('crontab.enabled') : t('crontab.disabled') }}
         </el-tag>
         <el-tag v-if="row.running === 1" type="warning" effect="dark" size="small" class="status-extra">
-          运行中
+          {{ t('crontab.running') }}
         </el-tag>
         <el-tag v-else-if="row.retry_left > 0" type="danger" effect="plain" size="small" class="status-extra">
-          待重试({{ row.retry_left }})
+          {{ t('crontab.retryPending', { count: row.retry_left }) }}
         </el-tag>
       </template>
 
       <template #action="{ row }">
         <el-button v-auth="'cccms:crontab:run'" link type="primary" :loading="running === row.id" @click="onRun(row)">
-          立即执行
+          {{ t('crontab.runNow') }}
         </el-button>
-        <el-button v-auth="'cccms:crontab:logs'" link type="primary" @click="openLogs(row)">日志</el-button>
-        <el-button v-auth="'cccms:crontab:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
-        <el-popconfirm title="确定删除该任务？" @confirm="onDelete(row.id)">
+        <el-button v-auth="'cccms:crontab:logs'" link type="primary" @click="openLogs(row)">
+          {{ t('crontab.logs') }}
+        </el-button>
+        <el-button v-auth="'cccms:crontab:update'" link type="primary" @click="openEdit(row)">
+          {{ t('common.edit') }}
+        </el-button>
+        <el-popconfirm :title="t('crontab.deleteConfirm')" @confirm="onDelete(row.id)">
           <template #reference>
-            <el-button v-auth="'cccms:crontab:delete'" link type="danger">删除</el-button>
+            <el-button v-auth="'cccms:crontab:delete'" link type="danger">{{ t('common.delete') }}</el-button>
           </template>
         </el-popconfirm>
       </template>
@@ -73,83 +84,83 @@
     <!-- 表单 -->
     <el-dialog
       v-model="formVisible"
-      :title="form.id ? '编辑定时任务' : '新增定时任务'"
+      :title="form.id ? t('crontab.editTitle') : t('crontab.createTitle')"
       width="850px"
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
-        <el-form-item label="任务名称" prop="name">
-          <el-input v-model="form.name" placeholder="如 清理历史日志" />
+        <el-form-item :label="t('crontab.nameLabel')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('crontab.namePlaceholder')" />
         </el-form-item>
-        <el-form-item label="执行目标" prop="target">
-          <el-select v-model="form.target" placeholder="仅可选择实现 CrontabTask 的类" style="width: 100%">
-            <el-option v-for="t in targets" :key="t.class" :label="t.label" :value="t.class" />
+        <el-form-item :label="t('crontab.targetLabel')" prop="target">
+          <el-select v-model="form.target" :placeholder="t('crontab.targetPlaceholder')" style="width: 100%">
+            <el-option v-for="item in targets" :key="item.class" :label="item.label" :value="item.class" />
           </el-select>
         </el-form-item>
-        <el-form-item label="cron 表达式" prop="expression">
+        <el-form-item :label="t('crontab.expressionLabel')" prop="expression">
           <CronEditor v-model="form.expression" />
         </el-form-item>
-        <el-form-item label="参数（JSON）" prop="params">
+        <el-form-item :label="t('crontab.paramsLabel')" prop="params">
           <el-input
             v-model="form.params"
             type="textarea"
             :autosize="{ minRows: 2, maxRows: 5 }"
-            placeholder='如 {"keep_days": 30}'
+            :placeholder="t('crontab.paramsPlaceholder')"
           />
         </el-form-item>
-        <el-form-item label="任务分组" prop="group_name">
-          <el-input v-model="form.group_name" placeholder="如 系统 / 报表（仅用于归类与筛选）" />
+        <el-form-item :label="t('crontab.groupFormLabel')" prop="group_name">
+          <el-input v-model="form.group_name" :placeholder="t('crontab.groupFormPlaceholder')" />
         </el-form-item>
-        <el-form-item label="状态" prop="status">
+        <el-form-item :label="t('crontab.statusLabel')" prop="status">
           <el-radio-group v-model="form.status">
-            <el-radio :value="1">启用</el-radio>
-            <el-radio :value="0">停用</el-radio>
+            <el-radio :value="1">{{ t('crontab.enabled') }}</el-radio>
+            <el-radio :value="0">{{ t('crontab.disabled') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="重叠策略" prop="overlap">
+        <el-form-item :label="t('crontab.overlapLabel')" prop="overlap">
           <el-radio-group v-model="form.overlap">
-            <el-radio value="skip">跳过（上次未结束则本次不跑）</el-radio>
-            <el-radio value="allow">允许并发</el-radio>
+            <el-radio value="skip">{{ t('crontab.overlapSkip') }}</el-radio>
+            <el-radio value="allow">{{ t('crontab.overlapAllow') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="超时(秒)" prop="timeout">
+        <el-form-item :label="t('crontab.timeoutLabel')" prop="timeout">
           <el-input-number v-model="form.timeout" :min="0" :max="86400" />
-          <span class="form-tip">0 = 不限。超时会释放运行锁并记一条「超时释放」日志（无法强杀进程内代码）</span>
+          <span class="form-tip">{{ t('crontab.timeoutTip') }}</span>
         </el-form-item>
-        <el-form-item label="失败重试" prop="retry_times">
+        <el-form-item :label="t('crontab.retryLabel')" prop="retry_times">
           <el-input-number v-model="form.retry_times" :min="0" :max="10" />
-          <span class="form-tip">次，间隔</span>
+          <span class="form-tip">{{ t('crontab.retryTimesSuffix') }}</span>
           <el-input-number v-model="form.retry_interval" :min="1" :max="86400" />
-          <span class="form-tip">秒</span>
+          <span class="form-tip">{{ t('crontab.retrySecondsSuffix') }}</span>
         </el-form-item>
-        <el-form-item label="备注" prop="remark">
-          <el-input v-model="form.remark" placeholder="请输入备注" />
+        <el-form-item :label="t('crontab.remarkLabel')" prop="remark">
+          <el-input v-model="form.remark" :placeholder="t('crontab.remarkPlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
+        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 执行日志 -->
-    <el-drawer v-model="logVisible" :title="`执行日志 - ${currentTask.name}`" size="760px">
+    <el-drawer v-model="logVisible" :title="t('crontab.logsTitle', { name: currentTask.name })" size="760px">
       <el-table v-loading="logLoading" :data="logs" row-key="id" stripe border max-height="480">
-        <el-table-column prop="run_time" label="时间" width="170" />
-        <el-table-column label="结果" width="100" align="center">
+        <el-table-column prop="run_time" :label="t('crontab.logTime')" width="170" />
+        <el-table-column :label="t('crontab.logResult')" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="logStatusMeta(row.status).type" effect="light" size="small">
-              {{ logStatusMeta(row.status).label }}
+              {{ t(logStatusMeta(row.status).labelKey) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="来源" width="90" align="center">
+        <el-table-column :label="t('crontab.logSource')" width="90" align="center">
           <template #default="{ row }">
             {{ sourceLabel(row.source) }}
           </template>
         </el-table-column>
-        <el-table-column prop="cost" label="耗时(ms)" width="100" align="right" />
-        <el-table-column prop="output" label="输出" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="cost" :label="t('crontab.logCost')" width="100" align="right" />
+        <el-table-column prop="output" :label="t('crontab.logOutput')" min-width="200" show-overflow-tooltip />
       </el-table>
 
       <template #footer>
@@ -169,7 +180,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'cccms:crontab' })
 
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
@@ -197,17 +209,20 @@ interface Query {
   status?: number
 }
 
-const columns: ArtTableColumn[] = [
+const { t } = useI18n({ useScope: 'global' })
+
+// 表格列文案跟随语言切换，用 computed 包裹
+const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 70 },
-  { prop: 'name', label: '任务名称', minWidth: 170 },
-  { prop: 'group_name', label: '分组', width: 110 },
-  { prop: 'expression', label: '表达式', width: 160, align: 'center', slot: 'expression' },
-  { prop: 'target', label: '执行目标', minWidth: 210, defaultHidden: true },
-  { prop: 'status', label: '状态', width: 90, align: 'center', slot: 'status' },
-  { prop: 'last_run_time', label: '上次执行', width: 170 },
-  { prop: 'next_run_time', label: '下次执行', width: 170, defaultHidden: true },
-  { prop: 'action', label: '操作', width: 260, fixed: 'right', slot: 'action', lockVisible: true },
-]
+  { prop: 'name', label: t('crontab.nameLabel'), minWidth: 170 },
+  { prop: 'group_name', label: t('crontab.groupLabel'), width: 110 },
+  { prop: 'expression', label: t('crontab.expressionColumnLabel'), width: 160, align: 'center', slot: 'expression' },
+  { prop: 'target', label: t('crontab.targetColumnLabel'), minWidth: 210, defaultHidden: true },
+  { prop: 'status', label: t('crontab.statusLabel'), width: 90, align: 'center', slot: 'status' },
+  { prop: 'last_run_time', label: t('crontab.lastRunLabel'), width: 170 },
+  { prop: 'next_run_time', label: t('crontab.nextRunLabel'), width: 170, defaultHidden: true },
+  { prop: 'action', label: t('table.action'), width: 260, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 // 回收站开关：必须在 useTable 之前（列表闭包在 setup 阶段就会执行一次）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('crontab', {
@@ -246,11 +261,12 @@ const emptyForm = {
 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
 
-const rules: FormRules = {
-  name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
-  target: [{ required: true, message: '请选择执行目标', trigger: 'change' }],
-  expression: [{ required: true, message: '请设置 cron 表达式', trigger: 'change' }],
-}
+// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
+const rules = computed<FormRules>(() => ({
+  name: [{ required: true, message: t('crontab.nameRequired'), trigger: 'blur' }],
+  target: [{ required: true, message: t('crontab.targetRequired'), trigger: 'change' }],
+  expression: [{ required: true, message: t('crontab.expressionRequired'), trigger: 'change' }],
+}))
 
 function openCreate(): void {
   Object.assign(form, emptyForm)
@@ -275,7 +291,7 @@ async function submitForm(): Promise<void> {
     try {
       params = JSON.parse(form.params)
     } catch {
-      ElMessage.error('参数不是合法 JSON')
+      ElMessage.error(t('crontab.invalidParams'))
       return
     }
   }
@@ -288,7 +304,7 @@ async function submitForm(): Promise<void> {
     } else {
       await crontabSave(payload)
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('crontab.saveSuccess'))
     formVisible.value = false
     load()
   } finally {
@@ -298,7 +314,7 @@ async function submitForm(): Promise<void> {
 
 async function onDelete(id: number): Promise<void> {
   await crontabDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('crontab.deleteSuccess'))
   load()
 }
 
@@ -307,9 +323,9 @@ async function onRun(record: CrontabRow): Promise<void> {
   try {
     const res = await crontabRun(record.id)
     if (res.status === 1) {
-      ElMessage.success(`执行成功（${res.cost}ms）：${res.output}`)
+      ElMessage.success(t('crontab.runSuccess', { cost: res.cost, output: res.output }))
     } else {
-      ElMessage.error(`执行失败：${res.output}`)
+      ElMessage.error(t('crontab.runFailed', { output: res.output }))
     }
     load()
   } finally {
@@ -354,29 +370,30 @@ function onLogPageChange(value: number): void {
   void loadLogs()
 }
 
-/** 执行日志状态：1 成功 · 0 失败 · 2 跳过 · 3 超时释放 */
-function logStatusMeta(status: number): { label: string; type: 'success' | 'danger' | 'info' | 'warning' } {
+/** 执行日志状态：1 成功 · 0 失败 · 2 跳过 · 3 超时释放（labelKey 在模板里翻译） */
+function logStatusMeta(status: number): { labelKey: string; type: 'success' | 'danger' | 'info' | 'warning' } {
   switch (status) {
     case 1:
-      return { label: '成功', type: 'success' }
+      return { labelKey: 'crontab.logSuccess', type: 'success' }
     case 2:
-      return { label: '跳过', type: 'info' }
+      return { labelKey: 'crontab.logSkipped', type: 'info' }
     case 3:
-      return { label: '超时释放', type: 'warning' }
+      return { labelKey: 'crontab.logTimeout', type: 'warning' }
     default:
-      return { label: '失败', type: 'danger' }
+      return { labelKey: 'crontab.logFailed', type: 'danger' }
   }
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  cron: '调度',
-  retry: '重试',
-  manual: '手工',
-  timeout: '超时',
+const SOURCE_LABEL_KEYS: Record<string, string> = {
+  cron: 'crontab.sourceCron',
+  retry: 'crontab.sourceRetry',
+  manual: 'crontab.sourceManual',
+  timeout: 'crontab.sourceTimeout',
 }
 
 function sourceLabel(source?: string): string {
-  return SOURCE_LABELS[String(source ?? 'cron')] ?? String(source ?? '—')
+  const key = SOURCE_LABEL_KEYS[String(source ?? 'cron')]
+  return key ? t(key) : String(source ?? '—')
 }
 
 onMounted(async () => {

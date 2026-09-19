@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\DataScopeTableLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -29,7 +30,7 @@ class DataScopeTableController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function save(Request $request): Response
     {
-        return $this->ok(['id' => DataScopeTableLogic::save($request->post())], '创建成功');
+        return $this->ok(['id' => DataScopeTableLogic::save($request->post())], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:data_rule:table_update', title: '更新受控表')]
@@ -37,7 +38,7 @@ class DataScopeTableController extends BaseController
     public function update(Request $request): Response
     {
         DataScopeTableLogic::update((int)$request->input('id', 0), $request->post());
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:data_rule:table_delete', title: '移除受控表')]
@@ -45,7 +46,9 @@ class DataScopeTableController extends BaseController
     public function delete(Request $request): Response
     {
         $rules = DataScopeTableLogic::delete((int)$request->input('id', 0));
-        $msg   = $rules > 0 ? "已移除，该表上的 {$rules} 条规则暂停生效" : '删除成功';
+        $msg   = $rules > 0
+            ? I18n::t('data_scope_table.removed_with_rules', ['count' => $rules])
+            : I18n::t('common.deleted');
 
         return $this->ok(['rules' => $rules], $msg);
     }

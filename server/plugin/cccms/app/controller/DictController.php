@@ -9,6 +9,7 @@ use plugin\cccms\app\logic\DictLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -24,7 +25,7 @@ class DictController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function save(Request $request): Response
     {
-        return $this->ok(['id' => DictLogic::typeCreate($request->post())], '创建成功');
+        return $this->ok(['id' => DictLogic::typeCreate($request->post())], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:dict:update', title: '更新字典类型')]
@@ -32,7 +33,7 @@ class DictController extends BaseController
     public function update(Request $request): Response
     {
         DictLogic::typeUpdate((int)$request->input('id', 0), $request->post());
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:dict:delete', title: '删除字典类型')]
@@ -40,7 +41,7 @@ class DictController extends BaseController
     public function delete(Request $request): Response
     {
         DictLogic::typeDelete((int)$request->input('id', 0));
-        return $this->ok(null, '删除成功');
+        return $this->ok(null, I18n::t('common.deleted'));
     }
 
     #[Permission(slug: 'cccms:dict:data', title: '字典数据列表')]
@@ -57,7 +58,7 @@ class DictController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function saveData(Request $request): Response
     {
-        return $this->ok(['id' => DictLogic::dataCreate($request->post())], '创建成功');
+        return $this->ok(['id' => DictLogic::dataCreate($request->post())], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:dict:update_data', title: '更新字典数据')]
@@ -65,7 +66,7 @@ class DictController extends BaseController
     public function updateData(Request $request): Response
     {
         DictLogic::dataUpdate((int)$request->input('id', 0), $request->post());
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:dict:delete_data', title: '删除字典数据')]
@@ -73,7 +74,45 @@ class DictController extends BaseController
     public function deleteData(Request $request): Response
     {
         DictLogic::dataDelete((int)$request->input('id', 0));
-        return $this->ok(null, '删除成功');
+        return $this->ok(null, I18n::t('common.deleted'));
+    }
+
+    // ---- 批量操作（不可见 / 已删除的 id 自动跳过并回报） ----
+
+    #[Permission(slug: 'cccms:dict:batch_status', title: '批量启停字典类型')]
+    #[Restrict(methods: ['POST'])]
+    public function batchStatus(Request $request): Response
+    {
+        $result = DictLogic::typeBatchStatus((array)$request->post('ids', []), (int)$request->post('status', 1));
+
+        return $this->ok($result, I18n::t('common.updated_count', ['count' => $result['affected']]));
+    }
+
+    #[Permission(slug: 'cccms:dict:batch_delete', title: '批量删除字典类型')]
+    #[Restrict(methods: ['POST'])]
+    public function batchDelete(Request $request): Response
+    {
+        $result = DictLogic::typeBatchDelete((array)$request->post('ids', []));
+
+        return $this->ok($result, I18n::t('common.deleted_count', ['count' => $result['affected']]));
+    }
+
+    #[Permission(slug: 'cccms:dict:batch_status_data', title: '批量启停字典数据')]
+    #[Restrict(methods: ['POST'])]
+    public function batchStatusData(Request $request): Response
+    {
+        $result = DictLogic::dataBatchStatus((array)$request->post('ids', []), (int)$request->post('status', 1));
+
+        return $this->ok($result, I18n::t('common.updated_count', ['count' => $result['affected']]));
+    }
+
+    #[Permission(slug: 'cccms:dict:batch_delete_data', title: '批量删除字典数据')]
+    #[Restrict(methods: ['POST'])]
+    public function batchDeleteData(Request $request): Response
+    {
+        $result = DictLogic::dataBatchDelete((array)$request->post('ids', []));
+
+        return $this->ok($result, I18n::t('common.deleted_count', ['count' => $result['affected']]));
     }
 
     // ---- 字典分类 ----
@@ -90,7 +129,7 @@ class DictController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function categorySave(Request $request): Response
     {
-        return $this->ok(['id' => CategoryLogic::create('dict', $request->post())], '创建成功');
+        return $this->ok(['id' => CategoryLogic::create('dict', $request->post())], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:dict:category_update', title: '更新字典分类')]
@@ -98,7 +137,7 @@ class DictController extends BaseController
     public function categoryUpdate(Request $request): Response
     {
         CategoryLogic::update((int)$request->input('id', 0), $request->post());
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:dict:category_delete', title: '删除字典分类')]
@@ -106,6 +145,6 @@ class DictController extends BaseController
     public function categoryDelete(Request $request): Response
     {
         CategoryLogic::delete((int)$request->input('id', 0));
-        return $this->ok(null, '删除成功');
+        return $this->ok(null, I18n::t('common.deleted'));
     }
 }

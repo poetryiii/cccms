@@ -1,7 +1,7 @@
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
 import { currentLocale, t } from '@/locales'
-import { clearToken, getToken } from '@/utils/auth'
+import { clearToken, getToken, setToken } from '@/utils/auth'
 import { progressDone, progressStart } from '@/utils/progress'
 
 export interface ApiEnvelope<T = unknown> {
@@ -54,6 +54,13 @@ let redirecting = false
 instance.interceptors.response.use(
   (response) => {
     endProgress(response.config as TrackedConfig)
+
+    // 滑动续期：后端在令牌剩余有效期不足 1/3 时回写新令牌，这里静默替换。
+    // 必须放在 blob 分支之前 —— 导出类请求也走同一个拦截器，否则会漏掉续期。
+    const renewed = response.headers['x-refresh-token']
+    if (typeof renewed === 'string' && renewed) {
+      setToken(renewed)
+    }
 
     // 文件下载（CSV 导出）：保留完整响应，调用方需要读 Content-Disposition 里的文件名
     if (response.config.responseType === 'blob') {

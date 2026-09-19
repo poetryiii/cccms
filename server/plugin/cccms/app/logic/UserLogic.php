@@ -13,6 +13,7 @@ use plugin\cccms\app\model\UserPost;
 use plugin\cccms\app\model\UserRole;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\Csv;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\PasswordPolicy;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\UserContext;
@@ -28,8 +29,9 @@ use Webman\Http\UploadFile;
  *   - 出参字段规则（hidden / mask / encrypt）→ `BaseModel::toArray()`；
  *   - 入参字段剔除（不可见 / 不可改）→ `ScopedQuery` 在写库前统一处理。
  *
- * 需要看到**全量**数据的地方（唯一性、存在性判断）显式用 `User::withoutGlobalScope()`
- * 跳出作用域，否则会出现「因为看不见，所以当成没重复」这种脏数据。
+ * 需要看到**全量**数据的地方（存在性判断）显式用 `User::withoutGlobalScope()`
+ * —— 它保留租户边界、只跳出数据权限；而 `username` 是**全局唯一索引**，
+ * 这类唯一性校验必须用 `User::withoutAllScopes()` 连租户一起绕过，否则会漏判并写出脏索引。
  */
 final class UserLogic
 {
@@ -73,7 +75,7 @@ final class UserLogic
         if (!$user) {
             // 区分「真不存在」（404）与「存在但越权」（403）
             self::assertExists($id);
-            throw new ApiException('无权查看该用户', 403);
+            throw new ApiException(I18n::t('user.no_permission_view'), 403);
         }
 
         // toArray() 里已统一应用字段级规则（hidden 不下发 / mask 掩码 / encrypt 密文），
@@ -91,9 +93,9 @@ final class UserLogic
     {
         self::assertUniqueUsername((string)($data['username'] ?? ''), 0);
         if (empty($data['password'])) {
-            throw new ApiException('密码不能为空', 422);
+            throw new ApiException(I18n::t('user.password_required'), 422);
         }
-        self::assertPassword((string)$data['password']);
+        self::assertPassword((string)$data['password'], ['username' => (string)($data['username'] ?? '')]);
         $data['password'] = password_hash((string)$data['password'], PASSWORD_BCRYPT);
 
         // 字段级规则的入参剔除由 ScopedQuery 在写库前统一完成（见 app/model/ScopedQuery.php）
@@ -119,6 +121,8 @@ final class UserLogic
             self::assertUniqueUsername((string)$data['username'], $id);
         }
         if (!empty($data['password'])) {
+            // 编辑用户同样会改密码，必须过同一套策略，否则这里就是绕过策略的缺口
+            self::assertPassword((string)$data['password'], self::identityOf($id, $data));
             $data['password'] = password_hash((string)$data['password'], PASSWORD_BCRYPT);
         } else {
             unset($data['password']);
@@ -147,7 +151,7 @@ final class UserLogic
     public static function delete(int $id, UserContext $operator): void
     {
         if ($id === $operator->id) {
-            throw new ApiException('不能删除自己', 422);
+            throw new ApiException(I18n::t('user.cannot_delete_self'), 422);
         }
         self::assertExists($id);
         self::assertInScope($id);
@@ -156,7 +160,7 @@ final class UserLogic
         $isSuper = $roleIds !== []
             && Role::whereIn('id', $roleIds)->where('code', 'super_admin')->count() > 0;
         if ($isSuper) {
-            throw new ApiException('不能删除超管账号', 422);
+            throw new ApiException(I18n::t('user.cannot_delete_super'), 422);
         }
 
         // 软删除：进回收站；关联表刻意保留，恢复后角色/部门/岗位原样回来。
@@ -167,13 +171,156 @@ final class UserLogic
 
     public static function resetPassword(int $id, string $password): void
     {
-        self::assertPassword($password);
+        self::assertPassword($password, self::identityOf($id));
         self::assertExists($id);
         self::assertInScope($id);
 
         User::newScopedQuery()
             ->where('id', $id)
             ->update(['password' => password_hash($password, PASSWORD_BCRYPT)]);
+    }
+
+    // ---- 批量操作 ----
+    // 统一语义：**只作用于当前数据范围内的行**，范围外的 id 被跳过并回报，
+    // 不抛异常整批失败 —— 管理员选了 10 条，其中 1 条越权，另 9 条仍应生效。
+
+    /**
+     * 批量启用 / 禁用。
+     *
+     * 禁用会让对方**下一次请求**即 401（`AuthService::buildContext()` 每请求实时查状态），
+     * 无需额外拉黑令牌。
+     *
+     * @return array{affected:int,skipped:int[]}
+     */
+    public static function batchStatus(array $ids, int $status, UserContext $operator): array
+    {
+        $ids = self::batchIds($ids);
+        $inScope = self::scopedIds($ids);
+
+        // 自己与超管账号不参与批量禁用：与单条删除同一套保护，避免误操作把自己锁在门外
+        if ($status !== 1) {
+            $inScope = array_values(array_diff($inScope, self::protectedIds($inScope, $operator)));
+        }
+
+        $affected = $inScope === [] ? 0 : User::newScopedQuery()->whereIn('id', $inScope)->update(['status' => $status]);
+        if ($affected > 0) {
+            // 状态影响鉴权（禁用立即生效），缓存要跟着失效
+            PermissionCache::bump();
+        }
+
+        return ['affected' => $affected, 'skipped' => array_values(array_diff($ids, $inScope))];
+    }
+
+    /**
+     * 批量删除（软删）。
+     *
+     * @return array{affected:int,skipped:int[]}
+     */
+    public static function batchDelete(array $ids, UserContext $operator): array
+    {
+        $ids = self::batchIds($ids);
+        $inScope = array_values(array_diff(self::scopedIds($ids), self::protectedIds($ids, $operator)));
+        $skipped = array_values(array_diff($ids, $inScope));
+
+        if ($inScope === []) {
+            return ['affected' => 0, 'skipped' => $skipped];
+        }
+
+        // 作用域仍然生效（越权 id 匹配不到行）；关联表刻意保留，恢复后角色/部门/岗位原样回来
+        $affected = User::destroy($inScope);
+        PermissionCache::bump();
+
+        return ['affected' => $affected, 'skipped' => $skipped];
+    }
+
+    /**
+     * 批量分配角色 / 部门 / 岗位。
+     *
+     * 语义是**整体替换**（与单条编辑表单一致）：传了哪个键就重设哪个关联，未传的保持原样。
+     * 传空数组 = 清空该关联。
+     *
+     * @return array{affected:int,skipped:int[]}
+     */
+    public static function batchAssign(array $ids, array $data): array
+    {
+        $ids = self::batchIds($ids);
+        $inScope = self::scopedIds($ids);
+        $skipped = array_values(array_diff($ids, $inScope));
+
+        if ($inScope === []) {
+            return ['affected' => 0, 'skipped' => $skipped];
+        }
+
+        $roleIds = self::pull($data, 'role_ids');
+        $deptIds = self::pull($data, 'dept_ids');
+        $postIds = self::pull($data, 'post_ids');
+        if ($roleIds === null && $deptIds === null && $postIds === null) {
+            throw new ApiException(I18n::t('user.assign_target_required'), 422);
+        }
+
+        foreach ($inScope as $id) {
+            if ($roleIds !== null) {
+                self::assignRoles($id, $roleIds);
+            }
+            if ($deptIds !== null) {
+                self::assignDepts($id, $deptIds);
+            }
+            if ($postIds !== null) {
+                self::assignPosts($id, $postIds);
+            }
+        }
+
+        // 角色 / 部门 / 岗位关系变化会影响数据范围与权限缓存
+        PermissionCache::bump();
+
+        return ['affected' => count($inScope), 'skipped' => $skipped];
+    }
+
+    /**
+     * 当前数据范围内实际可见的 id（越权与不存在的 id 都会落选）。
+     *
+     * @param  int[] $ids
+     * @return int[]
+     */
+    private static function scopedIds(array $ids): array
+    {
+        return array_map('intval', User::newScopedQuery()->whereIn('id', $ids)->column('id'));
+    }
+
+    /**
+     * 从给定 id 中挑出「受保护、不允许批量禁用 / 删除」的那些（自己 + 超管）。
+     *
+     * @param  int[] $ids
+     * @return int[]
+     */
+    private static function protectedIds(array $ids, UserContext $operator): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $superRoleIds = Role::withoutGlobalScope()->where('code', 'super_admin')->column('id');
+        $superIds = $superRoleIds === []
+            ? []
+            : array_map('intval', UserRole::whereIn('role_id', $superRoleIds)->whereIn('user_id', $ids)->column('user_id'));
+
+        $protected = $superIds;
+        if (in_array($operator->id, $ids, true)) {
+            $protected[] = $operator->id;
+        }
+
+        return array_values(array_unique($protected));
+    }
+
+    /** 规范化批量 id：去重、去非正整数 */
+    private static function batchIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            throw new ApiException(I18n::t('common.select_required'), 422);
+        }
+
+        return $ids;
     }
 
     /** 导出当前数据范围内的用户（CSV，直接返回文件流） */
@@ -200,21 +347,37 @@ final class UserLogic
             (string)$row['email'],
             (string)$row['phone'],
             implode('、', $roleNames[(int)$row['id']] ?? []),
-            (int)$row['status'] === 1 ? '启用' : '禁用',
+            (int)$row['status'] === 1 ? I18n::t('user.status_enabled') : I18n::t('user.status_disabled'),
             (string)($row['create_time'] ?? ''),
         ], $rows);
 
-        return Csv::download('用户列表', ['ID', '用户名', '昵称', '邮箱', '手机号', '角色', '状态', '创建时间'], $data);
+        return Csv::download(I18n::t('user.export_title'), [
+            'ID',
+            I18n::t('user.col_username'),
+            I18n::t('user.col_nickname'),
+            I18n::t('user.col_email'),
+            I18n::t('user.col_phone'),
+            I18n::t('user.label_role'),
+            I18n::t('user.col_status'),
+            I18n::t('user.col_create_time'),
+        ], $data);
     }
 
     /** 下载导入模板 */
     public static function template(): Response
     {
-        return Csv::download('用户导入模板', array_merge(self::IMPORT_HEADERS, ['说明']), [
+        return Csv::download(I18n::t('user.template_title'), array_merge(self::IMPORT_HEADERS, [I18n::t('user.col_remark')]), [
             [
-                'zhangsan', '张三', 'zhangsan@example.com', '13800000000', '1', '初始密码(至少6位)',
-                '员工', '研发部', '工程师',
-                '已存在的用户名会被更新；新用户必须填 password；roles/depts/posts 按名称匹配、多值用逗号分隔、更新时留空则不改动',
+                'zhangsan',
+                I18n::t('user.template_sample_nickname'),
+                'zhangsan@example.com',
+                '13800000000',
+                '1',
+                I18n::t('user.template_pw_hint'),
+                I18n::t('user.template_sample_role'),
+                I18n::t('user.template_sample_dept'),
+                I18n::t('user.template_sample_post'),
+                I18n::t('user.template_hint'),
             ],
         ]);
     }
@@ -235,7 +398,7 @@ final class UserLogic
         $headers = $parsed['headers'];
 
         if (!in_array('username', $headers, true)) {
-            throw new ApiException('CSV 缺少 username 列，请先下载导入模板', 422);
+            throw new ApiException(I18n::t('user.csv_missing_username'), 422);
         }
 
         // 名称 → id 映射一次性预载，避免逐行查库（N+1）。
@@ -256,18 +419,18 @@ final class UserLogic
             $username = trim((string)($row['username'] ?? ''));
 
             if ($username === '') {
-                $failed[] = "第 {$line} 行：用户名为空";
+                $failed[] = I18n::t('user.import_line_prefix', ['line' => $line]) . I18n::t('user.import_username_empty');
                 continue;
             }
 
             try {
                 // 名称 → id；找不到即行级失败，避免静默丢掉授权
-                $roleIds = self::resolveIds((string)($row['roles'] ?? ''), $roleNameMap, $roleCodeMap, '角色');
-                $deptIds = self::resolveIds((string)($row['depts'] ?? ''), $deptNameMap, null, '部门');
-                $postIds = self::resolveIds((string)($row['posts'] ?? ''), $postNameMap, $postCodeMap, '岗位');
+                $roleIds = self::resolveIds((string)($row['roles'] ?? ''), $roleNameMap, $roleCodeMap, I18n::t('user.label_role'));
+                $deptIds = self::resolveIds((string)($row['depts'] ?? ''), $deptNameMap, null, I18n::t('user.label_dept'));
+                $postIds = self::resolveIds((string)($row['posts'] ?? ''), $postNameMap, $postCodeMap, I18n::t('user.label_post'));
 
-                // 唯一性判断要看全量（含回收站），否则会撞唯一键
-                $exist = User::withoutGlobalScope()->withTrashed()->where('username', $username)->find();
+                // 唯一性判断要看全量（含回收站）：uk_username 是全局唯一索引，需完全绕过租户作用域
+                $exist = User::withoutAllScopes()->withTrashed()->where('username', $username)->find();
 
                 $data = [
                     'nickname' => (string)($row['nickname'] ?? ''),
@@ -294,7 +457,7 @@ final class UserLogic
 
                 $password = (string)($row['password'] ?? '');
                 if ($password === '') {
-                    throw new ApiException('缺少初始密码', 422);
+                    throw new ApiException(I18n::t('user.initial_password_required'), 422);
                 }
                 self::create($data + [
                     'username' => $username,
@@ -305,7 +468,7 @@ final class UserLogic
                 ]);
                 $created++;
             } catch (Throwable $e) {
-                $failed[] = "第 {$line} 行：" . $e->getMessage();
+                $failed[] = I18n::t('user.import_line_prefix', ['line' => $line]) . $e->getMessage();
             }
         }
 
@@ -326,7 +489,7 @@ final class UserLogic
     private static function assertInScope(int $id): void
     {
         if (User::newScopedQuery()->where('id', $id)->count() === 0) {
-            throw new ApiException('无权操作该用户', 403);
+            throw new ApiException(I18n::t('user.no_permission_operate'), 403);
         }
     }
 
@@ -336,14 +499,60 @@ final class UserLogic
     private static function assertExists(int $id): void
     {
         if (!User::withoutGlobalScope()->where('id', $id)->find()) {
-            throw new ApiException('用户不存在', 404);
+            throw new ApiException(I18n::t('user.not_found'), 404);
         }
     }
 
-    /** 密码长度校验：策略见 PasswordPolicy（阈值来自 security.password_min_length） */
-    private static function assertPassword(string $password): void
+    /**
+     * 密码强度校验：策略见 PasswordPolicy。
+     *
+     * 传入身份信息是为了拒绝「密码包含用户名/昵称/邮箱」这类可猜口令；
+     * 调用点能拿到多少就传多少（重置密码时只有用户 id，需从库里补身份）。
+     *
+     * @param array<string,mixed> $identity
+     */
+    private static function assertPassword(string $password, array $identity = []): void
     {
-        PasswordPolicy::assertValid($password);
+        PasswordPolicy::assertValid($password, $identity);
+    }
+
+    /**
+     * 组装密码策略所需的身份信息（用户名 / 昵称 / 邮箱）。
+     *
+     * 表单提交的改动尚未落库，所以**入参优先**；入参没带的字段再用库里的存量值补齐
+     * （重置密码接口只传 id，全靠这一步）。查库失败时不阻断，退化为「只校验纯口令强度」。
+     *
+     * @param array<string,mixed> $data 待写入的数据（优先取其中的身份字段）
+     * @return array<string,string>
+     */
+    private static function identityOf(int $id, array $data = []): array
+    {
+        $identity = [
+            'username' => trim((string)($data['username'] ?? '')),
+            'nickname' => trim((string)($data['nickname'] ?? '')),
+            'email'    => trim((string)($data['email'] ?? '')),
+        ];
+
+        if ($id <= 0 || ($identity['username'] !== '' && $identity['nickname'] !== '' && $identity['email'] !== '')) {
+            return $identity;
+        }
+
+        try {
+            $row = User::withoutGlobalScope()
+                ->field(['username', 'nickname', 'email'])
+                ->where('id', $id)
+                ->find();
+        } catch (Throwable) {
+            return $identity;
+        }
+
+        foreach (['username', 'nickname', 'email'] as $key) {
+            if ($identity[$key] === '') {
+                $identity[$key] = trim((string)($row[$key] ?? ''));
+            }
+        }
+
+        return $identity;
     }
 
     private static function assign(int $userId, array $roleIds, array $deptIds, array $postIds): void
@@ -355,6 +564,7 @@ final class UserLogic
 
     private static function assignRoles(int $userId, array $roleIds): void
     {
+        self::assertOwnedInTenant(Role::class, $roleIds, 'user.label_role');
         UserRole::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $roleIds)) as $rid) {
             if ($rid > 0) {
@@ -365,6 +575,7 @@ final class UserLogic
 
     private static function assignDepts(int $userId, array $deptIds): void
     {
+        self::assertOwnedInTenant(Dept::class, $deptIds, 'user.label_dept');
         UserDept::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $deptIds)) as $did) {
             if ($did > 0) {
@@ -375,11 +586,40 @@ final class UserLogic
 
     private static function assignPosts(int $userId, array $postIds): void
     {
+        self::assertOwnedInTenant(Post::class, $postIds, 'user.label_post');
         UserPost::where('user_id', $userId)->delete();
         foreach (array_unique(array_map('intval', $postIds)) as $pid) {
             if ($pid > 0) {
                 UserPost::insert(['user_id' => $userId, 'post_id' => $pid]);
             }
+        }
+    }
+
+    /**
+     * 校验被引用的角色 / 部门 / 岗位都存在于**当前租户**内。
+     *
+     * 关联表（sys_user_role / sys_user_dept / sys_user_post）是平台级的，没有 tenant_id 列，
+     * 无法靠列隔离，因此必须在写关联前挡住跨租户引用 ——
+     * 否则 A 租户的管理员只要猜到 id，就能把 B 租户的角色挂到自己人身上（提权）。
+     *
+     * 查询走 `newScopedQuery()`：带租户作用域，跨租户的 id 自然查不到。
+     *
+     * @param class-string $model
+     * @param array<int,mixed> $ids
+     */
+    private static function assertOwnedInTenant(string $model, array $ids, string $labelKey): void
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn (int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return;
+        }
+
+        $found = array_map('intval', $model::newScopedQuery()->whereIn('id', $ids)->column('id'));
+        if (count($found) !== count($ids)) {
+            throw new ApiException(I18n::t('user.ref_not_in_tenant', ['label' => I18n::t($labelKey)]), 422);
         }
     }
 
@@ -411,7 +651,7 @@ final class UserLogic
                 $id = $codeMap[$token] ?? null;
             }
             if ($id === null) {
-                throw new ApiException("{$label}「{$token}」不存在", 422);
+                throw new ApiException(I18n::t('user.token_not_found', ['label' => $label, 'token' => $token]), 422);
             }
             $out[] = (int)$id;
         }
@@ -422,13 +662,14 @@ final class UserLogic
     private static function assertUniqueUsername(string $username, int $excludeId): void
     {
         if ($username === '') {
-            throw new ApiException('用户名不能为空', 422);
+            throw new ApiException(I18n::t('user.username_required'), 422);
         }
 
         // 唯一索引不做软删特例：回收站里的用户仍占用用户名，这里给出可读提示。
-        // 唯一性判断必须看全量数据，否则「看不见就当没重复」会写出脏索引；
+        // uk_username 是**全局唯一索引**（用户名不随租户重复），必须完全绕过租户作用域，
+        // 否则「别的租户已占用」会被漏判，插入时撞唯一键；
         // withTrashed() 才能把回收站里的账号也算进来。
-        $q = User::withoutGlobalScope()->withTrashed()->where('username', $username);
+        $q = User::withoutAllScopes()->withTrashed()->where('username', $username);
         if ($excludeId > 0) {
             $q->where('id', '<>', $excludeId);
         }
@@ -436,8 +677,8 @@ final class UserLogic
         if ($exist) {
             throw new ApiException(
                 !empty($exist->delete_time)
-                    ? "账号 {$username} 在回收站中，请先恢复或彻底删除"
-                    : '用户名已存在',
+                    ? I18n::t('user.username_in_trash', ['username' => $username])
+                    : I18n::t('user.username_exists'),
                 422
             );
         }

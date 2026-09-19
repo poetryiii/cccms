@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\ProfileLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\NoAuth;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -31,7 +32,7 @@ class ProfileController extends BaseController
     {
         ProfileLogic::update($request->user, $request->post());
 
-        return $this->ok(null, '保存成功');
+        return $this->ok(null, I18n::t('common.saved'));
     }
 
     #[NoAuth(title: '修改密码')]
@@ -44,6 +45,26 @@ class ProfileController extends BaseController
             (string)$request->post('new_password', '')
         );
 
-        return $this->ok(null, '密码已修改');
+        return $this->ok(null, I18n::t('common.password_changed'));
+    }
+
+    /** 我的登录设备（仅本人会话） */
+    #[NoAuth]
+    public function sessions(Request $request): Response
+    {
+        return $this->ok(ProfileLogic::sessions($request->user, (string)($request->jti ?? '')));
+    }
+
+    #[NoAuth(title: '注销登录设备')]
+    #[Restrict(methods: ['POST'])]
+    public function revokeSession(Request $request): Response
+    {
+        ProfileLogic::revokeSession(
+            $request->user,
+            (string)$request->post('jti', ''),
+            (string)($request->jti ?? '')
+        );
+
+        return $this->ok(null, I18n::t('common.device_offline'));
     }
 }

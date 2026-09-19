@@ -31,3 +31,32 @@ export function profileUpdate(data: Record<string, unknown>) {
 export function profileChangePassword(data: { old_password: string; new_password: string }) {
   return http.post<null>('/profile/password', data)
 }
+
+/** 我的一条登录会话（字段与「在线用户」一致，终端信息由 UA 派生） */
+export interface MySession {
+  jti: string
+  ip: string
+  ua: string
+  /** 设备类型：电脑 / 移动端 / 平板 / 爬虫 / 未知 */
+  device: string
+  /** 操作系统 */
+  os: string
+  /** 浏览器 */
+  browser: string
+  login_at: string
+  last_at: string
+  /** 令牌过期时间 */
+  expire_at: string
+  /** 是否为当前设备（前端据此禁用注销按钮） */
+  current: boolean
+}
+
+/** 我的登录设备（后端只返回当前用户的会话） */
+export function profileSessions() {
+  return http.get<MySession[]>('/profile/sessions')
+}
+
+/** 注销我的一条登录设备 */
+export function profileRevokeSession(jti: string) {
+  return http.post<null>('/profile/sessions/revoke', { jti })
+}

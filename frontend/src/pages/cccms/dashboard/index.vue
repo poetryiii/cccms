@@ -6,15 +6,17 @@
         <div class="hello-inner">
           <el-avatar :size="52" class="hello-avatar">{{ avatarText }}</el-avatar>
           <div class="hello-text">
-            <h2 class="hello-title">{{ greeting }}，{{ userStore.nickname || '管理员' }}</h2>
+            <h2 class="hello-title">{{ helloText }}</h2>
             <p class="hello-sub">
               <span>{{ todayText }}</span>
               <span class="hello-divider" />
-              <span>当前角色</span>
+              <span>{{ t('dashboard.roleLabel') }}</span>
               <el-tag v-for="r in userStore.profile?.roles || []" :key="r" size="small" effect="light">
                 {{ r }}
               </el-tag>
-              <el-tag v-if="userStore.superAdmin" size="small" type="danger" effect="light"> 超级管理员 </el-tag>
+              <el-tag v-if="userStore.superAdmin" size="small" type="danger" effect="light">
+                {{ t('dashboard.superAdmin') }}
+              </el-tag>
             </p>
           </div>
         </div>
@@ -39,13 +41,17 @@
       <el-row :gutter="14">
         <el-col :xs="24" :lg="15">
           <el-card shadow="never" class="chart-card">
-            <template #header><span>近 7 天操作量</span></template>
+            <template #header
+              ><span>{{ t('dashboard.trendTitle') }}</span></template
+            >
             <div ref="trendRef" class="chart" />
           </el-card>
         </el-col>
         <el-col :xs="24" :lg="9">
           <el-card shadow="never" class="chart-card">
-            <template #header><span>附件类型分布</span></template>
+            <template #header
+              ><span>{{ t('dashboard.pieTitle') }}</span></template
+            >
             <div ref="pieRef" class="chart" />
           </el-card>
         </el-col>
@@ -58,6 +64,7 @@
 defineOptions({ name: 'dashboard' })
 
 import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts/core'
 import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
@@ -68,6 +75,8 @@ import { useSettingStore } from '@/stores/setting'
 import { useUserStore } from '@/stores/user'
 
 echarts.use([LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+
+const { t, locale } = useI18n({ useScope: 'global' })
 
 const userStore = useUserStore()
 const setting = useSettingStore()
@@ -84,21 +93,26 @@ const avatarText = computed(() => (userStore.nickname || 'U').charAt(0).toUpperC
 const greeting = computed(() => {
   const hour = new Date().getHours()
   if (hour < 6) {
-    return '夜深了'
+    return t('dashboard.greetingNight')
   }
   if (hour < 12) {
-    return '早上好'
+    return t('dashboard.greetingMorning')
   }
   if (hour < 18) {
-    return '下午好'
+    return t('dashboard.greetingAfternoon')
   }
-  return '晚上好'
+  return t('dashboard.greetingEvening')
 })
+
+// 称谓与问候语拼成整句交给语言包（不同语言的标点与语序不同）
+const helloText = computed(() =>
+  t('dashboard.helloTitle', { greeting: greeting.value, name: userStore.nickname || t('dashboard.admin') }),
+)
 
 const todayText = computed(() => {
   const now = new Date()
-  const week = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()]
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} 星期${week}`
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return t('dashboard.dateText', { date, week: t(`dashboard.weekday${now.getDay()}`) })
 })
 
 const cards = computed(() => {
@@ -106,7 +120,7 @@ const cards = computed(() => {
   return [
     {
       key: 'user',
-      label: '启用用户',
+      label: t('dashboard.statUser'),
       value: c?.user ?? 0,
       icon: 'icon-user',
       color: '#2b6cff',
@@ -114,7 +128,7 @@ const cards = computed(() => {
     },
     {
       key: 'role',
-      label: '启用角色',
+      label: t('dashboard.statRole'),
       value: c?.role ?? 0,
       icon: 'icon-safe',
       color: '#722ed1',
@@ -122,7 +136,7 @@ const cards = computed(() => {
     },
     {
       key: 'dept',
-      label: '部门',
+      label: t('dashboard.statDept'),
       value: c?.dept ?? 0,
       icon: 'icon-tree',
       color: '#13c2c2',
@@ -130,7 +144,7 @@ const cards = computed(() => {
     },
     {
       key: 'post',
-      label: '岗位',
+      label: t('dashboard.statPost'),
       value: c?.post ?? 0,
       icon: 'icon-badge',
       color: '#fa8c16',
@@ -138,7 +152,7 @@ const cards = computed(() => {
     },
     {
       key: 'file',
-      label: '附件',
+      label: t('dashboard.statFile'),
       value: c?.file ?? 0,
       icon: 'icon-upload',
       color: '#21c26b',
@@ -146,7 +160,7 @@ const cards = computed(() => {
     },
     {
       key: 'today_log',
-      label: '今日操作',
+      label: t('dashboard.statTodayLog'),
       value: c?.today_log ?? 0,
       icon: 'icon-file',
       color: '#f4524d',
@@ -189,7 +203,7 @@ function renderTrend(): void {
     },
     series: [
       {
-        name: '操作量',
+        name: t('dashboard.trendSeries'),
         type: 'line',
         smooth: true,
         symbol: 'circle',
@@ -236,7 +250,7 @@ function renderPie(): void {
         avoidLabelOverlap: true,
         itemStyle: { borderColor: cardBg, borderWidth: 2 },
         label: { show: false },
-        data: types.length ? types : [{ name: '暂无数据', value: 1 }],
+        data: types.length ? types : [{ name: t('table.empty'), value: 1 }],
       },
     ],
   })
@@ -258,14 +272,11 @@ async function load(): Promise<void> {
   renderAll()
 }
 
-// 主题切换后图表配色要跟着变
-watch(
-  () => setting.isDark,
-  async () => {
-    await nextTick()
-    renderAll()
-  },
-)
+// 主题或语言切换后图表文案 / 配色要跟着变（echarts 是命令式渲染，需手动重绘）
+watch([() => setting.isDark, locale], async () => {
+  await nextTick()
+  renderAll()
+})
 
 onMounted(async () => {
   window.addEventListener('resize', resizeAll)

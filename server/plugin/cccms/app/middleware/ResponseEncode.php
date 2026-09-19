@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\app\middleware;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionMeta;
 use Webman\Http\Request;
 use Webman\Http\Response;
@@ -24,14 +25,14 @@ class ResponseEncode implements MiddlewareInterface
 
         // 方法白名单
         if ($meta['methods'] !== [] && !in_array($request->method(), $meta['methods'], true)) {
-            throw new ApiException("请求方法不允许：{$request->method()}", 405);
+            throw new ApiException(I18n::t('common.method_not_allowed', ['method' => $request->method()]), 405);
         }
 
         // 编码白名单
         $allow = $meta['encode'] ?? (array)config('plugin.cccms.response.default', ['json']);
         $want  = (string)$request->input('format', $allow[0] ?? 'json');
         if (!in_array($want, $allow, true)) {
-            throw new ApiException("响应编码不允许：{$want}", 406);
+            throw new ApiException(I18n::t('common.encoding_not_acceptable', ['encoding' => $want]), 406);
         }
         $request->encode = $want;
 

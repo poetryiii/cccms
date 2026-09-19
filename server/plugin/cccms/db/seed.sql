@@ -92,14 +92,21 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 
 -- 安全
 ('security.login_captcha',      '登录验证码',      'switch',       '0',                            NULL, '安全', 1, 1, '开启后登录必须输入图形验证码', NOW(), NOW()),
-('security.login_fail_limit',   '失败锁定次数',    'input-number', '5',                            NULL, '安全', 2, 1, '连续登录失败达到该次数后锁定账号', NOW(), NOW()),
-('security.login_fail_window',  '锁定时长',        'input-number', '15',                           NULL, '安全', 3, 1, '单位分钟，超时后自动解锁', NOW(), NOW()),
-('security.token_ttl',          '令牌有效期',      'input-number', '604800',                       NULL, '安全', 4, 1, '单位秒，默认 7 天', NOW(), NOW()),
-('security.password_min_length','密码最小长度',    'input-number', '6',                            NULL, '安全', 5, 1, '新增用户与重置密码时校验', NOW(), NOW()),
+('security.login_fail_limit',   '失败锁定次数',    'input-number', '5',                            NULL, '安全', 2, 1, '同一账号连续登录失败达到该次数后锁定账号；0 表示关闭', NOW(), NOW()),
+('security.login_fail_ip_limit','同 IP 失败上限',  'input-number', '20',                           NULL, '安全', 3, 1, '同一 IP 连续登录失败达到该次数后限流该 IP（不锁账号，避免误伤同出口 IP 的同事）；0 表示关闭', NOW(), NOW()),
+('security.login_fail_window',  '锁定时长',        'input-number', '15',                           NULL, '安全', 4, 1, '单位分钟，超时后自动解锁', NOW(), NOW()),
+('security.token_ttl',          '令牌有效期',      'input-number', '7200',                         NULL, '安全', 5, 1, '单位秒，默认 2 小时；剩余不足 1/3 时自动滑动续期（用户无感），调大可延长 XSS 有效窗口', NOW(), NOW()),
+('security.password_min_length','密码最小长度',    'input-number', '6',                            NULL, '安全', 6, 1, '新增、编辑、重置密码与个人改密时校验', NOW(), NOW()),
+('security.password_max_length','密码最大长度',    'input-number', '64',                           NULL, '安全', 7, 1, '超长口令会放大 bcrypt 开销，构成低成本 DoS；0 表示不限制', NOW(), NOW()),
+('security.password_strength', '密码字符类别数',  'input-number', '2',                            NULL, '安全', 8, 1, '需包含大写字母/小写字母/数字/符号中的几类；0 表示不要求。内置弱口令黑名单与「不得包含用户名等身份信息」始终生效', NOW(), NOW()),
+('security.rate_limit_enable', '接口限流开关',    'switch',       '1',                            NULL, '安全', 9, 1, '开启后按「每用户每路由」限流，接口被高频刷取时返回 429', NOW(), NOW()),
+('security.rate_limit_limit',  '普通接口次数',    'input-number', '60',                           NULL, '安全', 10, 1, '每用户每路由每分钟允许的调用次数；0 表示不限制', NOW(), NOW()),
+('security.rate_limit_heavy_limit','重接口次数',   'input-number', '5',                            NULL, '安全', 11, 1, '导出/导入/代码生成等重接口每用户每路由每分钟次数；0 表示不限制', NOW(), NOW()),
+('security.rate_limit_window', '限流窗口',        'input-number', '60',                           NULL, '安全', 12, 1, '单位秒，计数窗口长度', NOW(), NOW()),
 
 -- 上传
 ('upload.max_size',             '单文件上限',      'input-number', '10',                           NULL, '上传', 1, 1, '单位 MB', NOW(), NOW()),
-('upload.ext_allow',            '允许的扩展名',    'input',        'jpg,jpeg,png,gif,webp,bmp,svg,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,zip,rar,7z,mp3,mp4,webm', NULL, '上传', 2, 1, '英文逗号分隔，不要带点；留空则用 filesystem.php 的默认白名单', NOW(), NOW()),
+('upload.ext_allow',            '允许的扩展名',    'input',        'jpg,jpeg,png,gif,webp,bmp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,zip,rar,7z,mp3,mp4,webm', NULL, '上传', 2, 1, '英文逗号分隔，不要带点；留空则用 filesystem.php 的默认白名单。⚠️ 不要加入 svg/html/xml：本地驱动同域直出，会被浏览器内联渲染成存储型 XSS', NOW(), NOW()),
 ('upload.image_ext',            '图片扩展名',      'input',        'jpg,jpeg,png,gif,webp',        NULL, '上传', 3, 1, '需要按图片处理的扩展名', NOW(), NOW()),
 ('upload.storage_driver',       '存储驱动',        'select',       'local',                        '[{"label":"本地","value":"local"},{"label":"阿里云 OSS","value":"oss"},{"label":"腾讯云 COS","value":"cos"},{"label":"七牛云","value":"qiniu"}]', '上传', 4, 1, '切换后需填写对应驱动配置', NOW(), NOW()),
 ('upload.url_prefix',           '访问前缀',        'input',        '/storage',                     NULL, '上传', 5, 1, '切独立域名 / CDN 时改这里', NOW(), NOW()),
@@ -108,4 +115,30 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 ('log.keep_days',               '日志保留天数',    'input-number', '30',                           NULL, '日志', 1, 1, '定时任务按此天数清理历史日志', NOW(), NOW()),
 ('log.auto_clean',              '自动清理日志',    'switch',       '1',                            NULL, '日志', 2, 1, '关闭后需手工清理', NOW(), NOW()),
 ('log.record_read',             '记录查询操作',    'switch',       '0',                            NULL, '日志', 3, 1, '开启后 GET 请求也会写入操作日志', NOW(), NOW()),
-('log.slow_threshold',          '慢接口告警阈值',  'input-number', '3000',                         NULL, '日志', 4, 1, '单位毫秒；请求耗时超过该值时写慢接口告警日志(slow.log)，0 表示关闭', NOW(), NOW());
+('log.slow_threshold',          '慢接口告警阈值',  'input-number', '3000',                         NULL, '日志', 4, 1, '单位毫秒；请求耗时超过该值时写慢接口告警日志(slow.log)，0 表示关闭', NOW(), NOW()),
+
+-- 找回密码（渠道开关默认关闭，最安全；开启前请先配好 邮箱 / 短信 分组）
+('security.reset_channel',      '找回密码渠道',    'select',       'off',                          '[{"label":"关闭","value":"off"},{"label":"邮箱","value":"email"},{"label":"短信","value":"sms"},{"label":"邮箱 + 短信","value":"both"}]', '安全', 13, 1, '找回密码可用的验证码通道；off 表示关闭找回入口', NOW(), NOW()),
+('security.reset_code_ttl',     '验证码有效期',    'input-number', '300',                          NULL, '安全', 14, 1, '单位秒，验证码在 Redis 中的存活时间，最小 60', NOW(), NOW()),
+('security.reset_send_interval','发送间隔',        'input-number', '60',                           NULL, '安全', 15, 1, '单位秒，同一账号两次发送验证码的最小间隔；0 表示不限制', NOW(), NOW()),
+('security.reset_max_attempts', '验证码尝试上限',  'input-number', '5',                            NULL, '安全', 16, 1, '同一验证码最多校验几次，达到上限即作废，防暴力猜码', NOW(), NOW()),
+('security.reset_daily_limit',  '每日发送上限',    'input-number', '10',                           NULL, '安全', 17, 1, '同一账号每天最多发送几次验证码；0 表示不限制', NOW(), NOW()),
+
+-- 邮箱（找回密码 · 邮件通道；密码字段用 type=password，加密存储）
+('mail.enabled',                '启用邮箱通道',    'switch',       '0',                            NULL, '邮箱', 1, 1, '开启后支持邮箱找回密码，还需在「安全」分组把找回渠道设为邮箱或邮箱+短信', NOW(), NOW()),
+('mail.host',                   'SMTP 服务器',     'input',        '',                             NULL, '邮箱', 2, 1, 'SMTP 主机名，如 smtp.example.com', NOW(), NOW()),
+('mail.port',                   'SMTP 端口',       'input-number', '465',                          NULL, '邮箱', 3, 1, 'SSL 常用 465，STARTTLS 常用 587', NOW(), NOW()),
+('mail.username',               'SMTP 账号',       'input',        '',                             NULL, '邮箱', 4, 1, '登录 SMTP 的用户名，留空表示不需要认证', NOW(), NOW()),
+('mail.password',               'SMTP 密码',       'password',     '',                             NULL, '邮箱', 5, 1, '登录 SMTP 的密码 / 授权码，加密存储', NOW(), NOW()),
+('mail.encryption',             '加密方式',        'select',       'ssl',                          '[{"label":"SSL","value":"ssl"},{"label":"STARTTLS","value":"tls"},{"label":"不加密","value":"none"}]', '邮箱', 6, 1, 'ssl=直接加密连接，tls=STARTTLS 升级，none=明文（不推荐）', NOW(), NOW()),
+('mail.from_address',           '发件人邮箱',      'input',        '',                             NULL, '邮箱', 7, 1, '留空则使用 SMTP 账号', NOW(), NOW()),
+('mail.from_name',              '发件人名称',      'input',        'CCCMS',                        NULL, '邮箱', 8, 1, '展示在收件人邮件客户端', NOW(), NOW()),
+
+-- 短信（找回密码 · 短信通道；通用 HTTP 网关，不绑定厂商）
+('sms.enabled',                 '启用短信通道',    'switch',       '0',                            NULL, '短信', 1, 1, '开启后支持短信找回密码，还需在「安全」分组把找回渠道设为短信或邮箱+短信', NOW(), NOW()),
+('sms.driver',                  '短信驱动',        'input',        'http',                         NULL, '短信', 2, 1, '通用 HTTP 网关驱动标识（预留）', NOW(), NOW()),
+('sms.gateway_url',             '网关地址',        'input',        '',                             NULL, '短信', 3, 1, '短信服务商提供的发送接口地址', NOW(), NOW()),
+('sms.method',                  '请求方法',        'select',       'POST',                         '[{"label":"POST","value":"POST"},{"label":"GET","value":"GET"}]', '短信', 4, 1, 'GET 时参数拼到 query，POST 时作为 JSON 请求体发送', NOW(), NOW()),
+('sms.params',                  '参数模板',        'textarea',     '{"mobile":"{mobile}","code":"{code}","sign":"{sign}"}', NULL, '短信', 5, 1, 'JSON 对象；值里的 {mobile}/{code}/{sign} 会被替换为该次发送的实际值', NOW(), NOW()),
+('sms.headers',                 '请求头',          'textarea',     '{}',                           NULL, '短信', 6, 1, 'JSON 对象，如 {"Authorization":"Bearer xxx"}；POST 未指定 Content-Type 时默认 application/json', NOW(), NOW()),
+('sms.sign_name',               '短信签名',        'input',        '',                             NULL, '短信', 7, 1, '短信签名，替换参数模板里的 {sign}', NOW(), NOW());

@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\GeneratorLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -36,6 +37,6 @@ class GeneratorController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function generate(Request $request): Response
     {
-        return $this->ok(GeneratorLogic::generate($request->post()), '生成成功');
+        return $this->ok(GeneratorLogic::generate($request->post()), I18n::t('common.generated'));
     }
 }

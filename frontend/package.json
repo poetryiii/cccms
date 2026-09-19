@@ -9,13 +9,18 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "i18n:check": "node scripts/check-i18n.mjs",
     "format": "prettier --write \"src/**/*.{ts,vue,css}\" \"*.{ts,js,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,vue,css}\""
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@tiptap/vue-3": "^3.31.3",
     "@vueuse/core": "^13.9.0",
     "axios": "^1.7.9",
+    "dompurify": "^3.4.15",
     "echarts": "^5.6.0",
     "element-plus": "^2.11.2",
     "nprogress": "^0.2.0",

@@ -13,7 +13,9 @@
           <el-icon v-if="tab.icon" :size="13" class="tagbar-item-icon">
             <ArtIcon :name="tab.icon" />
           </el-icon>
-          <span class="tagbar-item-text">{{ tab.path === HOME_PATH ? t('layout.home') : tab.title }}</span>
+          <span class="tagbar-item-text">{{
+            tab.path === HOME_PATH ? t('layout.home') : translateTitle(tab.title)
+          }}</span>
           <el-icon v-if="!tab.pinned" class="tagbar-item-close" :size="12" @click.stop="close(tab.path)">
             <Close />
           </el-icon>
@@ -65,6 +67,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Close, More, RefreshRight } from '@element-plus/icons-vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
+import { translateTitle } from '@/locales/title'
 import { HOME_PATH, useWorktabStore } from '@/stores/worktab'
 
 const { t } = useI18n({ useScope: 'global' })

@@ -29,6 +29,15 @@ if (is_file($dbConfigFile)) {
     Db::setConfig((array)require $dbConfigFile);
 }
 
+// 加载 webman 配置仓库，让 support\Redis 在 CLI 下与 worker 启动行为一致
+// （依赖 Redis 的用例因此能真正执行，而不是永远跳过）。Redis 服务不可用时
+// 相关用例会自行降级，其余用例不受影响。
+try {
+    \Webman\Config::load(__DIR__ . '/../config');
+} catch (Throwable) {
+    // 配置加载失败：Redis 相关用例自行跳过
+}
+
 final class Suite
 {
     public static int $passed = 0;

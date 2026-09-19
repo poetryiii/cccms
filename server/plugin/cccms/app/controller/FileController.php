@@ -10,6 +10,7 @@ use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -27,12 +28,12 @@ class FileController extends BaseController
     {
         $file = $request->file('file');
         if (!$file) {
-            throw new ApiException('请选择文件', 422);
+            throw new ApiException(I18n::t('file.file_required'), 422);
         }
         // 带 category_id 时直接归入左侧选中的分类
         return $this->ok(
             FileLogic::upload($file, $request->user->id, (int)$request->input('category_id', 0)),
-            '上传成功'
+            I18n::t('file.uploaded')
         );
     }
 
@@ -41,7 +42,7 @@ class FileController extends BaseController
     public function delete(Request $request): Response
     {
         FileLogic::delete((int)$request->input('id', 0));
-        return $this->ok(null, '删除成功');
+        return $this->ok(null, I18n::t('common.deleted'));
     }
 
     #[Permission(slug: 'cccms:file:move', title: '移动附件到分类')]
@@ -52,7 +53,7 @@ class FileController extends BaseController
             (array)$request->input('ids', []),
             (int)$request->input('category_id', 0)
         );
-        return $this->ok(['count' => $count], '移动成功');
+        return $this->ok(['count' => $count], I18n::t('common.moved'));
     }
 
     // ---- 附件分类 ----
@@ -68,7 +69,7 @@ class FileController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function categorySave(Request $request): Response
     {
-        return $this->ok(['id' => CategoryLogic::create('file', $request->post())], '创建成功');
+        return $this->ok(['id' => CategoryLogic::create('file', $request->post())], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:file:category_update', title: '更新附件分类')]
@@ -76,7 +77,7 @@ class FileController extends BaseController
     public function categoryUpdate(Request $request): Response
     {
         CategoryLogic::update((int)$request->input('id', 0), $request->post());
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:file:category_delete', title: '删除附件分类')]
@@ -84,6 +85,6 @@ class FileController extends BaseController
     public function categoryDelete(Request $request): Response
     {
         CategoryLogic::delete((int)$request->input('id', 0));
-        return $this->ok(null, '删除成功');
+        return $this->ok(null, I18n::t('common.deleted'));
     }
 }

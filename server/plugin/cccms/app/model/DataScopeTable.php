@@ -9,6 +9,9 @@ class DataScopeTable extends BaseModel
 {
     protected $name = 'data_scope_table';
 
+    /** 参与多租户隔离：受控表名单由各租户自行维护 */
+    protected $tenantScope = true;
+
     /** 数据权限自身的元数据，不参与数据权限 */
     protected $dataScope = false;
 

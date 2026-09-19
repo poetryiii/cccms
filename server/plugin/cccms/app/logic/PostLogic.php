@@ -6,6 +6,7 @@ namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\Post;
 use plugin\cccms\app\model\UserPost;
+use plugin\cccms\support\I18n;
 
 /**
  * 岗位逻辑。
@@ -45,7 +46,7 @@ final class PostLogic
     public static function delete(int $id): void
     {
         if (UserPost::where('post_id', $id)->count() > 0) {
-            throw new \RuntimeException('岗位下存在用户，无法删除');
+            throw new \RuntimeException(I18n::t('post.has_users'));
         }
 
         // 软删除：进回收站
@@ -56,7 +57,81 @@ final class PostLogic
     {
         // 存在性校验看全量（含回收站），显式跳出作用域
         if (!Post::withoutGlobalScope()->where('id', $id)->find()) {
-            throw new \RuntimeException('岗位不存在');
+            throw new \RuntimeException(I18n::t('post.not_found'));
         }
+    }
+
+    // ---- 批量操作 ----
+    // 与用户模块同一套语义：只作用于当前数据范围内的行，范围外的 id 跳过并回报。
+
+    /**
+     * 批量启用 / 禁用。
+     *
+     * @return array{affected:int,skipped:int[]}
+     */
+    public static function batchStatus(array $ids, int $status): array
+    {
+        $ids     = self::batchIds($ids);
+        $inScope = self::scopedIds($ids);
+
+        $affected = $inScope === []
+            ? 0
+            : Post::newScopedQuery()->whereIn('id', $inScope)->update(['status' => $status === 0 ? 0 : 1]);
+
+        return ['affected' => $affected, 'skipped' => array_values(array_diff($ids, $inScope))];
+    }
+
+    /**
+     * 批量删除（软删）。
+     *
+     * 与单条删除同一约束：**岗位下还有用户就不允许删**，这类 id 计入跳过而不是抛异常，
+     * 否则一个被占用的岗位会让整批都删不掉。
+     *
+     * @return array{affected:int,skipped:int[]}
+     */
+    public static function batchDelete(array $ids): array
+    {
+        $ids     = self::batchIds($ids);
+        $inScope = self::scopedIds($ids);
+        $skipped = array_values(array_diff($ids, $inScope));
+
+        $deletable = [];
+        foreach ($inScope as $id) {
+            if (UserPost::where('post_id', $id)->count() === 0) {
+                $deletable[] = $id;
+            } else {
+                $skipped[] = $id;
+            }
+        }
+
+        $affected = $deletable === [] ? 0 : Post::destroy($deletable);
+
+        return ['affected' => $affected, 'skipped' => $skipped];
+    }
+
+    /**
+     * 当前数据范围内实际可见的 id。
+     *
+     * @param  int[] $ids
+     * @return int[]
+     */
+    private static function scopedIds(array $ids): array
+    {
+        return array_map('intval', Post::newScopedQuery()->whereIn('id', $ids)->column('id'));
+    }
+
+    /**
+     * 规范化批量 id：去重、去非正整数。
+     *
+     * @return int[]
+     */
+    private static function batchIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            throw new \RuntimeException(I18n::t('common.select_required'));
+        }
+
+        return $ids;
     }
 }

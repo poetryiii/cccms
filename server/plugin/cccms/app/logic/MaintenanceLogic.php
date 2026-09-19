@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\app\logic;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\MenuSyncer;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\PermissionMeta;
@@ -26,7 +27,7 @@ final class MaintenanceLogic
     public static function refresh(string $scope): array
     {
         if (!in_array($scope, self::SCOPES, true)) {
-            throw new ApiException('未知的刷新范围：' . $scope, 422);
+            throw new ApiException(I18n::t('maintenance.unknown_scope', ['scope' => $scope]), 422);
         }
 
         $result = [];
@@ -70,7 +71,9 @@ final class MaintenanceLogic
         $errors = PermScanner::validate($items);
         if ($errors !== []) {
             // 注解写错了就整批不写库，把最早几条错误抛给界面，避免只同步一半
-            throw new ApiException('权限注解校验失败：' . implode('；', array_slice($errors, 0, 3)), 422);
+            throw new ApiException(I18n::t('maintenance.permission_annotation_invalid', [
+                'errors' => implode('；', array_slice($errors, 0, 3)),
+            ]), 422);
         }
 
         $result = $scanner->sync($items);

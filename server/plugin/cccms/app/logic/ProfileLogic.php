@@ -10,7 +10,10 @@ use plugin\cccms\app\model\User;
 use plugin\cccms\app\model\UserDept;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
+use plugin\cccms\support\I18n;
+use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\PasswordPolicy;
+use plugin\cccms\support\TokenBlacklist;
 use plugin\cccms\support\UserContext;
 
 /**
@@ -41,7 +44,7 @@ final class ProfileLogic
             ->find();
 
         if (!$row) {
-            throw new ApiException('账号不存在或已失效', 404);
+            throw new ApiException(I18n::t('profile.account_invalid'), 404);
         }
 
         $data          = $row->toArray();
@@ -58,7 +61,7 @@ final class ProfileLogic
         if (array_key_exists('nickname', $data)) {
             $nickname = trim((string)$data['nickname']);
             if ($nickname === '') {
-                throw new ApiException('昵称不能为空', 422);
+                throw new ApiException(I18n::t('profile.nickname_required'), 422);
             }
             $data['nickname'] = mb_substr($nickname, 0, 64);
         }
@@ -66,7 +69,7 @@ final class ProfileLogic
         if (array_key_exists('email', $data)) {
             $email = trim((string)$data['email']);
             if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                throw new ApiException('邮箱格式不正确', 422);
+                throw new ApiException(I18n::t('profile.email_invalid'), 422);
             }
             $data['email'] = mb_substr($email, 0, 128);
         }
@@ -74,7 +77,7 @@ final class ProfileLogic
         if (array_key_exists('phone', $data)) {
             $phone = trim((string)$data['phone']);
             if ($phone !== '' && !preg_match('/^[0-9+\-\s]{5,32}$/', $phone)) {
-                throw new ApiException('手机号格式不正确', 422);
+                throw new ApiException(I18n::t('profile.phone_invalid'), 422);
             }
             $data['phone'] = $phone;
         }
@@ -93,21 +96,69 @@ final class ProfileLogic
     public static function changePassword(UserContext $user, string $old, string $new): void
     {
         if ($old === '' || $new === '') {
-            throw new ApiException('请输入原密码与新密码', 422);
+            throw new ApiException(I18n::t('profile.password_required'), 422);
         }
-        PasswordPolicy::assertValid($new);
+        // 身份信息用于拒绝「新密码包含用户名/昵称/邮箱」这类可猜口令
+        PasswordPolicy::assertValid($new, [
+            'username' => $user->username,
+            'nickname' => $user->nickname,
+        ]);
 
         $hash = (string)User::withoutGlobalScope()->where('id', $user->id)->value('password');
         if ($hash === '' || !password_verify($old, $hash)) {
-            throw new ApiException('原密码不正确', 422);
+            throw new ApiException(I18n::t('profile.old_password_incorrect'), 422);
         }
         if ($old === $new) {
-            throw new ApiException('新密码不能与原密码相同', 422);
+            throw new ApiException(I18n::t('profile.password_same'), 422);
         }
 
         User::withoutGlobalScope()->where('id', $user->id)->update([
             'password' => password_hash($new, PASSWORD_BCRYPT),
         ]);
+    }
+
+    /**
+     * 我的在线会话（登录设备）。
+     *
+     * 只返回 `user_id = 当前用户` 的会话，并标注哪一条是**当前设备** ——
+     * 前端据此禁用「注销」按钮（与 `OnlineController` 同一约定：
+     * 下线自己请用「退出登录」，否则会在无感知的情况下把自己踢出去）。
+     *
+     * @param string $currentJti 当前请求的会话 ID
+     */
+    public static function sessions(UserContext $user, string $currentJti): array
+    {
+        $list = OnlineSession::listOfUser($user->id);
+
+        foreach ($list as &$row) {
+            $row['current'] = $currentJti !== '' && $row['jti'] === $currentJti;
+        }
+        unset($row);
+
+        return $list;
+    }
+
+    /**
+     * 注销我的一条登录设备。
+     *
+     * 「下线」要在两处同时生效（见 `OnlineLogic`）：从在线列表移除 + 让已签发的令牌失效。
+     * 归属校验失败时统一返回「会话不存在或已失效」，不区分「不存在」与「不是我的」，
+     * 避免被用来探测他人会话是否存在。
+     */
+    public static function revokeSession(UserContext $user, string $jti, string $currentJti): void
+    {
+        if ($jti === '') {
+            throw new ApiException(I18n::t('profile.device_required'), 422);
+        }
+        if ($currentJti !== '' && $jti === $currentJti) {
+            throw new ApiException(I18n::t('profile.current_device_forbidden'), 422);
+        }
+        if (OnlineSession::ownerOf($jti) !== $user->id) {
+            throw new ApiException(I18n::t('profile.session_invalid'), 404);
+        }
+
+        TokenBlacklist::revoke($jti, OnlineSession::expiryOf($jti));
+        OnlineSession::remove($jti);
     }
 
     /** 我拥有的角色名（含继承来的祖先角色，与鉴权口径一致） */

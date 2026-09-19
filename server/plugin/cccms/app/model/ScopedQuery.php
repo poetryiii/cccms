@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\app\model;
 
 use plugin\cccms\support\DataScope;
+use plugin\cccms\support\TenantContext;
 use think\db\Query;
 
 /**
@@ -68,7 +69,16 @@ final class ScopedQuery extends Query
         return parent::save($data, $forceInsert);
     }
 
-    /** 剔除当前用户不可写的字段（无用户 / 超管时原样放行） */
+    /**
+     * 剔除当前用户不可写的字段（无用户 / 超管时原样放行），并强制写入当前租户。
+     *
+     * 租户放在这里而不是模型事件里，理由与字段规则完全一致：
+     * 业务写入都是 `Model::where(...)->update()` / `insertGetId()` 这类**构造器调用**，
+     * 模型事件不会触发；写在事件里等于「新增带租户、编辑不带」，一改就串租户。
+     *
+     * `tenant_id` 对客户端**不可控**：先无条件下掉，再由 `TenantContext` 按当前租户回填，
+     * 因此不存在「把数据写到别人租户」或「把自己租户的数据搬走」的入口。
+     */
     private function protect(array &$data): void
     {
         if ($data === [] || !$this->model instanceof BaseModel) {
@@ -76,6 +86,7 @@ final class ScopedQuery extends Query
         }
 
         DataScope::applyWriteRules($data, $this->model->getName());
+        TenantContext::applyWriteRules($data, $this->model->participatesInTenant());
     }
 
     /** `Model::save()` 这条路走的是 `options['data']`，同样要过一遍 */

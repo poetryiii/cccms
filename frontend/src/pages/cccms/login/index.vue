@@ -81,6 +81,10 @@
 
           <div class="login-row">
             <el-checkbox v-model="rememberMe">{{ t('login.remember') }}</el-checkbox>
+            <!-- 找回密码：后台未开启任何渠道（security.reset_channel=off）时不展示 -->
+            <el-button v-if="appStore.resetChannels.length > 0" link type="primary" @click="openReset">
+              {{ t('login.forgot') }}
+            </el-button>
           </div>
 
           <el-button type="primary" size="large" class="login-submit" :loading="loading" @click="onSubmit">
@@ -94,16 +98,64 @@
         </p>
       </div>
     </div>
+
+    <!-- 找回密码弹窗：账号 → 渠道 → 验证码 → 新口令 -->
+    <el-dialog
+      v-model="resetVisible"
+      :title="t('login.resetTitle')"
+      width="420px"
+      append-to-body
+      @closed="onResetClosed"
+    >
+      <p class="login-reset-desc">{{ t('login.resetDesc') }}</p>
+
+      <el-form ref="resetFormRef" :model="resetForm" :rules="resetRules" label-position="top">
+        <el-form-item prop="account" :label="t('login.resetAccount')">
+          <el-input v-model="resetForm.account" clearable :placeholder="t('login.resetAccountPlaceholder')" />
+        </el-form-item>
+
+        <el-form-item prop="channel" :label="t('login.resetChannel')">
+          <el-radio-group v-model="resetForm.channel">
+            <el-radio-button v-for="item in appStore.resetChannels" :key="item" :value="item">
+              {{ channelLabel(item) }}
+            </el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+
+        <el-form-item prop="code" :label="t('login.resetCode')">
+          <div class="login-reset-code">
+            <el-input v-model="resetForm.code" :maxlength="6" :placeholder="t('login.resetCodePlaceholder')" />
+            <el-button :disabled="countdown > 0" :loading="sending" @click="onSendCode">
+              {{ countdown > 0 ? t('login.resetResend', { seconds: countdown }) : t('login.resetSend') }}
+            </el-button>
+          </div>
+        </el-form-item>
+
+        <el-form-item prop="password" :label="t('login.resetNewPassword')">
+          <el-input v-model="resetForm.password" type="password" show-password />
+        </el-form-item>
+
+        <el-form-item prop="confirm" :label="t('login.resetConfirmPassword')">
+          <el-input v-model="resetForm.confirm" type="password" show-password @keyup.enter="onReset" />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="resetVisible = false">{{ t('login.resetCancel') }}</el-button>
+        <el-button type="primary" :loading="resetting" @click="onReset">{{ t('login.resetSubmit') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Check, Key, Lock, Moon, Sunny, User } from '@element-plus/icons-vue'
-import { captcha as captchaApi } from '@/api/auth'
+import { captcha as captchaApi, resetPassword, sendResetCode, type ResetChannel } from '@/api/auth'
+import { passwordValidator } from '@/utils/password'
 import { useAppStore } from '@/stores/app'
 import { useSettingStore } from '@/stores/setting'
 import { useUserStore } from '@/stores/user'
@@ -182,6 +234,118 @@ async function onSubmit(): Promise<void> {
     loading.value = false
   }
 }
+
+/* ---- 找回密码 ---- */
+/** 与后端默认发送间隔（security.reset_send_interval）保持一致 */
+const RESET_COUNTDOWN = 60
+
+const resetVisible = ref(false)
+const resetFormRef = ref<FormInstance>()
+const sending = ref(false)
+const resetting = ref(false)
+const countdown = ref(0)
+let countdownTimer: number | undefined
+
+const resetForm = reactive({ account: '', channel: '', code: '', password: '', confirm: '' })
+
+const resetRules = computed<FormRules>(() => ({
+  account: [{ required: true, message: t('login.resetAccountRequired'), trigger: 'blur' }],
+  channel: [{ required: true, message: t('login.resetChannelRequired'), trigger: 'change' }],
+  code: [
+    { required: true, message: t('login.resetCodeRequired'), trigger: 'blur' },
+    { pattern: /^\d{6}$/, message: t('login.resetCodeFormat'), trigger: 'blur' },
+  ],
+  password: [
+    { required: true, message: t('login.resetPasswordRequired'), trigger: 'blur' },
+    { validator: passwordValidator(() => ({ username: resetForm.account })), trigger: 'blur' },
+  ],
+  confirm: [
+    { required: true, message: t('login.resetConfirmRequired'), trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (value !== resetForm.password) {
+          callback(new Error(t('login.resetConfirmMismatch')))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+}))
+
+function channelLabel(channel: string): string {
+  return channel === 'email' ? t('login.resetChannelEmail') : t('login.resetChannelSms')
+}
+
+function openReset(): void {
+  resetForm.account = form.username
+  // 默认选中后台开启的第一个渠道（off 时入口本身不展示）
+  resetForm.channel = appStore.resetChannels[0] ?? ''
+  resetVisible.value = true
+}
+
+/** 倒计时与表单状态在关闭后清理，避免下次打开残留 */
+function onResetClosed(): void {
+  window.clearInterval(countdownTimer)
+  countdownTimer = undefined
+  countdown.value = 0
+  resetForm.password = ''
+  resetForm.confirm = ''
+  resetFormRef.value?.resetFields()
+}
+
+async function onSendCode(): Promise<void> {
+  const valid = await resetFormRef.value
+    ?.validateField(['account', 'channel'])
+    .then(() => true)
+    .catch(() => false)
+  if (!valid) {
+    return
+  }
+
+  sending.value = true
+  try {
+    await sendResetCode({ account: resetForm.account, channel: resetForm.channel as ResetChannel })
+    ElMessage.success(t('login.resetCodeSent'))
+    countdown.value = RESET_COUNTDOWN
+    window.clearInterval(countdownTimer)
+    countdownTimer = window.setInterval(() => {
+      countdown.value -= 1
+      if (countdown.value <= 0) {
+        window.clearInterval(countdownTimer)
+        countdownTimer = undefined
+      }
+    }, 1000)
+  } finally {
+    sending.value = false
+  }
+}
+
+async function onReset(): Promise<void> {
+  const valid = await resetFormRef.value?.validate().catch(() => false)
+  if (!valid) {
+    return
+  }
+
+  resetting.value = true
+  try {
+    await resetPassword({
+      account: resetForm.account,
+      channel: resetForm.channel as ResetChannel,
+      code: resetForm.code,
+      password: resetForm.password,
+    })
+    ElMessage.success(t('login.resetSuccess'))
+    resetVisible.value = false
+  } finally {
+    resetting.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  window.clearInterval(countdownTimer)
+})
 
 onMounted(() => {
   const saved = localStorage.getItem(REMEMBER_KEY)
@@ -402,6 +566,24 @@ onMounted(() => {
 .login-submit {
   width: 100%;
   letter-spacing: 2px;
+}
+
+/* ---- 找回密码弹窗 ---- */
+.login-reset-desc {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--art-muted);
+}
+
+.login-reset-code {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.login-reset-code .el-button {
+  flex-shrink: 0;
+  min-width: 120px;
 }
 
 .login-tip {

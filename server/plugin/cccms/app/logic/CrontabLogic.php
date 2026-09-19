@@ -10,6 +10,7 @@ use plugin\cccms\support\ApiException;
 use plugin\cccms\support\CronMatcher;
 use plugin\cccms\support\CrontabRunner;
 use plugin\cccms\support\CrontabTask;
+use plugin\cccms\support\I18n;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use think\facade\Db;
@@ -167,38 +168,35 @@ final class CrontabLogic
     {
         $expression = (string)($data['expression'] ?? '');
         if (CronMatcher::nextRunTime($expression, time()) === null) {
-            throw new ApiException(
-                'cron 表达式非法，或未来一年内不会触发（六段：秒 分 时 日 月 周，如 0 0 */5 * * *）',
-                422
-            );
+            throw new ApiException(I18n::t('crontab.expression_invalid'), 422);
         }
 
         $target = (string)($data['target'] ?? '');
         if (!class_exists($target) || !is_subclass_of($target, CrontabTask::class)) {
-            throw new ApiException('执行目标非法：必须是在代码中实现 CrontabTask 的类', 422);
+            throw new ApiException(I18n::t('crontab.target_invalid'), 422);
         }
 
         // ---- 重叠保护 / 超时 / 重试 / 分组 ----
         $overlap = strtolower(trim((string)($data['overlap'] ?? 'skip')));
         if (!in_array($overlap, ['skip', 'allow'], true)) {
-            throw new ApiException('重叠策略只能是 skip（跳过）或 allow（允许并发）', 422);
+            throw new ApiException(I18n::t('crontab.overlap_invalid'), 422);
         }
 
         if ((int)($data['timeout'] ?? 0) < 0) {
-            throw new ApiException('超时秒数不能为负数（0 表示不限）', 422);
+            throw new ApiException(I18n::t('crontab.timeout_invalid'), 422);
         }
 
         $retryTimes = (int)($data['retry_times'] ?? 0);
         if ($retryTimes < 0 || $retryTimes > 10) {
-            throw new ApiException('失败重试次数需在 0~10 之间', 422);
+            throw new ApiException(I18n::t('crontab.retry_times_invalid'), 422);
         }
 
         if ((int)($data['retry_interval'] ?? 60) < 1) {
-            throw new ApiException('重试间隔至少 1 秒', 422);
+            throw new ApiException(I18n::t('crontab.retry_interval_invalid'), 422);
         }
 
         if (mb_strlen((string)($data['group_name'] ?? '')) > 32) {
-            throw new ApiException('任务分组不能超过 32 个字符', 422);
+            throw new ApiException(I18n::t('crontab.group_name_too_long'), 422);
         }
     }
 
@@ -245,9 +243,9 @@ final class CrontabLogic
         }
 
         if (!Crontab::withoutGlobalScope()->where('id', $id)->find()) {
-            throw new ApiException('定时任务不存在', 404);
+            throw new ApiException(I18n::t('crontab.not_found'), 404);
         }
 
-        throw new ApiException('无权操作该定时任务', 403);
+        throw new ApiException(I18n::t('crontab.no_permission'), 403);
     }
 }

@@ -25,6 +25,31 @@ export function userResetPassword(data: { id: number; password: string }) {
   return http.post<null>('/user/resetPassword', data)
 }
 
+/** 批量操作结果：越权 / 受保护的 id 会被跳过并回传 */
+export interface BatchResult {
+  affected: number
+  skipped: number[]
+}
+
+/** 批量启用 / 禁用（禁用后对方下一次请求即 401） */
+export function userBatchStatus(ids: number[], status: number) {
+  return http.post<BatchResult>('/user/batchStatus', { ids, status })
+}
+
+export function userBatchDelete(ids: number[]) {
+  return http.post<BatchResult>('/user/batchDelete', { ids })
+}
+
+/** 批量分配角色 / 部门 / 岗位：传了哪个键就整体替换哪个关联，未传的保持原样 */
+export function userBatchAssign(data: {
+  ids: number[]
+  role_ids?: number[]
+  dept_ids?: number[]
+  post_ids?: number[]
+}) {
+  return http.post<BatchResult>('/user/batchAssign', data)
+}
+
 /** 导出 CSV（按当前筛选与数据范围） */
 export function userExport(params: Record<string, unknown>) {
   return downloadFile('/user/export', params, '用户列表.csv')

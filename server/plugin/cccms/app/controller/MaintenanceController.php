@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\MaintenanceLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -25,7 +26,7 @@ class MaintenanceController extends BaseController
     {
         return $this->ok(
             MaintenanceLogic::refresh((string)$request->post('scope', 'all')),
-            '刷新完成'
+            I18n::t('maintenance.refresh_done')
         );
     }
 }

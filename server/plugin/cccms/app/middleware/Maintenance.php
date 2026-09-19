@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\app\middleware;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\SysConfig;
 use Webman\Http\Request;
 use Webman\Http\Response;
@@ -33,7 +34,7 @@ class Maintenance implements MiddlewareInterface
         }
 
         throw new ApiException(
-            SysConfig::getString('system.maintenance_notice', '系统维护中，请稍后访问') ?: '系统维护中，请稍后访问',
+            SysConfig::getString('system.maintenance_notice', I18n::t('auth.maintenance')) ?: I18n::t('auth.maintenance'),
             503
         );
     }

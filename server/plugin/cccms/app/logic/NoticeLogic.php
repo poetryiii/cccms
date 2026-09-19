@@ -14,6 +14,7 @@ use plugin\cccms\app\model\UserDept;
 use plugin\cccms\app\model\UserRole;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\UserContext;
 use think\db\BaseQuery;
 
@@ -41,6 +42,21 @@ final class NoticeLogic
         1 => 'dept',
         2 => 'role',
         3 => 'user',
+    ];
+
+    /** 正文净化的标签白名单（与前端 ArtRichEditor 工具栏、utils/richText.ts 保持一致） */
+    private const CONTENT_TAGS = [
+        'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'del', 'strike',
+        'h1', 'h2', 'h3', 'h4',
+        'ul', 'ol', 'li',
+        'blockquote', 'code', 'pre',
+        'a', 'img', 'hr', 'span',
+    ];
+
+    /** 正文净化的属性白名单：只有链接与图片需要带属性，其余标签一律无属性 */
+    private const CONTENT_ATTRS = [
+        'a'   => ['href', 'target', 'rel', 'title'],
+        'img' => ['src', 'alt', 'title'],
     ];
 
     // ------------------------------------------------------------------
@@ -79,7 +95,7 @@ final class NoticeLogic
     {
         $notice = Notice::where('id', $id)->find();
         if (!$notice) {
-            throw new ApiException('通知公告不存在', 404);
+            throw new ApiException(I18n::t('notice.not_found'), 404);
         }
 
         $row = $notice->toArray();
@@ -152,7 +168,7 @@ final class NoticeLogic
     {
         $notice = Notice::where('id', $noticeId)->find();
         if (!$notice) {
-            throw new ApiException('通知公告不存在', 404);
+            throw new ApiException(I18n::t('notice.not_found'), 404);
         }
         $notice = $notice->toArray();
 
@@ -263,7 +279,7 @@ final class NoticeLogic
     {
         $notice = self::visible($userId)->where('id', $noticeId)->find();
         if (!$notice) {
-            throw new ApiException('通知公告不存在或已过期', 404);
+            throw new ApiException(I18n::t('notice.not_found_or_expired'), 404);
         }
 
         if (NoticeRead::where('notice_id', $noticeId)->where('user_id', $userId)->find()) {
@@ -540,6 +556,89 @@ final class NoticeLogic
     }
 
     /**
+     * 正文 HTML 白名单净化（保存侧兜底）。
+     *
+     * **为什么不用第三方库**（如 ezyang/htmlpurifier）：
+     *   1. 本项目 composer 依赖刻意保持精简，为了一个正文字段引入一个重量级依赖不划算；
+     *   2. 真正的第一道防线在**渲染侧**：前端渲染前统一过 `utils/richText.ts` 的 DOMPurify，
+     *      后端这次清洗只是「别把明显可执行的片段存进库」的兜底，
+     *      历史数据 / 绕过接口直接写库的内容由渲染侧拦住。
+     *
+     * 因此这里用**正则白名单**实现，只保证三件事：
+     *   ① 危险元素（script / iframe / style 等）连同内容整体剔除；
+     *   ② 白名单外的标签只脱掉标签本身，保留文字内容；
+     *   ③ 只保留白名单属性，且 href / src 拒绝 javascript: / vbscript: / data: 协议。
+     * 正则方案挡不住畸形标签与 mXSS，这一点由渲染侧的 DOMPurify 兜住。
+     */
+    private static function sanitizeContent(string $html): string
+    {
+        if ($html === '') {
+            return '';
+        }
+
+        // ① 危险元素连同内容整体剔除（含嵌套内容）
+        $html = (string)preg_replace(
+            '#<(script|style|iframe|object|embed|form|template|svg|math)\b[^>]*>.*?</\1\s*>#is',
+            '',
+            $html
+        );
+
+        // ② 标签白名单：白名单外的标签脱掉标签本身，保留内部文字
+        $allowed = implode('|', self::CONTENT_TAGS);
+        $html    = (string)preg_replace('#<(?!/?(?:' . $allowed . ')\b)[^>]*>#is', '', $html);
+
+        // ③ 属性白名单：逐标签重写属性，非白名单属性（含 on* 事件、style）直接丢弃
+        $html = (string)preg_replace_callback(
+            '#<(' . $allowed . ')((?:\s+[^>]*)?)\s*/?>#is',
+            static function (array $matches): string {
+                $tag         = strtolower($matches[1]);
+                $attrs       = self::filterContentAttrs($tag, $matches[2] ?? '');
+                $selfClosing = in_array($tag, ['br', 'img', 'hr'], true);
+
+                return '<' . $tag . $attrs . ($selfClosing ? ' />' : '>');
+            },
+            $html
+        );
+
+        return trim($html);
+    }
+
+    /** 只保留该标签在白名单内的属性，并对属性值做转义 */
+    private static function filterContentAttrs(string $tag, string $raw): string
+    {
+        $allowed = self::CONTENT_ATTRS[$tag] ?? [];
+        if ($allowed === [] || trim($raw) === '') {
+            return '';
+        }
+
+        $out = '';
+        $hit = preg_match_all(
+            '#([a-z][a-z0-9:_-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'>]+))#i',
+            $raw,
+            $matches,
+            PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL
+        );
+        if (!$hit) {
+            return '';
+        }
+
+        foreach ($matches as $match) {
+            $name = strtolower($match[1]);
+            if (!in_array($name, $allowed, true)) {
+                continue;
+            }
+            // 先解码再判断协议，避免 &#106;avascript: 这类实体编码绕过
+            $value = html_entity_decode((string)($match[2] ?? $match[3] ?? $match[4] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if (in_array($name, ['href', 'src'], true) && preg_match('#^\s*(?:javascript|vbscript|data)\s*:#i', $value)) {
+                continue;
+            }
+            $out .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+
+        return $out;
+    }
+
+    /**
      * 字段白名单整理。
      *
      * @param bool $partial 更新场景：只保留显式传入的字段
@@ -558,9 +657,14 @@ final class NoticeLogic
         if (!$partial || array_key_exists('title', $payload)) {
             $title = trim((string)($payload['title'] ?? ''));
             if ($title === '') {
-                throw new ApiException('标题不能为空', 422);
+                throw new ApiException(I18n::t('notice.title_required'), 422);
             }
             $payload['title'] = $title;
+        }
+
+        // 正文：富文本 HTML，保存前做一次白名单净化（详见 sanitizeContent 的说明）
+        if (array_key_exists('content', $payload)) {
+            $payload['content'] = self::sanitizeContent((string)($payload['content'] ?? ''));
         }
 
         // 投放范围归一化（非法值回退到「全部用户」）

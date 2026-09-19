@@ -145,11 +145,21 @@ final class DataScope
         return $user !== null ? self::plan($user)['tables'] : self::queryGuardedTables();
     }
 
-    /** 受控表直查（构建 plan 时用，不做缓存） */
-    private static function queryGuardedTables(): array
+    /**
+     * 受控表直查（构建 plan 时用，不做缓存）。
+     *
+     * `$tenantId` 非 null 时只取该租户登记的行 —— 受控表名单属于租户自己的配置，
+     * 混读会让 A 租户的登记决定 B 租户能不能配规则。
+     * null（CLI / 无用户上下文）表示平台级处理，不加租户条件。
+     */
+    private static function queryGuardedTables(?int $tenantId = null): array
     {
         try {
-            $tables = Db::name('data_scope_table')->where('status', 1)->column('table_name');
+            $query = Db::name('data_scope_table')->where('status', 1);
+            if ($tenantId !== null) {
+                $query->where('tenant_id', $tenantId);
+            }
+            $tables = $query->column('table_name');
         } catch (Throwable) {
             return self::DEFAULT_TABLES;
         }
@@ -237,8 +247,13 @@ final class DataScope
             }
         }
 
+        // 租户内的维度数据：角色 / 岗位 / 部门 / 规则都必须限定在本租户，
+        // 否则规则页里会看到别的租户的绑定对象，全局规则还会跨租户命中。
+        // 关联表（user_role / user_post / user_dept）按 user_id 取，本身就是本用户的。
+        $tenantId = $user->tenantId;
+
         $plan = [
-            'tables'      => self::queryGuardedTables(),
+            'tables'      => self::queryGuardedTables($tenantId),
             'roleScope'   => $roleScope,
             'roleIds'     => $roleIds,
             // 有效角色 = 直连 + 祖先（与鉴权 AuthService::effectiveRoleIds 同口径）。
@@ -247,12 +262,19 @@ final class DataScope
             'effectiveRoleIds' => AuthService::effectiveRoleIds($user->id),
             'postIds'     => array_map('intval', Db::name('user_post')->where('user_id', $user->id)->column('post_id')),
             'deptIds'     => array_map('intval', Db::name('user_dept')->where('user_id', $user->id)->column('dept_id')),
-            'deptParents' => SoftDelete::apply(Db::name('dept'))->column('parent_id', 'id'),
+            // 部门父子映射只取本租户：子树计算不能顺着 parent_id 走进别的租户
+            'deptParents' => SoftDelete::apply(Db::name('dept'))
+                ->where('tenant_id', $tenantId)
+                ->column('parent_id', 'id'),
             // 已进回收站的规则不能再生效；action / 目标表 / 绑定过滤在 rules() 里做（纯内存）。
             // 显式按 id 排序：顺序对行级规则（AND 叠加）没有影响，但字段级动作是**按顺序依次处理**的
             // （applyFieldRules 逐条 switch），不指定顺序时就取决于 DB 返回顺序 ——
             // 同一字段被多个字段级规则命中时，结果会变成不可复现。这里固定为创建顺序。
-            'rules'       => SoftDelete::apply(Db::name('data_rule'))->order('id', 'asc')->select()->toArray(),
+            'rules'       => SoftDelete::apply(Db::name('data_rule'))
+                ->where('tenant_id', $tenantId)
+                ->order('id', 'asc')
+                ->select()
+                ->toArray(),
         ];
 
         self::$plans[$user] = $plan;
@@ -669,7 +691,7 @@ final class DataScope
     private static function deptAndChildren(array $ids, ?array $parents = null): array
     {
         $result  = array_map('intval', $ids);
-        $parents ??= SoftDelete::apply(Db::name('dept'))->column('parent_id', 'id');
+        $parents ??= SoftDelete::apply(TenantContext::table('dept'))->column('parent_id', 'id');
         $queue = $result;
         while ($queue) {
             $parent = (int)array_shift($queue);

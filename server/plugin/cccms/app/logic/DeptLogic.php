@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\Dept;
 use plugin\cccms\app\model\UserDept;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 
 /**
  * 部门逻辑。
@@ -75,10 +76,10 @@ final class DeptLogic
 
         // 子部门 / 成员判定必须看**全量**：范围外的子部门同样会造成孤儿数据
         if (Dept::withoutGlobalScope()->where('parent_id', $id)->count() > 0) {
-            throw new \RuntimeException('存在子部门，无法删除');
+            throw new \RuntimeException(I18n::t('dept.has_children'));
         }
         if (UserDept::where('dept_id', $id)->count() > 0) {
-            throw new \RuntimeException('部门下存在用户，无法删除');
+            throw new \RuntimeException(I18n::t('dept.has_users'));
         }
 
         // 软删除：进回收站；dept_role 保留，恢复后部门角色原样回来
@@ -97,10 +98,10 @@ final class DeptLogic
         }
 
         if (!Dept::withoutGlobalScope()->where('id', $id)->find()) {
-            throw new \RuntimeException('部门不存在');
+            throw new \RuntimeException(I18n::t('dept.not_found'));
         }
 
-        throw new ApiException('无权操作该部门', 403);
+        throw new ApiException(I18n::t('dept.no_permission'), 403);
     }
 
     /**

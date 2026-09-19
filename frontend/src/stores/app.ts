@@ -1,13 +1,17 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { configUi, type AppUiConfig } from '@/api/config'
+import { configUi, type AppSecurityConfig, type AppUiConfig } from '@/api/config'
 import { applyDefaultLocale, hasLocalePref } from '@/locales'
 import { useSettingStore } from './setting'
+
+/** 安全相关公开开关的兜底值（渠道为空 = 登录页不展示找回入口） */
+const FALLBACK_SECURITY: AppSecurityConfig = { reset_channels: [] }
 
 /** 取不到后台配置时的兜底值（保证界面永远能正常渲染） */
 const FALLBACK: AppUiConfig = {
   system: { name: 'CCCMS', logo: '', icp: '', copyright: '', maintenance: false, notice: '' },
   ui: { theme_mode: 'light', theme_primary: '#2b6cff', page_size: 15, tags_view: true, container_width: 0 },
+  security: FALLBACK_SECURITY,
   locale: 'zh-CN',
   locales: ['zh-CN', 'en-US'],
 }
@@ -29,6 +33,7 @@ export const useAppStore = defineStore('app', () => {
   const config = ref<AppUiConfig>({
     system: { ...FALLBACK.system },
     ui: { ...FALLBACK.ui },
+    security: { ...FALLBACK_SECURITY },
     locale: FALLBACK.locale,
     locales: FALLBACK.locales,
   })
@@ -45,6 +50,9 @@ export const useAppStore = defineStore('app', () => {
   const pageSize = computed(() => Number(config.value.ui.page_size) || FALLBACK.ui.page_size)
   const tagsView = computed(() => config.value.ui.tags_view !== false)
 
+  /** 可用找回渠道：为空时登录页不展示「忘记密码」入口（后端 security.reset_channel=off） */
+  const resetChannels = computed<string[]>(() => config.value.security?.reset_channels ?? [])
+
   async function load(): Promise<void> {
     try {
       const res = await configUi()
@@ -52,6 +60,7 @@ export const useAppStore = defineStore('app', () => {
         config.value = {
           system: { ...FALLBACK.system, ...(res.system ?? {}) },
           ui: { ...FALLBACK.ui, ...(res.ui ?? {}) },
+          security: { ...FALLBACK_SECURITY, ...(res.security ?? {}) },
           locale: res.locale || FALLBACK.locale,
           locales: res.locales?.length ? res.locales : FALLBACK.locales,
         }
@@ -79,6 +88,7 @@ export const useAppStore = defineStore('app', () => {
     notice,
     pageSize,
     tagsView,
+    resetChannels,
     load,
   }
 })

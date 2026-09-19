@@ -10,6 +10,9 @@ class File extends BaseModel
 {
     protected $name = 'file';
 
+    /** 参与多租户隔离：附件按租户各自存放与检索 */
+    protected $tenantScope = true;
+
     /** sys_file 只有 create_time，没有 update_time（否则模型写入会拼出不存在的列） */
     protected $updateTime = false;
 

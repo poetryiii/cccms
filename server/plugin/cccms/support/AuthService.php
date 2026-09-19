@@ -15,12 +15,21 @@ use think\facade\Db;
 final class AuthService
 {
     /**
-     * 根据用户 ID 构建上下文；用户不存在/被禁用/已进回收站返回 null。
+     * 根据用户 ID 构建上下文；用户不存在 / 被禁用 / 已进回收站 / 租户不可用返回 null。
      *
      * 用户行**每请求实时查库**（保证禁用 / 删除用户立即 401，这是硬约束）；
      * 角色与权限集合走 `PermissionCache`（Redis + 版本号失效），RBAC 变更时立即作废。
+     *
+     * 租户口径：
+     *   - 账号归属租户 = `sys_user.tenant_id`（`homeTenantId`）；
+     *   - **生效**租户 = 令牌里的 `tid` 声明（`$activeTenantId`），超管显式切换后与归属不同；
+     *   - 非超管**不得跨租户**：令牌 `tid` 与账号归属不一致时返回 null（→ 401 重新登录），
+     *     这条同时兜住了「账号被改到别的租户后旧令牌继续用」与「伪造 tid」两种情形；
+     *   - 归属/生效租户被停用或过期同样返回 null，停用即时生效。
+     *
+     * @param int|null $activeTenantId 令牌里的 `tid`；null = 未携带（登录链路 / 旧令牌）→ 用归属租户
      */
-    public static function buildContext(int $userId): ?UserContext
+    public static function buildContext(int $userId, ?int $activeTenantId = null): ?UserContext
     {
         // 软删除的用户立即失效：禁用/删除后旧令牌下一次请求就 401
         $user = SoftDelete::apply(Db::name('user'))->where('id', $userId)->find();
@@ -40,14 +49,33 @@ final class AuthService
             PermissionCache::store($userId, $cached);
         }
 
+        $home      = (int)($user['tenant_id'] ?? TenantContext::PLATFORM_ID);
+        $isSuper   = (bool)$cached['superAdmin'];
+
+        if ($isSuper) {
+            // 超管可以显式切换租户；未带 tid 时留在自己的归属租户
+            $active = $activeTenantId ?? $home;
+        } else {
+            if ($activeTenantId !== null && $activeTenantId !== $home) {
+                return null;
+            }
+            $active = $home;
+        }
+
+        if (!TenantContext::usable($active)) {
+            return null;
+        }
+
         return new UserContext(
-            id:          (int)$user['id'],
-            username:    (string)$user['username'],
-            nickname:    (string)$user['nickname'],
-            superAdmin:  (bool)$cached['superAdmin'],
-            roles:       (array)$cached['roles'],
-            permissions: (array)$cached['permissions'],
-            avatar:      (string)($user['avatar'] ?? ''),
+            id:           (int)$user['id'],
+            username:     (string)$user['username'],
+            nickname:     (string)$user['nickname'],
+            superAdmin:   $isSuper,
+            roles:        (array)$cached['roles'],
+            permissions:  (array)$cached['permissions'],
+            avatar:       (string)($user['avatar'] ?? ''),
+            tenantId:     $active,
+            homeTenantId: $home,
         );
     }
 

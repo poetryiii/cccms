@@ -8,6 +8,7 @@ use plugin\cccms\app\model\Category;
 use plugin\cccms\app\model\File;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FileStorage;
+use plugin\cccms\support\I18n;
 use Webman\Http\UploadFile;
 
 /**
@@ -64,7 +65,7 @@ final class FileLogic
     {
         $ids = array_values(array_filter(array_map('intval', $ids)));
         if (!$ids) {
-            throw new ApiException('请选择要移动的附件', 422);
+            throw new ApiException(I18n::t('file.move_select_required'), 422);
         }
 
         if ($categoryId > 0) {
@@ -73,7 +74,7 @@ final class FileLogic
                 ->where('module', 'file')
                 ->find();
             if (!$exists) {
-                throw new ApiException('目标分类不存在', 404);
+                throw new ApiException(I18n::t('file.category_not_found'), 404);
             }
         } else {
             $categoryId = 0;
@@ -128,10 +129,10 @@ final class FileLogic
         if (!$file) {
             // 区分「不存在」与「越权」
             if (File::withoutGlobalScope()->where('id', $id)->find()) {
-                throw new ApiException('无权删除该附件', 403);
+                throw new ApiException(I18n::t('file.no_permission'), 403);
             }
 
-            throw new ApiException('附件不存在', 404);
+            throw new ApiException(I18n::t('file.not_found'), 404);
         }
 
         // 软删除：只进回收站，**刻意不删物理文件**——否则回收站恢复出来的是坏链接。

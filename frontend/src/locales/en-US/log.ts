@@ -1,0 +1,45 @@
+/**
+ * Operation log page.
+ *
+ * The key set mirrors `zh-CN/log.ts` exactly.
+ * Log bodies (title / content / node / message) and operator names are backend data and are not kept here.
+ */
+export default {
+  result: 'Result',
+  all: 'All',
+  success: 'Success',
+  failed: 'Failed',
+  username: 'Operator',
+  usernamePlaceholder: 'Enter a value',
+  actionName: 'Action name',
+  actionNamePlaceholder: 'e.g. Create dictionary type',
+  path: 'Request path',
+  pathPlaceholder: 'e.g. /auth/login for sign-in',
+  traceId: 'Trace ID',
+  traceIdPlaceholder: 'trace_id from the error',
+  method: 'Method',
+  statusCode: 'Status code',
+  cost: 'Duration',
+  costMs: 'Duration (ms)',
+  time: 'Time',
+  deleteSelected: 'Delete selected',
+  deleteSelectedCount: 'Delete selected ({count})',
+  deleteSelectedConfirm: 'Delete the {count} selected logs?',
+  batchDeleteTitle: 'Batch delete',
+  deleteOneConfirm: 'Delete this log?',
+  deleteSuccess: 'Deleted successfully',
+  detail: 'Details',
+  detailTitle: 'Log details',
+  node: 'Permission node',
+  request: 'Request',
+  message: 'Message',
+  params: 'Request params',
+  response: 'Response',
+  sameTrace: 'Same trace',
+  viewSameTrace: 'View same trace',
+  traceTitle: 'Trace {id}',
+  recordCount: 'Records',
+  failedCount: 'Failures',
+  totalCost: 'Total duration',
+  traceEmpty: 'No visible records for this trace',
+}

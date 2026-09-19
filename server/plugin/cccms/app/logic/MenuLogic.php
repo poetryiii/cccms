@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\UserContext;
@@ -29,7 +30,7 @@ final class MenuLogic
 
         $all = $query->select()->toArray();
 
-        return $trashed ? $all : self::buildTree($all, 0);
+        return $trashed ? $all : self::localizeTitles(self::buildTree($all, 0));
     }
 
     /** 当前用户可见的菜单树（前端动态路由）。 */
@@ -42,7 +43,7 @@ final class MenuLogic
             ->select()->toArray();
 
         if ($user->isSuperAdmin()) {
-            return self::buildTree($all, 0);
+            return self::localizeTitles(self::buildTree($all, 0));
         }
 
         $nodes = array_flip($user->permissions);
@@ -84,7 +85,30 @@ final class MenuLogic
         }
 
         $filtered = array_values(array_filter($all, fn ($i) => isset($visible[(int)$i['id']])));
-        return self::buildTree($filtered, 0);
+        return self::localizeTitles(self::buildTree($filtered, 0));
+    }
+
+    /**
+     * 菜单 / 节点标题国际化（递归，含 children）。
+     *
+     * 内置节点在 `lang/{locale}/menu.php` 里有 key → 按当前请求语言覆盖 `title`；
+     * 管理员自建的菜单没有 key（属于用户录入数据）→ 原样返回，不翻译。
+     * DB 里的中文 title 始终是权威兜底值，语言包缺失不会导致标题变空。
+     */
+    private static function localizeTitles(array $nodes): array
+    {
+        foreach ($nodes as &$node) {
+            $slug = (string)($node['node'] ?? '');
+            if ($slug !== '' && I18n::has('menu.' . $slug)) {
+                $node['title'] = I18n::t('menu.' . $slug);
+            }
+            if (!empty($node['children']) && is_array($node['children'])) {
+                $node['children'] = self::localizeTitles($node['children']);
+            }
+        }
+        unset($node);
+
+        return $nodes;
     }
 
     public static function create(array $data): int
@@ -100,7 +124,7 @@ final class MenuLogic
     public static function update(int $id, array $data): void
     {
         if (!SoftDelete::apply(Db::name('menu'))->where('id', $id)->find()) {
-            throw new \RuntimeException('菜单不存在');
+            throw new \RuntimeException(I18n::t('menu.not_found'));
         }
         Db::name('menu')->where('id', $id)->update($data);
         PermissionCache::bump();
@@ -109,7 +133,7 @@ final class MenuLogic
     public static function delete(int $id): void
     {
         if (SoftDelete::apply(Db::name('menu'))->where('parent_id', $id)->count() > 0) {
-            throw new \RuntimeException('存在子节点，无法删除');
+            throw new \RuntimeException(I18n::t('menu.has_children'));
         }
 
         // 软删除：进回收站；role_node 授权刻意保留，恢复后授权原样回来。

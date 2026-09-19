@@ -58,8 +58,12 @@ final class AuthLogic
             throw new ApiException(I18n::t('auth.missing_credentials'), 422);
         }
 
-        // ① 失败锁定：先判断，避免锁定期间仍可用于撞库
-        LoginThrottle::assertNotLocked($username);
+        // 登录来源 IP：失败锁定与在线会话都要用，统一取一次
+        $ip = (string)(request()->getRealIp() ?: '');
+
+        // ① 失败锁定：先判断，避免锁定期间仍可用于撞库。
+        // 账号维度防定向爆破，IP 维度防分布式撞库（见 LoginThrottle 类注释）
+        LoginThrottle::assertNotLocked($username, $ip);
 
         // ② 图形验证码（由 security.login_captcha 控制，默认关闭）
         if (SysConfig::getBool('security.login_captcha', false) && !Captcha::verify($captchaId, $captcha)) {
@@ -67,10 +71,11 @@ final class AuthLogic
         }
 
         // 已进回收站的账号不能登录（用户名仍被占用，但登录入口直接当作不存在）。
-        // 显式跳出数据权限：此时还没有当前用户，数据范围本身就要靠这行数据算出来。
-        $user = User::withoutGlobalScope()->where('username', $username)->find();
+        // 显式跳出**全部**作用域：此时还没有当前用户，登录也不解析租户
+        // （`username` 是全局唯一键），因此必须连租户一起绕过。
+        $user = User::withoutAllScopes()->where('username', $username)->find();
         if (!$user || !password_verify($password, (string)$user['password'])) {
-            LoginThrottle::recordFailure($username);
+            LoginThrottle::recordFailure($username, $ip);
             throw new ApiException(I18n::t('auth.bad_credentials') . self::attemptTip($username), 422);
         }
         if ((int)$user['status'] !== 1) {
@@ -87,17 +92,16 @@ final class AuthLogic
             throw new ApiException(self::maintenanceNotice(), 503);
         }
 
-        LoginThrottle::clear($username);
+        LoginThrottle::clear($username, $ip);
 
-        $ip = (string)(request()->getRealIp() ?: '');
-
-        // 更新登录信息（登录链路同样没有当前用户上下文，显式跳出作用域）
-        User::withoutGlobalScope()->where('id', $user['id'])->update([
+        // 更新登录信息（登录链路同样没有当前用户上下文，显式跳出**全部**作用域）
+        User::withoutAllScopes()->where('id', $user['id'])->update([
             'login_time' => date('Y-m-d H:i:s'),
             'login_ip'   => $ip,
         ]);
 
-        $token = TokenService::issue((int)$user['id']);
+        // 令牌写入 tid 声明：这是「生效租户」的唯一来源，超管切换租户即重签一份
+        $token = TokenService::issue((int)$user['id'], ['tid' => $context->tenantId]);
 
         // 「强制下线」是按用户记录的签发时间分界线（`iat <= cutoff` 即失效）。
         // 登录成功必须清除它，否则与该分界线**同一秒**签发的新令牌会被立刻判成失效。
@@ -119,14 +123,39 @@ final class AuthLogic
         ];
     }
 
-    /** 用户信息（含 encrypt 字段解密所需的密钥；未配置该密钥时不返回，避免 /me 直接 500）。 */
+    /**
+     * 用户信息。
+     *
+     * `crypto_key` 是字段级 `encrypt` 动作的解密密钥（**对称密钥**），只下发给
+     * 「能配置数据权限规则」的管理员（持有 `cccms:data_rule*` 权限节点或超管）。
+     *
+     * 为什么收敛下发范围：它是**存储加密**而不是访问控制 —— 任何拿到它的人都能解密
+     * 全部密文，等于把「数据库裸读防护」摊平给所有登录用户。敏感字段的可见性
+     * 请用 `mask` + 数据权限（见 docs/06-数据权限）。
+     */
     public static function profile(UserContext $user): array
     {
         $data = $user->toArray();
-        if (Cipher::configured()) {
+        if (Cipher::configured() && self::mayDecryptFields($user)) {
             $data['crypto_key'] = Cipher::publicKey();
         }
         return $data;
+    }
+
+    /** 是否下发字段级 encrypt 密钥：超管，或持有任一 `cccms:data_rule` 权限节点 */
+    private static function mayDecryptFields(UserContext $user): bool
+    {
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
+        foreach ($user->permissions as $node) {
+            if (str_starts_with((string)$node, 'cccms:data_rule')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

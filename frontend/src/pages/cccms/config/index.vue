@@ -4,21 +4,25 @@
       <template #header>
         <div class="cfg-head">
           <div class="cfg-head-left">
-            <span class="cfg-title">系统配置</span>
-            <el-tag v-if="dirtyCount" type="warning" effect="light" size="small"> {{ dirtyCount }} 项未保存 </el-tag>
-            <span v-else class="cfg-count">共 {{ items.length }} 项</span>
+            <span class="cfg-title">{{ t('config.pageTitle') }}</span>
+            <el-tag v-if="dirtyCount" type="warning" effect="light" size="small">
+              {{ t('config.dirtyCount', { count: dirtyCount }) }}
+            </el-tag>
+            <span v-else class="cfg-count">{{ t('config.totalCount', { count: items.length }) }}</span>
           </div>
 
           <div class="cfg-head-right">
             <el-input
               v-model="keyword"
-              placeholder="搜索配置项 / 键名"
+              :placeholder="t('config.searchPlaceholder')"
               clearable
               :prefix-icon="Search"
               class="cfg-search"
             />
-            <el-button :icon="Refresh" @click="reload">刷新</el-button>
-            <el-button :icon="RefreshLeft" :disabled="!dirtyCount" @click="discard">放弃修改</el-button>
+            <el-button :icon="Refresh" @click="reload">{{ t('common.refresh') }}</el-button>
+            <el-button :icon="RefreshLeft" :disabled="!dirtyCount" @click="discard">
+              {{ t('config.discard') }}
+            </el-button>
             <el-button
               v-auth="'cccms:config:save'"
               type="primary"
@@ -27,7 +31,7 @@
               :disabled="!dirtyCount"
               @click="onSave"
             >
-              保存{{ dirtyCount ? `（${dirtyCount}）` : '' }}
+              {{ dirtyCount ? t('config.saveCount', { count: dirtyCount }) : t('common.save') }}
             </el-button>
           </div>
         </div>
@@ -38,11 +42,11 @@
         <aside class="cfg-aside">
           <ul class="cfg-groups">
             <li :class="{ 'is-active': group === '' }" @click="group = ''">
-              <span>全部</span>
+              <span>{{ t('config.all') }}</span>
               <em>{{ filtered.length }}</em>
             </li>
             <li v-for="g in groups" :key="g.name" :class="{ 'is-active': group === g.name }" @click="group = g.name">
-              <span>{{ g.name }}</span>
+              <span>{{ g.label }}</span>
               <em>{{ g.count }}</em>
             </li>
           </ul>
@@ -52,11 +56,14 @@
         <div class="cfg-main">
           <el-skeleton v-if="loading" :rows="8" animated />
 
-          <el-empty v-else-if="!visibleGroups.length" :description="keyword ? '没有匹配的配置项' : '暂无配置项'" />
+          <el-empty
+            v-else-if="!visibleGroups.length"
+            :description="keyword ? t('config.noMatch') : t('config.empty')"
+          />
 
           <template v-else>
             <section v-for="g in visibleGroups" :key="g.name" class="cfg-section">
-              <h3 class="cfg-section-title">{{ g.name }}</h3>
+              <h3 class="cfg-section-title">{{ g.label }}</h3>
 
               <el-form label-width="180px" label-position="right">
                 <el-form-item v-for="item in g.items" :key="item.name" :class="{ 'is-dirty': isDirty(item.name) }">
@@ -86,7 +93,7 @@
                     <el-select
                       v-else-if="item.type === 'select'"
                       v-model="values[item.name]"
-                      placeholder="请选择"
+                      :placeholder="t('config.selectPlaceholder')"
                       style="width: 260px"
                     >
                       <el-option
@@ -118,11 +125,16 @@
                       v-model="values[item.name]"
                       type="password"
                       show-password
-                      placeholder="留空表示不修改（敏感项加密存储）"
+                      :placeholder="t('config.passwordPlaceholder')"
                       style="max-width: 420px"
                     />
 
-                    <el-input v-else v-model="values[item.name]" placeholder="请输入" style="max-width: 420px" />
+                    <el-input
+                      v-else
+                      v-model="values[item.name]"
+                      :placeholder="t('config.inputPlaceholder')"
+                      style="max-width: 420px"
+                    />
 
                     <div v-if="item.remark" class="cfg-remark">{{ item.remark }}</div>
                   </div>
@@ -141,11 +153,15 @@ defineOptions({ name: 'cccms:config' })
 
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Refresh, RefreshLeft, Search } from '@element-plus/icons-vue'
 import { configList, configSave, type ConfigItem, type ConfigOption } from '@/api/config'
 
-const UNGROUPED = '未分组'
+const { t } = useI18n({ useScope: 'global' })
+
+/** 无分组的兜底键（用于过滤，不用于展示） */
+const UNGROUPED = '__ungrouped__'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -214,29 +230,40 @@ const filtered = computed(() => {
   )
 })
 
+/** 分组展示名：优先后端翻译下发的 group_label，回退原始 group；无分组用「未分组」 */
+function groupLabel(item: ConfigItem): string {
+  return item.group_label || item.group || t('config.ungrouped')
+}
+
 const groups = computed(() => {
-  const counter = new Map<string, number>()
+  const counter = new Map<string, { count: number; label: string }>()
   for (const item of filtered.value) {
+    // 过滤键仍用 group（group_label 仅用于展示，不能作过滤值）
     const name = item.group || UNGROUPED
-    counter.set(name, (counter.get(name) ?? 0) + 1)
+    const cur = counter.get(name)
+    if (cur) {
+      cur.count += 1
+    } else {
+      counter.set(name, { count: 1, label: groupLabel(item) })
+    }
   }
-  return Array.from(counter, ([name, count]) => ({ name, count }))
+  return Array.from(counter, ([name, value]) => ({ name, count: value.count, label: value.label }))
 })
 
 const visibleGroups = computed(() => {
   const list = group.value ? filtered.value.filter((item) => (item.group || UNGROUPED) === group.value) : filtered.value
 
-  const bucket = new Map<string, ConfigItem[]>()
+  const bucket = new Map<string, { label: string; items: ConfigItem[] }>()
   for (const item of list) {
     const name = item.group || UNGROUPED
-    const arr = bucket.get(name)
-    if (arr) {
-      arr.push(item)
+    const cur = bucket.get(name)
+    if (cur) {
+      cur.items.push(item)
     } else {
-      bucket.set(name, [item])
+      bucket.set(name, { label: groupLabel(item), items: [item] })
     }
   }
-  return Array.from(bucket, ([name, groupItems]) => ({ name, items: groupItems }))
+  return Array.from(bucket, ([name, value]) => ({ name, label: value.label, items: value.items }))
 })
 
 /* ---------- 加载与保存 ---------- */
@@ -267,7 +294,7 @@ async function reload(): Promise<void> {
 
 function discard(): void {
   Object.assign(values, JSON.parse(JSON.stringify(original.value)))
-  ElMessage.info('已放弃未保存的修改')
+  ElMessage.info(t('config.discarded'))
 }
 
 async function onSave(): Promise<void> {
@@ -283,7 +310,7 @@ async function onSave(): Promise<void> {
   saving.value = true
   try {
     const res = await configSave(payload)
-    ElMessage.success(`已保存 ${res?.updated ?? dirtyCount.value} 项`)
+    ElMessage.success(t('config.savedCount', { count: res?.updated ?? dirtyCount.value }))
     await reload()
   } finally {
     saving.value = false
@@ -293,9 +320,9 @@ async function onSave(): Promise<void> {
 async function copyKey(name: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(name)
-    ElMessage.success(`已复制：${name}`)
+    ElMessage.success(t('config.copied', { name }))
   } catch {
-    ElMessage.warning('复制失败，请手动选择')
+    ElMessage.warning(t('config.copyFailed'))
   }
 }
 
@@ -306,10 +333,10 @@ onBeforeRouteLeave(async () => {
     return true
   }
   try {
-    await ElMessageBox.confirm('有未保存的修改，确定离开吗？', '未保存的修改', {
+    await ElMessageBox.confirm(t('config.leaveConfirm'), t('config.leaveTitle'), {
       type: 'warning',
-      confirmButtonText: '离开',
-      cancelButtonText: '留在本页',
+      confirmButtonText: t('config.leaveConfirmButton'),
+      cancelButtonText: t('config.stayButton'),
     })
     return true
   } catch {

@@ -2,7 +2,12 @@
   <div class="art-fill">
     <ArtSplitView aside-width="240px">
       <template #aside>
-        <ArtTreePanel title="组织架构" :data="treeData" :current-key="currentId" @node-click="onNodeClick" />
+        <ArtTreePanel
+          :title="t('dept.treeTitle')"
+          :data="treeData"
+          :current-key="currentId"
+          @node-click="onNodeClick"
+        />
       </template>
 
       <ArtTable
@@ -17,27 +22,35 @@
         @force-delete="onForceDelete"
       >
         <template #toolbar>
-          <el-button v-auth="'cccms:dept:save'" type="primary" :icon="Plus" @click="openCreate()"> 新增 </el-button>
-          <el-tag v-if="currentId" type="info" closable @close="currentId = 0"> 仅看：{{ currentNodeName }} </el-tag>
-          <span v-else class="toolbar-tip">支持树形层级：点「新增子部门」快速挂载下级</span>
+          <el-button v-auth="'cccms:dept:save'" type="primary" :icon="Plus" @click="openCreate()">
+            {{ t('common.create') }}
+          </el-button>
+          <el-tag v-if="currentId" type="info" closable @close="currentId = 0">
+            {{ t('dept.filteredLabel', { name: currentNodeName }) }}
+          </el-tag>
+          <span v-else class="toolbar-tip">{{ t('dept.treeTip') }}</span>
         </template>
 
         <template #toolbar-right>
-          <RecycleToggle :active="recycle" label="部门" @toggle="toggle" />
+          <RecycleToggle :active="recycle" :label="t('dept.recycleLabel')" @toggle="toggle" />
         </template>
 
         <template #status="{ row }">
           <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
-            {{ row.status === 1 ? '启用' : '禁用' }}
+            {{ row.status === 1 ? t('dept.enabled') : t('dept.disabled') }}
           </el-tag>
         </template>
 
         <template #action="{ row }">
-          <el-button v-auth="'cccms:dept:save'" link type="primary" @click="openCreate(row.id)"> 新增子部门 </el-button>
-          <el-button v-auth="'cccms:dept:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-popconfirm title="确定删除该部门？" @confirm="onDelete(row.id)">
+          <el-button v-auth="'cccms:dept:save'" link type="primary" @click="openCreate(row.id)">
+            {{ t('dept.addChild') }}
+          </el-button>
+          <el-button v-auth="'cccms:dept:update'" link type="primary" @click="openEdit(row)">
+            {{ t('common.edit') }}
+          </el-button>
+          <el-popconfirm :title="t('dept.deleteConfirm')" @confirm="onDelete(row.id)">
             <template #reference>
-              <el-button v-auth="'cccms:dept:delete'" link type="danger">删除</el-button>
+              <el-button v-auth="'cccms:dept:delete'" link type="danger">{{ t('common.delete') }}</el-button>
             </template>
           </el-popconfirm>
         </template>
@@ -46,47 +59,47 @@
 
     <el-dialog
       v-model="formVisible"
-      :title="form.id ? '编辑部门' : '新增部门'"
+      :title="form.id ? t('dept.editTitle') : t('dept.createTitle')"
       width="560px"
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="92px">
-        <el-form-item label="上级部门" prop="parent_id">
+        <el-form-item :label="t('dept.parentLabel')" prop="parent_id">
           <el-tree-select
             v-model="form.parent_id"
             :data="parentOptions"
             :props="{ label: 'name', children: 'children' }"
             node-key="id"
             check-strictly
-            placeholder="顶级"
+            :placeholder="t('dept.topLevel')"
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="部门名称" prop="name">
-          <el-input v-model="form.name" placeholder="请输入部门名称" />
+        <el-form-item :label="t('dept.nameLabel')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('dept.namePlaceholder')" />
         </el-form-item>
-        <el-form-item label="负责人" prop="leader">
-          <el-input v-model="form.leader" placeholder="请输入负责人" />
+        <el-form-item :label="t('dept.leaderLabel')" prop="leader">
+          <el-input v-model="form.leader" :placeholder="t('dept.leaderPlaceholder')" />
         </el-form-item>
-        <el-form-item label="联系电话" prop="phone">
-          <el-input v-model="form.phone" placeholder="请输入联系电话" />
+        <el-form-item :label="t('dept.phoneLabel')" prop="phone">
+          <el-input v-model="form.phone" :placeholder="t('dept.phonePlaceholder')" />
         </el-form-item>
-        <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" placeholder="请输入邮箱" />
+        <el-form-item :label="t('dept.emailLabel')" prop="email">
+          <el-input v-model="form.email" :placeholder="t('dept.emailPlaceholder')" />
         </el-form-item>
-        <el-form-item label="排序" prop="sort">
+        <el-form-item :label="t('dept.sortLabel')" prop="sort">
           <el-input-number v-model="form.sort" :min="0" />
         </el-form-item>
-        <el-form-item label="状态" prop="status">
+        <el-form-item :label="t('dept.statusLabel')" prop="status">
           <el-radio-group v-model="form.status">
-            <el-radio :value="1">启用</el-radio>
-            <el-radio :value="0">禁用</el-radio>
+            <el-radio :value="1">{{ t('dept.enabled') }}</el-radio>
+            <el-radio :value="0">{{ t('dept.disabled') }}</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
+        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -96,6 +109,7 @@
 defineOptions({ name: 'cccms:dept' })
 
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import ArtSplitView from '@/components/core/ArtSplitView.vue'
@@ -105,6 +119,8 @@ import { useRecycle } from '@/composables/useRecycle'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { deptDelete, deptSave, deptTree, deptUpdate } from '@/api/dept'
 import type { ArtTableColumn } from '@/types/table'
+
+const { t } = useI18n({ useScope: 'global' })
 
 interface Row {
   id: number
@@ -118,26 +134,29 @@ interface Row {
   children?: Row[]
 }
 
-const columns: ArtTableColumn[] = [
-  { prop: 'name', label: '部门名称', minWidth: 200 },
-  { prop: 'leader', label: '负责人', width: 140 },
-  { prop: 'phone', label: '联系电话', width: 160 },
-  { prop: 'email', label: '邮箱', minWidth: 180, defaultHidden: true },
-  { prop: 'sort', label: '排序', width: 80, align: 'center' },
-  { prop: 'status', label: '状态', width: 90, align: 'center', slot: 'status' },
-  { prop: 'action', label: '操作', width: 230, fixed: 'right', slot: 'action', lockVisible: true },
-]
+// 表格列文案跟随语言切换，用 computed 包裹
+const columns = computed<ArtTableColumn[]>(() => [
+  { prop: 'name', label: t('dept.nameLabel'), minWidth: 200 },
+  { prop: 'leader', label: t('dept.leaderLabel'), width: 140 },
+  { prop: 'phone', label: t('dept.phoneLabel'), width: 160 },
+  { prop: 'email', label: t('dept.emailLabel'), minWidth: 180, defaultHidden: true },
+  { prop: 'sort', label: t('dept.sortLabel'), width: 80, align: 'center' },
+  { prop: 'status', label: t('dept.statusLabel'), width: 90, align: 'center', slot: 'status' },
+  { prop: 'action', label: t('table.action'), width: 230, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 const loading = ref(false)
 const list = ref<Row[]>([])
-const parentOptions = ref<Row[]>([])
+
+/** 上级部门下拉：根节点名称跟随语言切换，用 computed 包裹 */
+const parentOptions = computed<Row[]>(() => [{ id: 0, name: t('dept.topLevel'), children: list.value }])
 
 /* ---- 左侧树：只做定位与筛选，不改动右侧的增删改查 ---- */
 /** 当前选中的部门 id，0 = 全部 */
 const currentId = ref(0)
 
 /** 左侧树：顶部补一个「全部部门」虚拟节点 */
-const treeData = computed<Row[]>(() => [{ id: 0, name: '全部部门' }, ...list.value])
+const treeData = computed<Row[]>(() => [{ id: 0, name: t('dept.allDepts') }, ...list.value])
 
 function findNode(nodes: Row[], id: number): Row | null {
   for (const node of nodes) {
@@ -180,7 +199,6 @@ async function load(): Promise<void> {
   try {
     // trashed=true → 后端返回平铺的已删部门（父节点可能还活着，拼不出完整树）
     list.value = (await deptTree(recycle.value)) as unknown as Row[]
-    parentOptions.value = [{ id: 0, name: '顶级', children: list.value }]
 
     // 选中的部门被删掉后，回落到「全部」，避免右侧一直空白
     if (currentId.value && !findNode(list.value, currentId.value)) {
@@ -207,9 +225,10 @@ const emptyForm = {
 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
 
-const rules: FormRules = {
-  name: [{ required: true, message: '请输入部门名称', trigger: 'blur' }],
-}
+// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
+const rules = computed<FormRules>(() => ({
+  name: [{ required: true, message: t('dept.nameRequired'), trigger: 'blur' }],
+}))
 
 /** 不传 parentId 时默认挂到左侧选中的部门下 */
 function openCreate(parentId?: number): void {
@@ -234,7 +253,7 @@ async function submitForm(): Promise<void> {
     } else {
       await deptSave({ ...form })
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('dept.saveSuccess'))
     formVisible.value = false
     await load()
   } finally {
@@ -244,7 +263,7 @@ async function submitForm(): Promise<void> {
 
 async function onDelete(id: number): Promise<void> {
   await deptDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('dept.deleteSuccess'))
   await load()
 }
 

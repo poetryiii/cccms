@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace plugin\cccms\app\logic;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\SoftDelete;
-use think\facade\Db;
+use plugin\cccms\support\TenantContext;
 
 /**
  * 通用分类逻辑（sys_category，按 module 隔离）。
@@ -16,6 +17,9 @@ use think\facade\Db;
  * 权限为什么按模块拆成两套 slug（cccms:dict:category_* / cccms:file:category_*）？
  * 因为「按钮节点必须先挂到一个 status=1 的菜单上」——若共用一个 cccms:category:*，
  * 挂任何一个菜单都会让另一个模块的授权互相牵连。拆开后各模块自洽，实现仍然只有这一份。
+ *
+ * 本表是**查询构造器直查**（尚未模型化），租户条件统一用 `TenantContext::table()`
+ * 注入 —— 与模型层的 `$tenantScope` 是同一套口径（见 `TenantContext::TABLES`）。
  */
 final class CategoryLogic
 {
@@ -40,7 +44,7 @@ final class CategoryLogic
     public static function tree(string $module, bool $trashed = false): array
     {
         self::assertModule($module);
-        $all = SoftDelete::scope(Db::name('category'), $trashed)
+        $all = SoftDelete::scope(TenantContext::table('category'), $trashed)
             ->where('module', $module)
             ->order('sort', 'asc')
             ->order('id', 'asc')
@@ -74,7 +78,7 @@ final class CategoryLogic
     /** 分类自身 + 所有后代 id（选中父分类时同时统计子分类的数据）。 */
     public static function subtreeIds(int $id): array
     {
-        $parents = SoftDelete::apply(Db::name('category'))->column('parent_id', 'id');
+        $parents = SoftDelete::apply(TenantContext::table('category'))->column('parent_id', 'id');
         $ids     = [$id];
         $stack   = [$id];
 
@@ -97,13 +101,13 @@ final class CategoryLogic
 
         $data = self::pick($data);
         if (($data['name'] ?? '') === '') {
-            throw new ApiException('分类名不能为空', 422);
+            throw new ApiException(I18n::t('category.name_required'), 422);
         }
 
         $data['module']      = $module;
         $data['create_time'] = date('Y-m-d H:i:s');
 
-        return (int)Db::name('category')->insertGetId($data);
+        return (int)TenantContext::table('category')->insertGetId(TenantContext::stamp('category', $data));
     }
 
     public static function update(int $id, array $data): void
@@ -112,14 +116,14 @@ final class CategoryLogic
         $data = self::pick($data);
 
         if (array_key_exists('name', $data) && (string)$data['name'] === '') {
-            throw new ApiException('分类名不能为空', 422);
+            throw new ApiException(I18n::t('category.name_required'), 422);
         }
 
         // 不允许把自己或自己的下级设为上级，否则树会成环
         if (array_key_exists('parent_id', $data)) {
             $parentId = (int)$data['parent_id'];
             if ($parentId === $id || in_array($parentId, self::subtreeIds($id), true)) {
-                throw new ApiException('上级分类不能是自己或自己的下级', 422);
+                throw new ApiException(I18n::t('category.parent_invalid'), 422);
             }
         }
 
@@ -128,30 +132,30 @@ final class CategoryLogic
         }
 
         $data['update_time'] = date('Y-m-d H:i:s');
-        Db::name('category')->where('id', $id)->update($data);
+        TenantContext::table('category')->where('id', $id)->update(TenantContext::stamp('category', $data));
     }
 
     public static function delete(int $id): void
     {
         $row = self::assertExists($id);
 
-        if (SoftDelete::apply(Db::name('category'))->where('parent_id', $id)->count() > 0) {
-            throw new ApiException('存在子分类，无法删除', 422);
+        if (SoftDelete::apply(TenantContext::table('category'))->where('parent_id', $id)->count() > 0) {
+            throw new ApiException(I18n::t('category.has_children'), 422);
         }
 
         $ref = self::REF_TABLES[$row['module']] ?? null;
-        if ($ref !== null && SoftDelete::apply(Db::name($ref[0]))->where($ref[1], $id)->count() > 0) {
-            throw new ApiException('该分类下还有数据，请先移动到其他分类', 422);
+        if ($ref !== null && SoftDelete::apply(TenantContext::table($ref[0]))->where($ref[1], $id)->count() > 0) {
+            throw new ApiException(I18n::t('category.has_data'), 422);
         }
 
         // 软删除：进回收站
-        SoftDelete::remove(Db::name('category'), $id);
+        SoftDelete::remove(TenantContext::table('category'), $id);
     }
 
     private static function assertModule(string $module): void
     {
         if (!in_array($module, self::MODULES, true)) {
-            throw new ApiException('未知的分类模块：' . $module, 422);
+            throw new ApiException(I18n::t('category.unknown_module', ['module' => $module]), 422);
         }
     }
 
@@ -163,9 +167,9 @@ final class CategoryLogic
 
     private static function assertExists(int $id): array
     {
-        $row = SoftDelete::apply(Db::name('category'))->where('id', $id)->find();
+        $row = SoftDelete::apply(TenantContext::table('category'))->where('id', $id)->find();
         if (!$row) {
-            throw new ApiException('分类不存在', 404);
+            throw new ApiException(I18n::t('category.not_found'), 404);
         }
 
         return $row;

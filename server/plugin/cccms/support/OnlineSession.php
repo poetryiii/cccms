@@ -125,6 +125,44 @@ final class OnlineSession
         }
     }
 
+    /**
+     * 滑动续期：把一条在线会话迁到新的 jti（保留登录时间与终端信息）。
+     *
+     * 续期后令牌的 jti 变了，而在线列表与「强制下线」都以 jti 为准 —— 不迁移的话，
+     * 管理员在列表里踢掉的是**已经废弃的旧令牌**，用户手里的新令牌依然有效。
+     *
+     * 会话不存在（未登记 / Redis 不可用）时静默跳过，**不新建**：登录时登记是唯一入口。
+     */
+    public static function rotate(string $oldJti, string $newJti, int $exp): void
+    {
+        if ($oldJti === '' || $newJti === '' || $oldJti === $newJti) {
+            return;
+        }
+
+        try {
+            $key = self::SESSION_PREFIX . $oldJti;
+            $row = Redis::hGetAll($key);
+            if (!is_array($row) || $row === []) {
+                return;
+            }
+
+            $now = time();
+            $row['jti']     = $newJti;
+            $row['last_at'] = (string)$now;
+            $row['exp']     = (string)$exp;
+
+            $newKey = self::SESSION_PREFIX . $newJti;
+            Redis::hMSet($newKey, $row);
+            Redis::expire($newKey, max(1, $exp - $now));
+            Redis::zAdd(self::INDEX_KEY, $now, $newJti);
+
+            Redis::del($key);
+            Redis::zRem(self::INDEX_KEY, $oldJti);
+        } catch (Throwable) {
+            // 降级：不迁移。旧会话仍在，最坏是列表里短暂显示旧令牌
+        }
+    }
+
     /** 单条会话的令牌过期时间；0 = 会话不存在或无法读取 */
     public static function expiryOf(string $jti): int
     {
@@ -135,6 +173,44 @@ final class OnlineSession
         try {
             $exp = Redis::hGet(self::SESSION_PREFIX . $jti, 'exp');
             return is_numeric($exp) ? (int)$exp : 0;
+        } catch (Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * 某个用户的全部在线会话（按最后活跃时间倒序）。
+     *
+     * 供「我的登录设备」自助管理使用：只返回该用户的会话，不暴露他人。
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function listOfUser(int $userId): array
+    {
+        if ($userId <= 0) {
+            return [];
+        }
+
+        $list = [];
+        self::scanAll(static function (string $jti, array $row) use ($userId, &$list): void {
+            if ((int)($row['user_id'] ?? 0) === $userId) {
+                $list[] = self::decorate($jti, $row);
+            }
+        });
+
+        return $list;
+    }
+
+    /** 单条会话归属的用户 ID；0 = 会话不存在或无法读取 */
+    public static function ownerOf(string $jti): int
+    {
+        if ($jti === '') {
+            return 0;
+        }
+
+        try {
+            $userId = Redis::hGet(self::SESSION_PREFIX . $jti, 'user_id');
+            return is_numeric($userId) ? (int)$userId : 0;
         } catch (Throwable) {
             return 0;
         }

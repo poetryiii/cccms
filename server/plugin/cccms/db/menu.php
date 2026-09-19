@@ -55,6 +55,9 @@ return [
             ['slug' => 'cccms:post', 'title' => '岗位管理', 'type' => 2, 'path' => '/cccms/post', 'component' => 'cccms/post/index', 'icon' => 'icon-badge', 'sort' => 4],
             ['slug' => 'cccms:data_rule', 'title' => '数据权限', 'type' => 2, 'path' => '/cccms/data_rule', 'component' => 'cccms/data_rule/index', 'icon' => 'icon-key', 'sort' => 5],
             ['slug' => 'cccms:menu', 'title' => '菜单管理', 'type' => 2, 'path' => '/cccms/menu', 'component' => 'cccms/menu/index', 'icon' => 'icon-menu',  'sort' => 6],
+            // 租户管理是**平台级**动作：接口仅对「处于平台租户的超管」开放
+            // （见 TenantLogic::assertPlatformAdmin），授权时不要下发给租户内角色
+            ['slug' => 'cccms:tenant', 'title' => '租户管理', 'type' => 2, 'path' => '/cccms/tenant', 'component' => 'cccms/tenant/index', 'icon' => 'icon-management',  'sort' => 7],
         ],
     ],
 

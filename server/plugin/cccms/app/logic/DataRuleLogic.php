@@ -13,6 +13,7 @@ use plugin\cccms\support\ApiException;
 use plugin\cccms\support\Csv;
 use plugin\cccms\support\RuleConflict;
 use plugin\cccms\support\DataScope;
+use plugin\cccms\support\I18n;
 use think\facade\Db;
 use Throwable;
 use Webman\Http\Response;
@@ -112,7 +113,7 @@ final class DataRuleLogic
         $data = self::prepare($data);
 
         if (($data['field'] ?? '') === '') {
-            throw new ApiException('请选择字段', 422);
+            throw new ApiException(I18n::t('data_rule.field_required'), 422);
         }
         self::assertFieldInTable((string)($data['table_name'] ?? ''), (string)$data['field']);
 
@@ -132,7 +133,7 @@ final class DataRuleLogic
 
         $data = self::prepare($data);
         if (array_key_exists('field', $data) && $data['field'] === '') {
-            throw new ApiException('请选择字段', 422);
+            throw new ApiException(I18n::t('data_rule.field_required'), 422);
         }
 
         // 只提交了表或字段其中之一时，用库里的另一项一起校验
@@ -247,7 +248,7 @@ final class DataRuleLogic
         $headers = $parsed['headers'];
 
         if (!in_array('name', $headers, true)) {
-            throw new ApiException('CSV 缺少 name 列，请先下载导入模板', 422);
+            throw new ApiException(I18n::t('data_rule.csv_missing_name_column'), 422);
         }
 
         // 绑定对象存在性校验必须看**全量**，显式跳出数据权限：导入是系统配置动作，
@@ -266,7 +267,7 @@ final class DataRuleLogic
             $name = trim((string)($row['name'] ?? ''));
 
             if ($name === '') {
-                $failed[] = "第 {$line} 行：规则名为空";
+                $failed[] = I18n::t('data_rule.row_name_required', ['line' => $line]);
                 continue;
             }
 
@@ -309,7 +310,7 @@ final class DataRuleLogic
                     $created++;
                 }
             } catch (Throwable $e) {
-                $failed[] = "第 {$line} 行：" . $e->getMessage();
+                $failed[] = I18n::t('data_rule.row_failed', ['line' => $line, 'message' => $e->getMessage()]);
             }
         }
 
@@ -365,17 +366,17 @@ final class DataRuleLogic
         array $deptMap
     ): void {
         if ($userId > 0 && !isset($userMap[$userId])) {
-            throw new ApiException("绑定的用户 ID {$userId} 不存在", 422);
+            throw new ApiException(I18n::t('data_rule.bound_user_not_found', ['id' => $userId]), 422);
         }
         if ($postId > 0 && !isset($postMap[$postId])) {
-            throw new ApiException("绑定的岗位 ID {$postId} 不存在", 422);
+            throw new ApiException(I18n::t('data_rule.bound_post_not_found', ['id' => $postId]), 422);
         }
         if ($roleId > 0 && !isset($roleMap[$roleId])) {
-            throw new ApiException("绑定的角色 ID {$roleId} 不存在", 422);
+            throw new ApiException(I18n::t('data_rule.bound_role_not_found', ['id' => $roleId]), 422);
         }
         foreach ($deptIds as $id) {
             if (!isset($deptMap[$id])) {
-                throw new ApiException("绑定的部门 ID {$id} 不存在", 422);
+                throw new ApiException(I18n::t('data_rule.bound_dept_not_found', ['id' => $id]), 422);
             }
         }
     }
@@ -510,7 +511,7 @@ final class DataRuleLogic
         if (array_key_exists('action', $data)) {
             $action = (string)$data['action'];
             if (!in_array($action, self::allowedActions(), true)) {
-                throw new ApiException('未知的规则动作：' . $action, 422);
+                throw new ApiException(I18n::t('data_rule.unknown_action', ['action' => $action]), 422);
             }
             $data['action'] = $action;
 
@@ -525,10 +526,10 @@ final class DataRuleLogic
         if (array_key_exists('table_name', $data)) {
             $table = trim((string)$data['table_name']);
             if ($table !== '' && !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $table)) {
-                throw new ApiException('目标表名不合法', 422);
+                throw new ApiException(I18n::t('data_rule.invalid_table_name'), 422);
             }
             if ($table !== '' && !DataScope::canGuard($table)) {
-                throw new ApiException("目标表 {$table} 不在受控表内，请先在「受控表」里登记", 422);
+                throw new ApiException(I18n::t('data_rule.target_table_not_controlled', ['table' => $table]), 422);
             }
             $data['table_name'] = $table;
         }
@@ -537,7 +538,7 @@ final class DataRuleLogic
             // 字段名会被拼进 where 的列位置，只允许标识符
             $field = (string)$data['field'];
             if ($field !== '' && !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $field)) {
-                throw new ApiException('字段名只能是字母、数字、下划线，且不能以数字开头', 422);
+                throw new ApiException(I18n::t('data_rule.invalid_field_name'), 422);
             }
             $data['field'] = $field;
         }
@@ -545,7 +546,7 @@ final class DataRuleLogic
         if (array_key_exists('operator', $data)) {
             $operator = strtolower(trim((string)$data['operator']));
             if (!in_array($operator, DataScope::ROW_OPERATORS, true)) {
-                throw new ApiException('未知的操作符：' . $operator, 422);
+                throw new ApiException(I18n::t('data_rule.unknown_operator', ['operator' => $operator]), 422);
             }
             $data['operator'] = $operator;
         }
@@ -553,7 +554,7 @@ final class DataRuleLogic
         if (array_key_exists('value_type', $data)) {
             $valueType = (string)$data['value_type'];
             if (!in_array($valueType, DataScope::VALUE_TYPES, true)) {
-                throw new ApiException('未知的取值类型：' . $valueType, 422);
+                throw new ApiException(I18n::t('data_rule.unknown_value_type', ['value_type' => $valueType]), 422);
             }
             $data['value_type'] = $valueType;
         }
@@ -561,7 +562,7 @@ final class DataRuleLogic
         if (array_key_exists('bind_mode', $data)) {
             $mode = strtolower(trim((string)$data['bind_mode']));
             if (!in_array($mode, DataScope::BIND_MODES, true)) {
-                throw new ApiException('未知的绑定关系：' . $mode . '（只能是 or / and）', 422);
+                throw new ApiException(I18n::t('data_rule.unknown_bind_mode', ['mode' => $mode]), 422);
             }
             $data['bind_mode'] = $mode;
         }
@@ -603,7 +604,7 @@ final class DataRuleLogic
         $map = array_column(self::tables(), null, 'table');
 
         if (!isset($map[$table])) {
-            throw new ApiException("目标表 {$table} 不在受控表内", 422);
+            throw new ApiException(I18n::t('data_rule.target_table_not_registered', ['table' => $table]), 422);
         }
 
         foreach ($map[$table]['fields'] as $item) {
@@ -612,7 +613,7 @@ final class DataRuleLogic
             }
         }
 
-        throw new ApiException("字段 {$field} 不存在于表 {$table}，请重新选择", 422);
+        throw new ApiException(I18n::t('data_rule.field_not_in_table', ['field' => $field, 'table' => $table]), 422);
     }
 
     /**
@@ -675,7 +676,7 @@ final class DataRuleLogic
     {
         $row = DataRule::withoutGlobalScope()->where('id', $id)->find();
         if (!$row) {
-            throw new ApiException('规则不存在', 404);
+            throw new ApiException(I18n::t('data_rule.not_found'), 404);
         }
 
         return $row->toArray();

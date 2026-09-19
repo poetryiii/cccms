@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\DeptLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -24,7 +25,7 @@ class DeptController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function save(Request $request): Response
     {
-        return $this->ok(['id' => DeptLogic::create($request->post())], '创建成功');
+        return $this->ok(['id' => DeptLogic::create($request->post())], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:dept:update', title: '更新部门')]
@@ -32,7 +33,7 @@ class DeptController extends BaseController
     public function update(Request $request): Response
     {
         DeptLogic::update((int)$request->input('id', 0), $request->post());
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:dept:delete', title: '删除部门')]
@@ -40,6 +41,6 @@ class DeptController extends BaseController
     public function delete(Request $request): Response
     {
         DeptLogic::delete((int)$request->input('id', 0));
-        return $this->ok(null, '删除成功');
+        return $this->ok(null, I18n::t('common.deleted'));
     }
 }

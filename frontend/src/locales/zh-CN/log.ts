@@ -1,0 +1,45 @@
+/**
+ * 操作日志页。
+ *
+ * 与 `en-US/log.ts` 保持**完全一致的 key 集合**。
+ * 日志正文（title / content / node / message）与操作人昵称属于后端数据，不在此维护。
+ */
+export default {
+  result: '结果',
+  all: '全部',
+  success: '成功',
+  failed: '失败',
+  username: '操作人',
+  usernamePlaceholder: '请输入',
+  actionName: '操作名',
+  actionNamePlaceholder: '如 新增字典类型',
+  path: '请求路径',
+  pathPlaceholder: '如 /auth/login 查登录',
+  traceId: '链路ID',
+  traceIdPlaceholder: '报错时的 trace_id',
+  method: '方法',
+  statusCode: '状态码',
+  cost: '耗时',
+  costMs: '耗时(ms)',
+  time: '时间',
+  deleteSelected: '删除选中',
+  deleteSelectedCount: '删除选中（{count}）',
+  deleteSelectedConfirm: '确定删除选中的 {count} 条日志？',
+  batchDeleteTitle: '批量删除',
+  deleteOneConfirm: '确定删除这条日志？',
+  deleteSuccess: '删除成功',
+  detail: '详情',
+  detailTitle: '日志详情',
+  node: '权限节点',
+  request: '请求',
+  message: '说明',
+  params: '请求参数',
+  response: '返回结果',
+  sameTrace: '同链路',
+  viewSameTrace: '查看同链路',
+  traceTitle: '链路 {id}',
+  recordCount: '记录数',
+  failedCount: '失败数',
+  totalCost: '耗时合计',
+  traceEmpty: '该链路暂无可见记录',
+}

@@ -19,6 +19,7 @@ use plugin\cccms\app\controller\PostController;
 use plugin\cccms\app\controller\ProfileController;
 use plugin\cccms\app\controller\RecycleController;
 use plugin\cccms\app\controller\RoleController;
+use plugin\cccms\app\controller\TenantController;
 use plugin\cccms\app\controller\UpgradeController;
 use plugin\cccms\app\controller\UserController;
 use Webman\Route;
@@ -30,13 +31,22 @@ Route::disableDefaultRoute();
 Route::get('/ping', [AuthController::class, 'ping']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::get('/auth/captcha', [AuthController::class, 'captcha']);
+// 找回密码（匿名）：发送验证码 / 用验证码重置
+Route::post('/auth/password/sendCode', [AuthController::class, 'sendResetCode']);
+Route::post('/auth/password/reset', [AuthController::class, 'resetPassword']);
 Route::get('/auth/me', [AuthController::class, 'me']);
+// 租户切换：候选列表（超管，非超管返回空）与切换（重签带 tid 的令牌）
+Route::get('/auth/tenants', [AuthController::class, 'tenants']);
+Route::post('/auth/switchTenant', [AuthController::class, 'switchTenant']);
 Route::post('/auth/logout', [AuthController::class, 'logout']);
 
 // ---- 个人中心（登录即可；前端是静态路由，不进左侧菜单） ----
 Route::get('/profile', [ProfileController::class, 'index']);
 Route::post('/profile/update', [ProfileController::class, 'update']);
 Route::post('/profile/password', [ProfileController::class, 'password']);
+// 我的登录设备（自助查看 / 注销自己的会话）
+Route::get('/profile/sessions', [ProfileController::class, 'sessions']);
+Route::post('/profile/sessions/revoke', [ProfileController::class, 'revokeSession']);
 
 // ---- 工作台 ----
 Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
@@ -47,6 +57,10 @@ Route::get('/user/read', [UserController::class, 'read']);
 Route::post('/user/save', [UserController::class, 'save']);
 Route::post('/user/update', [UserController::class, 'update']);
 Route::post('/user/delete', [UserController::class, 'delete']);
+// 批量操作（越权 / 受保护的行自动跳过并在响应里回报）
+Route::post('/user/batchStatus', [UserController::class, 'batchStatus']);
+Route::post('/user/batchDelete', [UserController::class, 'batchDelete']);
+Route::post('/user/batchAssign', [UserController::class, 'batchAssign']);
 Route::post('/user/resetPassword', [UserController::class, 'resetPassword']);
 // 导入 / 导出（CSV）：导出直接返回文件流，不走统一信封
 Route::get('/user/export', [UserController::class, 'export']);
@@ -60,6 +74,8 @@ Route::get('/role/read', [RoleController::class, 'read']);
 Route::post('/role/save', [RoleController::class, 'save']);
 Route::post('/role/update', [RoleController::class, 'update']);
 Route::post('/role/delete', [RoleController::class, 'delete']);
+// 复制角色（含档位与节点授权；status=0 时即「另存为模板」）
+Route::post('/role/copy', [RoleController::class, 'copy']);
 
 // ---- 菜单 ----
 Route::get('/menu/tree', [MenuController::class, 'tree']);
@@ -79,6 +95,9 @@ Route::get('/post', [PostController::class, 'index']);
 Route::post('/post/save', [PostController::class, 'save']);
 Route::post('/post/update', [PostController::class, 'update']);
 Route::post('/post/delete', [PostController::class, 'delete']);
+// 批量操作（下挂用户的岗位、越权行自动跳过并在响应里回报）
+Route::post('/post/batchStatus', [PostController::class, 'batchStatus']);
+Route::post('/post/batchDelete', [PostController::class, 'batchDelete']);
 
 // ---- 字典 ----
 Route::get('/dict', [DictController::class, 'index']);
@@ -89,6 +108,11 @@ Route::get('/dict/data', [DictController::class, 'data']);
 Route::post('/dict/saveData', [DictController::class, 'saveData']);
 Route::post('/dict/updateData', [DictController::class, 'updateData']);
 Route::post('/dict/deleteData', [DictController::class, 'deleteData']);
+// 批量操作（不可见 / 已删除的 id 自动跳过并在响应里回报）
+Route::post('/dict/batchStatus', [DictController::class, 'batchStatus']);
+Route::post('/dict/batchDelete', [DictController::class, 'batchDelete']);
+Route::post('/dict/batchStatusData', [DictController::class, 'batchStatusData']);
+Route::post('/dict/batchDeleteData', [DictController::class, 'batchDeleteData']);
 // 字典分类
 Route::get('/dict/category', [DictController::class, 'category']);
 Route::post('/dict/category/save', [DictController::class, 'categorySave']);
@@ -121,6 +145,14 @@ Route::post('/data_rule/table/save', [DataScopeTableController::class, 'save']);
 Route::post('/data_rule/table/update', [DataScopeTableController::class, 'update']);
 Route::post('/data_rule/table/delete', [DataScopeTableController::class, 'delete']);
 
+// ---- 租户（平台级：只有**处于平台租户**的超管能操作，见 TenantLogic::assertPlatformAdmin）----
+// 切换租户的接口在 auth 段（/auth/tenants、/auth/switchTenant），因为它是登录会话的一部分
+Route::get('/tenant', [TenantController::class, 'index']);
+Route::get('/tenant/read', [TenantController::class, 'read']);
+Route::post('/tenant/save', [TenantController::class, 'save']);
+Route::post('/tenant/update', [TenantController::class, 'update']);
+Route::post('/tenant/delete', [TenantController::class, 'delete']);
+
 // ---- 回收站（列表走各模块自己的接口 + trashed=1，这里只有写操作）----
 Route::post('/recycle/restore', [RecycleController::class, 'restore']);
 Route::post('/recycle/delete', [RecycleController::class, 'delete']);
@@ -128,6 +160,7 @@ Route::post('/recycle/delete', [RecycleController::class, 'delete']);
 // ---- 日志 ----
 Route::get('/log', [LogController::class, 'index']);
 Route::get('/log/export', [LogController::class, 'export']);
+Route::get('/log/trace', [LogController::class, 'trace']);
 Route::post('/log/delete', [LogController::class, 'delete']);
 
 // ---- 在线用户（Redis 会话索引 + 强制下线） ----

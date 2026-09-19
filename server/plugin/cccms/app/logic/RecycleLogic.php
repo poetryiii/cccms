@@ -8,9 +8,12 @@ use plugin\cccms\app\model\File;
 use plugin\cccms\app\model\Menu;
 use plugin\cccms\app\model\RoleNode;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\DictCache;
 use plugin\cccms\support\FileStorage;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SoftDelete;
+use plugin\cccms\support\TenantContext;
 use think\facade\Db;
 
 /**
@@ -103,7 +106,24 @@ final class RecycleLogic
     /** 按类型取查询构造器：内置表走前缀（Db::name），插件表走完整表名（Db::table） */
     private static function query(array $meta)
     {
-        return !empty($meta['full']) ? Db::table($meta['table']) : Db::name($meta['table']);
+        return self::rawQuery($meta, true);
+    }
+
+    /**
+     * @param bool $tenantScoped true = 收敛到当前租户（业务操作）；
+     *                           false = 全局（唯一键占用判断必须看全量，见 assertRestorable ①）
+     */
+    private static function rawQuery(array $meta, bool $tenantScoped)
+    {
+        $query = !empty($meta['full']) ? Db::table($meta['table']) : Db::name($meta['table']);
+
+        // 回收站同样是租户硬边界：A 租户不能恢复 / 彻底删除 B 租户的行，
+        // 也不能把「别的租户已占用的唯一值」当成没占用。插件表未参与隔离，applyToQuery 自动跳过。
+        if ($tenantScoped) {
+            TenantContext::applyToQuery($query, (string)$meta['table']);
+        }
+
+        return $query;
     }
 
     public static function restore(string $type, array $ids): int
@@ -117,6 +137,10 @@ final class RecycleLogic
 
         // 恢复的可能是角色 / 菜单 / 用户：权限集合要立即重算
         PermissionCache::bump();
+        // 恢复的可能是字典类型 / 字典数据：字典缓存要立即失效
+        if ($type === 'dict_type' || $type === 'dict_data') {
+            DictCache::bump();
+        }
 
         return $affected;
     }
@@ -156,6 +180,9 @@ final class RecycleLogic
 
         // 彻底删除可能清掉了 role_node 授权，或让「回收站里的同名角色」不再占用标识
         PermissionCache::bump();
+        if ($type === 'dict_type' || $type === 'dict_data') {
+            DictCache::bump();
+        }
 
         return $affected;
     }
@@ -171,10 +198,12 @@ final class RecycleLogic
                 ->column($unique);
             foreach ($values as $value) {
                 // 必须是「活着的行」里查重：待恢复的这行本身也在库里，
-                // 不过滤已删数据的话会把自己算成「已被占用」，恢复永远失败
-                $taken = SoftDelete::apply(self::query($meta))->where($unique, $value)->count();
+                // 不过滤已删数据的话会把自己算成「已被占用」，恢复永远失败。
+                // 且**必须全局查重**：username / code / type / node 都是全局唯一索引，
+                // 只看本租户会把「别的租户已占用」判成可用，恢复时撞唯一键。
+                $taken = SoftDelete::apply(self::rawQuery($meta, false))->where($unique, $value)->count();
                 if ($taken > 0) {
-                    throw new ApiException("「{$value}」已被新数据占用，请先改名或彻底删除新数据", 422);
+                    throw new ApiException(I18n::t('recycle.value_taken', ['value' => $value]), 422);
                 }
             }
         }
@@ -187,9 +216,9 @@ final class RecycleLogic
                 SoftDelete::onlyTrashed(self::query($meta))->whereIn('id', $ids)->column($parent['column'])
             )));
             if ($parentIds !== []) {
-                $trashed = SoftDelete::onlyTrashed(Db::name($parent['table']))->whereIn('id', $parentIds)->count();
+                $trashed = SoftDelete::onlyTrashed(TenantContext::table((string)$parent['table']))->whereIn('id', $parentIds)->count();
                 if ($trashed > 0) {
-                    throw new ApiException('上级节点还在回收站，请先恢复上级', 422);
+                    throw new ApiException(I18n::t('recycle.parent_trashed'), 422);
                 }
             }
         }
@@ -207,7 +236,7 @@ final class RecycleLogic
             return $plugin[$type];
         }
 
-        throw new ApiException('未知的回收站类型：' . $type, 422);
+        throw new ApiException(I18n::t('recycle.unknown_type', ['type' => $type]), 422);
     }
 
     /** @return int[] */
@@ -215,7 +244,7 @@ final class RecycleLogic
     {
         $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn ($id) => $id > 0)));
         if ($ids === []) {
-            throw new ApiException('请选择要操作的数据', 422);
+            throw new ApiException(I18n::t('common.select_required'), 422);
         }
 
         return $ids;

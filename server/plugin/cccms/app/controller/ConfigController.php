@@ -45,6 +45,6 @@ class ConfigController extends BaseController
     public function save(Request $request): Response
     {
         $updated = ConfigLogic::save((array)$request->post());
-        return $this->ok(['updated' => $updated], '保存成功');
+        return $this->ok(['updated' => $updated], I18n::t('common.saved'));
     }
 }

@@ -7,16 +7,16 @@
         type="warning"
         :closable="false"
         show-icon
-        title="上游同步已关闭"
-        description="在 plugin/cccms/config/upgrade.php 中把 enable 设为 true 后可用。"
+        :title="t('upgrade.disabledTitle')"
+        :description="t('upgrade.disabledDesc')"
       />
       <el-alert
         v-else-if="overview && !overview.git_available"
         type="error"
         :closable="false"
         show-icon
-        title="未检测到 git"
-        description="服务器上找不到 git 可执行文件，请在 plugin/cccms/config/upgrade.php 的 git 项里填写绝对路径。"
+        :title="t('upgrade.noGitTitle')"
+        :description="t('upgrade.noGitDesc')"
       />
 
       <template v-else-if="overview">
@@ -24,15 +24,17 @@
         <el-card shadow="never" class="block version-card">
           <div class="version">
             <div class="version-side">
-              <div class="version-badge current">当前</div>
+              <div class="version-badge current">{{ t('upgrade.current') }}</div>
               <div class="version-body">
-                <div class="version-name">{{ overview.current.base || '未建立基线' }}</div>
+                <div class="version-name">{{ overview.current.base || t('upgrade.noBaseline') }}</div>
                 <div class="version-meta">
                   <span v-if="overview.current.commit" class="mono">
                     {{ short(overview.current.commit) }}
                   </span>
                   <span v-if="overview.current.synced_at">{{ overview.current.synced_at }}</span>
-                  <span v-if="overview.current.files">上游 {{ overview.current.files }} 个文件</span>
+                  <span v-if="overview.current.files">
+                    {{ t('upgrade.upstreamFiles', { count: overview.current.files }) }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -42,7 +44,9 @@
             </div>
 
             <div class="version-side">
-              <div class="version-badge" :class="plan?.has_update ? 'target' : 'idle'">目标</div>
+              <div class="version-badge" :class="plan?.has_update ? 'target' : 'idle'">
+                {{ t('upgrade.target') }}
+              </div>
               <div class="version-body">
                 <div class="version-name">
                   {{ plan ? plan.ref : overview.track }}
@@ -50,10 +54,10 @@
                 <div class="version-meta">
                   <span v-if="plan?.commit" class="mono">{{ short(plan.commit) }}</span>
                   <template v-if="plan">
-                    <span v-if="!plan.has_update">已是最新</span>
-                    <span v-else>{{ plan.commits.length }} 个提交</span>
+                    <span v-if="!plan.has_update">{{ t('upgrade.upToDate') }}</span>
+                    <span v-else>{{ t('upgrade.commitCount', { count: plan.commits.length }) }}</span>
                   </template>
-                  <span v-else>尚未检查</span>
+                  <span v-else>{{ t('upgrade.notChecked') }}</span>
                 </div>
               </div>
             </div>
@@ -62,36 +66,35 @@
           <div v-if="plan" class="stats">
             <div class="stat">
               <div class="stat-value success">{{ plan.summary.safe || 0 }}</div>
-              <div class="stat-label">可安全覆盖</div>
+              <div class="stat-label">{{ t('upgrade.statSafe') }}</div>
             </div>
             <div class="stat">
               <div class="stat-value primary">{{ plan.summary.new || 0 }}</div>
-              <div class="stat-label">上游新增</div>
+              <div class="stat-label">{{ t('upgrade.statNew') }}</div>
             </div>
             <div class="stat">
               <div class="stat-value" :class="plan.pending ? 'danger' : 'muted'">{{ plan.pending }}</div>
-              <div class="stat-label">冲突待合并</div>
+              <div class="stat-label">{{ t('upgrade.statPending') }}</div>
             </div>
             <div class="stat">
               <div class="stat-value">
                 <span class="added">+{{ plan.lines.added }}</span>
                 <span class="deleted">-{{ plan.lines.deleted }}</span>
               </div>
-              <div class="stat-label">上游代码改动</div>
+              <div class="stat-label">{{ t('upgrade.statLines') }}</div>
             </div>
           </div>
         </el-card>
 
         <!-- 未建立基线：引导 -->
         <el-card v-if="!overview.initialized" shadow="never" class="block">
-          <el-empty description="尚未建立基线，无法判断本地相对上游改过哪些文件">
+          <el-empty :description="t('upgrade.emptyBaseline')">
             <el-button v-auth="'cccms:upgrade:init'" type="primary" :loading="initing" @click="onInit">
-              立即建立基线
+              {{ t('upgrade.initNow') }}
             </el-button>
           </el-empty>
           <p class="tip">
-            基线会记录「当前代码基于的上游版本」各文件的内容指纹，之后升级时据此判断
-            哪些文件是本地改过的（绝不能覆盖），哪些可以直接更新。
+            {{ t('upgrade.initTip') }}
           </p>
         </el-card>
 
@@ -100,20 +103,20 @@
           <el-card shadow="never" class="block">
             <div class="toolbar">
               <div class="filters">
-                <span class="filter-label">同步源</span>
+                <span class="filter-label">{{ t('upgrade.sourceLabel') }}</span>
                 <el-select v-model="source" style="width: 190px" @change="onSourceChange">
                   <el-option v-for="s in overview.sources" :key="s.key" :label="s.label" :value="s.key" />
                 </el-select>
 
-                <span class="filter-label">目标版本</span>
+                <span class="filter-label">{{ t('upgrade.targetRefLabel') }}</span>
                 <el-select v-model="targetRef" style="width: 190px" @change="onCheck">
-                  <el-option :label="`跟踪分支 ${overview.track}`" :value="TRACK_VALUE" />
-                  <el-option v-for="t in tags" :key="t" :label="t" :value="t" />
+                  <el-option :label="t('upgrade.trackBranch', { name: overview.track })" :value="TRACK_VALUE" />
+                  <el-option v-for="tag in tags" :key="tag" :label="tag" :value="tag" />
                 </el-select>
               </div>
 
               <div class="actions">
-                <el-button :loading="checking" :icon="Search" @click="onCheck"> 检查更新 </el-button>
+                <el-button :loading="checking" :icon="Search" @click="onCheck"> {{ t('upgrade.check') }} </el-button>
                 <el-button
                   v-auth="'cccms:upgrade:run'"
                   type="primary"
@@ -122,16 +125,16 @@
                   :disabled="!plan"
                   @click="onRun"
                 >
-                  立即升级
+                  {{ t('upgrade.run') }}
                 </el-button>
               </div>
             </div>
 
             <div v-if="plan && plan.pending > 0" class="force-row">
               <el-checkbox v-model="force">
-                同时覆盖 {{ plan.pending }} 个冲突文件（本地也改过，覆盖前会自动备份）
+                {{ t('upgrade.forceLabel', { count: plan.pending }) }}
               </el-checkbox>
-              <span class="force-hint">不勾选时这些文件会被跳过，保持本地版本</span>
+              <span class="force-hint">{{ t('upgrade.forceHint') }}</span>
             </div>
 
             <el-alert
@@ -142,16 +145,26 @@
               show-icon
             >
               <template #title>
-                上次升级：写入 {{ runResult.written }}，删除 {{ runResult.removed }}，备份 {{ runResult.backed }}
+                {{
+                  t('upgrade.lastRun', {
+                    written: runResult.written,
+                    removed: runResult.removed,
+                    backed: runResult.backed,
+                  })
+                }}
               </template>
               <template #default>
-                <div v-if="runResult.backup_dir" class="mono">备份目录：{{ runResult.backup_dir }}</div>
-                <div v-if="runResult.skipped.length">跳过：{{ runResult.skipped.length }} 个冲突文件</div>
+                <div v-if="runResult.backup_dir" class="mono">
+                  {{ t('upgrade.backupDir', { path: runResult.backup_dir }) }}
+                </div>
+                <div v-if="runResult.skipped.length">
+                  {{ t('upgrade.skipped', { count: runResult.skipped.length }) }}
+                </div>
                 <div v-if="runResult.maintenance_error" class="danger-text">
-                  后置同步失败：{{ runResult.maintenance_error }}
+                  {{ t('upgrade.maintenanceError', { error: runResult.maintenance_error }) }}
                 </div>
                 <div v-if="runResult.need_reload" class="danger-text">
-                  代码已更新，请重启服务（Linux：php start.php reload / Windows：重启 php windows.php）后生效
+                  {{ t('upgrade.needReload') }}
                 </div>
               </template>
             </el-alert>
@@ -160,34 +173,36 @@
           <!-- 变更明细 -->
           <el-card shadow="never" class="block">
             <el-tabs v-model="tab">
-              <el-tab-pane :label="`变更文件（${plan ? plan.files.length : 0}）`" name="files">
+              <el-tab-pane :label="t('upgrade.filesTab', { count: plan ? plan.files.length : 0 })" name="files">
                 <div class="table-tools">
                   <el-radio-group v-model="kindFilter" size="small">
-                    <el-radio-button value="changed">会被改动</el-radio-button>
-                    <el-radio-button value="all">全部</el-radio-button>
-                    <el-radio-button value="kept">仅本地保留</el-radio-button>
+                    <el-radio-button value="changed">{{ t('upgrade.filterChanged') }}</el-radio-button>
+                    <el-radio-button value="all">{{ t('upgrade.filterAll') }}</el-radio-button>
+                    <el-radio-button value="kept">{{ t('upgrade.filterKept') }}</el-radio-button>
                   </el-radio-group>
-                  <span class="tip-inline"> 本地独有文件 {{ plan?.local_only || 0 }} 个（业务插件，不会被改动） </span>
+                  <span class="tip-inline">
+                    {{ t('upgrade.localOnlyTip', { count: plan?.local_only || 0 }) }}
+                  </span>
                 </div>
 
-                <el-table :data="visibleFiles" size="small" max-height="480" empty-text="没有需要展示的文件">
-                  <el-table-column prop="path" label="文件" min-width="360">
+                <el-table :data="visibleFiles" size="small" max-height="480" :empty-text="t('upgrade.noFiles')">
+                  <el-table-column prop="path" :label="t('upgrade.colFile')" min-width="360">
                     <template #default="{ row }">
                       <span class="mono path">{{ row.path }}</span>
                     </template>
                   </el-table-column>
-                  <el-table-column label="分类" width="150">
+                  <el-table-column :label="t('upgrade.colKind')" width="150">
                     <template #default="{ row }">
                       <el-tag :type="tagType(row.kind)" size="small" effect="light">{{ row.kind_label }}</el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column label="增加" width="90" align="right">
+                  <el-table-column :label="t('upgrade.colAdded')" width="90" align="right">
                     <template #default="{ row }">
                       <span v-if="row.added" class="added">+{{ row.added }}</span>
                       <span v-else class="muted">—</span>
                     </template>
                   </el-table-column>
-                  <el-table-column label="删除" width="90" align="right">
+                  <el-table-column :label="t('upgrade.colDeleted')" width="90" align="right">
                     <template #default="{ row }">
                       <span v-if="row.deleted" class="deleted">-{{ row.deleted }}</span>
                       <span v-else class="muted">—</span>
@@ -196,7 +211,7 @@
                 </el-table>
               </el-tab-pane>
 
-              <el-tab-pane :label="`提交记录（${plan ? plan.commits.length : 0}）`" name="commits">
+              <el-tab-pane :label="t('upgrade.commitsTab', { count: plan ? plan.commits.length : 0 })" name="commits">
                 <el-timeline v-if="plan && plan.commits.length" class="timeline">
                   <el-timeline-item
                     v-for="c in plan.commits"
@@ -213,7 +228,7 @@
                     </div>
                   </el-timeline-item>
                 </el-timeline>
-                <el-empty v-else description="没有新的提交记录" />
+                <el-empty v-else :description="t('upgrade.noCommits')" />
               </el-tab-pane>
             </el-tabs>
           </el-card>
@@ -231,6 +246,7 @@
 defineOptions({ name: 'cccms:upgrade' })
 
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
@@ -245,6 +261,8 @@ import {
   type UpgradePlan,
   type UpgradeRunResult,
 } from '@/api/upgrade'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const overview = ref<UpgradeOverview | null>(null)
 const plan = ref<UpgradePlan | null>(null)
@@ -348,8 +366,11 @@ async function onCheck(): Promise<void> {
 
 async function onInit(): Promise<void> {
   await ElMessageBox.confirm(
-    `将以「${sourceLabel.value}」的 ${overview.value?.default_base || '默认版本'} 建立基线，用于识别本地改动。`,
-    '建立基线',
+    t('upgrade.initConfirm', {
+      source: sourceLabel.value,
+      base: overview.value?.default_base || t('upgrade.defaultVersion'),
+    }),
+    t('upgrade.initTitle'),
     { type: 'info' },
   )
 
@@ -357,9 +378,12 @@ async function onInit(): Promise<void> {
   try {
     const result = await upgradeInit(source.value)
     ElMessage.success(
-      `基线已建立（${result.ref}${
-        result.fallback ? `，因 ${result.fallback} 不存在而回退` : ''
-      }）：本地已改 ${result.modified} 个，本地新增 ${result.local_only} 个`,
+      t(result.fallback ? 'upgrade.initSuccessFallback' : 'upgrade.initSuccess', {
+        ref: result.ref,
+        fallback: result.fallback ?? '',
+        modified: result.modified,
+        localOnly: result.local_only,
+      }),
     )
     await loadOverview()
     await onCheck()
@@ -379,14 +403,16 @@ async function onRun(): Promise<void> {
 
   await ElMessageBox.confirm(
     [
-      `目标版本：${current.ref}（${short(current.commit)}）`,
-      `将写入 / 覆盖 ${willWrite} 个文件${willRemove ? `，删除 ${willRemove} 个` : ''}`,
-      force.value && current.pending ? `其中 ${current.pending} 个是本地也改过的冲突文件` : '',
-      '覆盖前会自动备份，本地独有文件不受影响。',
+      t('upgrade.runConfirmRef', { ref: current.ref, commit: short(current.commit) }),
+      willRemove
+        ? t('upgrade.runConfirmWriteRemove', { write: willWrite, remove: willRemove })
+        : t('upgrade.runConfirmWrite', { count: willWrite }),
+      force.value && current.pending ? t('upgrade.runConfirmConflict', { count: current.pending }) : '',
+      t('upgrade.runConfirmBackup'),
     ]
       .filter(Boolean)
       .join('\n'),
-    '确认升级',
+    t('upgrade.runTitle'),
     { type: 'warning' },
   )
 
@@ -398,7 +424,7 @@ async function onRun(): Promise<void> {
       force: force.value,
       prune: false,
     })
-    ElMessage.success('升级完成')
+    ElMessage.success(t('upgrade.runSuccess'))
     await loadOverview()
     await onCheck()
   } finally {

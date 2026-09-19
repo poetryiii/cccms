@@ -8,6 +8,15 @@ class Crontab extends BaseModel
 {
     protected $name = 'crontab';
 
+    /**
+     * 参与多租户隔离：任务定义按租户隔离。
+     *
+     * 注意执行侧：调度进程 / CLI 没有用户上下文，租户作用域自动跳过，
+     * 因此所有租户的任务都会被正常调度 —— 隔离的是「谁能看到 / 改这条任务」，
+     * 不是「任务会不会跑」。
+     */
+    protected $tenantScope = true;
+
     protected $json = ['params'];
 
     /**

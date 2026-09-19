@@ -13,6 +13,7 @@ use plugin\cccms\support\SessionGuard;
 use plugin\cccms\support\SysConfig;
 use plugin\cccms\support\TokenBlacklist;
 use plugin\cccms\support\TokenService;
+use plugin\cccms\support\UserContext;
 use Webman\Http\Request;
 use Webman\Http\Response;
 use Webman\MiddlewareInterface;
@@ -28,6 +29,7 @@ class CheckLogin implements MiddlewareInterface
         }
 
         $meta = PermissionMeta::of($controller, (string)$request->action);
+        $renewed = null;
 
         if (!$meta['noLogin']) {
             $token = TokenService::fromRequest($request);
@@ -43,8 +45,13 @@ class CheckLogin implements MiddlewareInterface
 
             $userId = (int)($claims['sub'] ?? 0);
 
+            // 令牌里的租户声明（超管「切换租户」后重新签发）：缺失 = 未切换 / 升级前的旧令牌。
+            // 非超管携带的 tid 与账号归属不一致时 buildContext 直接返回 null → 401，
+            // 因此 tampered / 失配的令牌不会带来跨租户访问。
+            $tenantId = isset($claims['tid']) ? (int)$claims['tid'] : null;
+
             // 权限集合实时加载（Redis 缓存 + 版本号失效见 AuthService::buildContext）
-            $user = $userId > 0 ? AuthService::buildContext($userId) : null;
+            $user = $userId > 0 ? AuthService::buildContext($userId, $tenantId) : null;
             if ($user === null) {
                 throw new ApiException(I18n::t('common.invalid_credentials'), 401);
             }
@@ -67,9 +74,43 @@ class CheckLogin implements MiddlewareInterface
             if (!$user->isSuperAdmin() && SessionGuard::isStale((int)($claims['iat'] ?? 0))) {
                 throw new ApiException(self::reauthMessage(), 401);
             }
+
+            // 滑动续期放在最后：只有全部校验通过（未被拉黑、不在维护闸门内）才换新令牌
+            $renewed = self::renew($claims, $user);
         }
 
-        return $handler($request);
+        $response = $handler($request);
+
+        // 续期令牌经响应头下发（跨域下需 `Access-Control-Expose-Headers` 声明，见 Cors）
+        return $renewed === null ? $response : $response->withHeaders(['X-Refresh-Token' => $renewed]);
+    }
+
+    /**
+     * 令牌滑动续期：剩余有效期不足 TTL 的 1/3 时签发新令牌。
+     *
+     * 为什么缩短 TTL 还必须配续期：令牌存在 localStorage，7 天的 TTL 意味着
+     * XSS 一旦发生，攻击者拿到的是长期有效凭证；缩短 TTL 后若没有续期，
+     * 用户会周期性被强制登出。
+     *
+     * **刻意不把旧令牌写入黑名单**：同一页面常并发多个请求，先到的那个续期后，
+     * 其余仍在途的请求带的是旧令牌，若立即拉黑会让它们被判 401 而跳登录。
+     * 旧令牌继续有效到自然过期，前端收到新令牌后即不再使用它。
+     *
+     * @param array<string,mixed> $claims
+     */
+    private static function renew(array $claims, UserContext $user): ?string
+    {
+        if (!TokenService::shouldRenew($claims)) {
+            return null;
+        }
+
+        // 带上当前生效租户：超管切换租户后若漏传 tid，续期会把他悄悄弹回平台租户
+        $token = TokenService::issue($user->id, ['tid' => $user->tenantId]);
+
+        // 在线列表 / 强制下线都以 jti 为准，必须把会话迁到新 jti
+        OnlineSession::rotate((string)($claims['jti'] ?? ''), (string)$token['jti'], (int)$token['expires_at']);
+
+        return (string)$token['token'];
     }
 
     /** 被闸门作废时给用户的提示：维护期间说维护，平时说会话失效 */

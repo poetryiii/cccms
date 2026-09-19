@@ -15,5 +15,13 @@ class Notice extends BaseModel
 {
     protected $name = 'notice';
 
+    /**
+     * 参与多租户隔离：公告只在本租户内广播。
+     *
+     * 与 `$dataScope = false`（不按人收窄）**不冲突**：租户是硬边界、档位是租户内软范围，
+     * 「面向全租户广播」说的正是「不按人收窄，但仍不出这个租户」。
+     */
+    protected $tenantScope = true;
+
     protected $dataScope = false;
 }

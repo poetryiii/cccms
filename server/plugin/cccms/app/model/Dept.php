@@ -11,6 +11,9 @@ class Dept extends BaseModel
 {
     protected $name = 'dept';
 
+    /** 参与多租户隔离：每个租户维护自己的组织架构 */
+    protected $tenantScope = true;
+
     /**
      * 数据权限：部门自身即部门维度。
      *   - 「仅本人」= 只看我所属的部门（不含下级）；

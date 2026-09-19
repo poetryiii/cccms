@@ -112,6 +112,23 @@ final class I18n
         return self::replace($value, $params);
     }
 
+    /**
+     * key 是否存在（当前语言或默认语言命中其一即可）。
+     *
+     * 供「有翻译才覆盖」的场景使用：如菜单标题、配置项名 —— 内置项在语言包里有 key 就翻译，
+     * 管理员自建项（用户录入数据）没有 key 就原样返回。刻意**不写 missing 日志**，
+     * 因为「查不到」在这些场景是正常分支，不是缺词。
+     */
+    public static function has(string $key): bool
+    {
+        $locale = self::locale();
+        if (self::lookup($locale, $key) !== null) {
+            return true;
+        }
+
+        return $locale !== self::DEFAULT_LOCALE && self::lookup(self::DEFAULT_LOCALE, $key) !== null;
+    }
+
     /** 配置读取的兜底包装：CLI / 配置未加载时不抛错 */
     private static function config(string $key, mixed $default): mixed
     {

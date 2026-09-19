@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\UpgradeLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -52,7 +53,7 @@ class UpgradeController extends BaseController
                 (string)$request->post('source', ''),
                 $request->post('ref') ?: null
             ),
-            '基线已建立'
+            I18n::t('upgrade.baseline_created')
         );
     }
 
@@ -69,8 +70,11 @@ class UpgradeController extends BaseController
         );
 
         $message = $result['written'] > 0 || $result['removed'] > 0
-            ? "升级完成：写入 {$result['written']}，删除 {$result['removed']}"
-            : '没有需要更新的文件';
+            ? I18n::t('upgrade.done', [
+                'written' => $result['written'],
+                'removed' => $result['removed'],
+            ])
+            : I18n::t('upgrade.no_changes');
 
         return $this->ok($result, $message);
     }

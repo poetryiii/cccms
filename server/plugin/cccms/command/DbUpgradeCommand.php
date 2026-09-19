@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\command;
 
 use plugin\cccms\support\SqlFileRunner;
+use plugin\cccms\support\storage\StorageDriver;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -22,6 +23,23 @@ class DbUpgradeCommand extends Command
 {
     /** 新增表：表名(不含前缀) => 建表语句（%s 为表前缀占位） */
     private const TABLES = [
+        'tenant' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%stenant` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name`        varchar(64)  NOT NULL COMMENT '租户名称',
+  `code`        varchar(64)  NOT NULL COMMENT '租户标识(全局唯一)',
+  `contact`     varchar(64)  NOT NULL DEFAULT '' COMMENT '联系人',
+  `phone`       varchar(32)  NOT NULL DEFAULT '' COMMENT '联系电话',
+  `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '状态 1启用 0禁用',
+  `expire_at`   datetime     DEFAULT NULL COMMENT '到期时间(NULL=不过期)',
+  `remark`      varchar(255) NOT NULL DEFAULT '',
+  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户表'
+SQL,
         'category' => <<<'SQL'
 CREATE TABLE IF NOT EXISTS `%scategory` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -128,6 +146,101 @@ SQL,
     /** 软删除列定义（NULL = 未删除） */
     private const SOFT_DELETE = "datetime DEFAULT NULL COMMENT '删除时间(NULL=未删除)'";
 
+    /**
+     * 新增配置项（老库补插）：配置名 => [标题, 控件类型, 默认值, 分组, 排序, 说明, 选项?]。
+     *
+     * 新装环境由 db/seed.sql 建好；已建好的库不会重跑 seed，必须在这里补。
+     * 用 INSERT IGNORE：已存在则跳过，不覆盖管理员改过的值。
+     * 第 7 项（可选）为 select / radio 的选项 JSON，缺省为 NULL。
+     */
+    private const NEW_CONFIGS = [
+        'security.login_fail_ip_limit' => [
+            '同 IP 失败上限', 'input-number', '20', '安全', 3,
+            '同一 IP 连续登录失败达到该次数后限流该 IP（不锁账号，避免误伤同出口 IP 的同事）；0 表示关闭',
+        ],
+        'security.rate_limit_enable' => [
+            '接口限流开关', 'switch', '1', '安全', 9,
+            '开启后按「每用户每路由」限流，接口被高频刷取时返回 429',
+        ],
+        'security.rate_limit_limit' => [
+            '普通接口次数', 'input-number', '60', '安全', 10,
+            '每用户每路由每分钟允许的调用次数；0 表示不限制',
+        ],
+        'security.rate_limit_heavy_limit' => [
+            '重接口次数', 'input-number', '5', '安全', 11,
+            '导出/导入/代码生成等重接口每用户每路由每分钟次数；0 表示不限制',
+        ],
+        'security.rate_limit_window' => [
+            '限流窗口', 'input-number', '60', '安全', 12,
+            '单位秒，计数窗口长度',
+        ],
+        'security.password_max_length' => [
+            '密码最大长度', 'input-number', '64', '安全', 7,
+            '超长口令会放大 bcrypt 开销，构成低成本 DoS；0 表示不限制',
+        ],
+        'security.password_strength' => [
+            '密码字符类别数', 'input-number', '2', '安全', 8,
+            '需包含大写字母/小写字母/数字/符号中的几类；0 表示不要求。内置弱口令黑名单与「不得包含用户名等身份信息」始终生效',
+        ],
+        // 找回密码（P2-3）
+        'security.reset_channel' => [
+            '找回密码渠道', 'select', 'off', '安全', 13,
+            '找回密码可用的验证码通道；off 表示关闭找回入口',
+            '[{"label":"关闭","value":"off"},{"label":"邮箱","value":"email"},{"label":"短信","value":"sms"},{"label":"邮箱 + 短信","value":"both"}]',
+        ],
+        'security.reset_code_ttl' => [
+            '验证码有效期', 'input-number', '300', '安全', 14,
+            '单位秒，验证码在 Redis 中的存活时间，最小 60',
+        ],
+        'security.reset_send_interval' => [
+            '发送间隔', 'input-number', '60', '安全', 15,
+            '单位秒，同一账号两次发送验证码的最小间隔；0 表示不限制',
+        ],
+        'security.reset_max_attempts' => [
+            '验证码尝试上限', 'input-number', '5', '安全', 16,
+            '同一验证码最多校验几次，达到上限即作废，防暴力猜码',
+        ],
+        'security.reset_daily_limit' => [
+            '每日发送上限', 'input-number', '10', '安全', 17,
+            '同一账号每天最多发送几次验证码；0 表示不限制',
+        ],
+        'mail.enabled' => [
+            '启用邮箱通道', 'switch', '0', '邮箱', 1,
+            '开启后支持邮箱找回密码，还需在「安全」分组把找回渠道设为邮箱或邮箱+短信',
+        ],
+        'mail.host' => ['SMTP 服务器', 'input', '', '邮箱', 2, 'SMTP 主机名，如 smtp.example.com'],
+        'mail.port' => ['SMTP 端口', 'input-number', '465', '邮箱', 3, 'SSL 常用 465，STARTTLS 常用 587'],
+        'mail.username' => ['SMTP 账号', 'input', '', '邮箱', 4, '登录 SMTP 的用户名，留空表示不需要认证'],
+        'mail.password' => ['SMTP 密码', 'password', '', '邮箱', 5, '登录 SMTP 的密码 / 授权码，加密存储'],
+        'mail.encryption' => [
+            '加密方式', 'select', 'ssl', '邮箱', 6,
+            'ssl=直接加密连接，tls=STARTTLS 升级，none=明文（不推荐）',
+            '[{"label":"SSL","value":"ssl"},{"label":"STARTTLS","value":"tls"},{"label":"不加密","value":"none"}]',
+        ],
+        'mail.from_address' => ['发件人邮箱', 'input', '', '邮箱', 7, '留空则使用 SMTP 账号'],
+        'mail.from_name' => ['发件人名称', 'input', 'CCCMS', '邮箱', 8, '展示在收件人邮件客户端'],
+        'sms.enabled' => [
+            '启用短信通道', 'switch', '0', '短信', 1,
+            '开启后支持短信找回密码，还需在「安全」分组把找回渠道设为短信或邮箱+短信',
+        ],
+        'sms.driver' => ['短信驱动', 'input', 'http', '短信', 2, '通用 HTTP 网关驱动标识（预留）'],
+        'sms.gateway_url' => ['网关地址', 'input', '', '短信', 3, '短信服务商提供的发送接口地址'],
+        'sms.method' => [
+            '请求方法', 'select', 'POST', '短信', 4,
+            'GET 时参数拼到 query，POST 时作为 JSON 请求体发送',
+            '[{"label":"POST","value":"POST"},{"label":"GET","value":"GET"}]',
+        ],
+        'sms.params' => [
+            '参数模板', 'textarea', '{"mobile":"{mobile}","code":"{code}","sign":"{sign}"}', '短信', 5,
+            'JSON 对象；值里的 {mobile}/{code}/{sign} 会被替换为该次发送的实际值',
+        ],
+        'sms.headers' => [
+            '请求头', 'textarea', '{}', '短信', 6,
+            'JSON 对象，如 {"Authorization":"Bearer xxx"}；POST 未指定 Content-Type 时默认 application/json',
+        ],
+        'sms.sign_name' => ['短信签名', 'input', '', '短信', 7, '短信签名，替换参数模板里的 {sign}'],
+    ];
+
     /** 新增列：表名(不含前缀) => [列名 => 列定义] */
     private const COLUMNS = [
         'dict_type' => [
@@ -179,6 +292,22 @@ SQL,
         'category'  => ['delete_time' => self::SOFT_DELETE],
         'dict_data' => ['delete_time' => self::SOFT_DELETE],
         'crontab'   => ['delete_time' => self::SOFT_DELETE],
+    ];
+
+    /**
+     * 多租户隔离列（P2-17）：12 张业务表补 `tenant_id`。
+     *
+     * 值为 0 表示**平台/默认租户**；老库升级时已有数据全部落到平台租户，
+     * 因此升级后行为与升级前完全一致（超管看到的仍是全部数据）。
+     *
+     * 关联表（user_role / user_dept / user_post / dept_role / role_node /
+     * notice_target / notice_read）刻意**不加**：它们通过主表（user / role /
+     * dept / notice）间接隔离，主表已带 tenant_id，加一份冗余列只会带来
+     * 「两处不一致」的隐患。sys_menu / sys_config / sys_log 是平台级资源。
+     */
+    private const TENANT_TABLES = [
+        'user', 'dept', 'role', 'post', 'data_rule', 'data_scope_table',
+        'notice', 'file', 'category', 'dict_type', 'dict_data', 'crontab',
     ];
 
     /**
@@ -237,6 +366,30 @@ SQL,
                 Db::execute("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
                 $output->writeln("  <info>加列</info> {$table}.{$column}");
                 $cols++;
+            }
+        }
+
+        // 多租户：业务表补 tenant_id 列 + idx_tenant 索引（幂等）。
+        // 已有数据自动落到 0（平台租户），升级后可见范围与升级前一致。
+        foreach (self::TENANT_TABLES as $name) {
+            $table = $prefix . $name;
+            if (!$this->exists($table)) {
+                $output->writeln("  <comment>跳过</comment> {$table}（表不存在）");
+                continue;
+            }
+            $column = $this->columnMeta($table);
+            if (!isset($column['tenant_id'])) {
+                Db::execute(
+                    "ALTER TABLE `{$table}` ADD COLUMN `tenant_id` bigint unsigned NOT NULL DEFAULT 0 "
+                    . "COMMENT '租户ID(0=平台)' AFTER `id`"
+                );
+                $output->writeln("  <info>加列</info> {$table}.tenant_id");
+                $cols++;
+            }
+            if (!isset($this->indexes($table)['idx_tenant'])) {
+                Db::execute("ALTER TABLE `{$table}` ADD INDEX `idx_tenant` (`tenant_id`)");
+                $output->writeln("  <info>加索引</info> {$table}.idx_tenant");
+                $idxs++;
             }
         }
 
@@ -323,6 +476,50 @@ SQL,
         if ($this->exists($logTable) && isset($this->columnMeta($logTable)['type'])) {
             Db::execute("ALTER TABLE `{$logTable}` DROP COLUMN `type`");
             $output->writeln("  <info>删列</info> {$logTable}.type（日志类型改用 path 区分）");
+        }
+
+        // 上传白名单移除可被浏览器内联执行的扩展名（svg / html / xml…）：
+        // 本地驱动落盘 public/storage 且与后台同域直出，这类文件会执行其中脚本，
+        // 构成存储型 XSS。代码侧已硬拒绝，这里同步清理存量配置，避免后台显示「仍允许」。
+        $configTable = $prefix . 'config';
+        if ($this->exists($configTable)) {
+            $row = Db::query("SELECT `value` FROM `{$configTable}` WHERE `name` = 'upload.ext_allow' LIMIT 1");
+            $value = strtolower((string)($row[0]['value'] ?? ''));
+            if ($value !== '') {
+                $items = array_filter(array_map('trim', explode(',', $value)), static fn ($item) => $item !== '');
+                $hit   = array_intersect($items, StorageDriver::DANGEROUS_EXT);
+                if ($hit) {
+                    $clean = implode(',', array_values(array_diff($items, StorageDriver::DANGEROUS_EXT)));
+                    Db::execute("UPDATE `{$configTable}` SET `value` = ? WHERE `name` = 'upload.ext_allow'", [$clean]);
+                    $output->writeln('  <info>清理上传白名单</info> 移除 ' . implode('/', $hit) . '（可内联执行脚本，构成存储型 XSS）');
+                }
+            }
+
+            // 令牌有效期纠偏：旧默认 7 天过长（令牌存 localStorage，TTL 就是 XSS
+            // 一旦发生攻击者能用的窗口长度）。只改**仍是旧默认值**的行 —— 管理员
+            // 显式调过的值不动，否则升级会覆盖线上有意为之的配置。
+            // 缩短后由滑动续期保证活跃用户不掉线（见 CheckLogin::renew）。
+            $ttlRow = Db::query("SELECT `value` FROM `{$configTable}` WHERE `name` = 'security.token_ttl' LIMIT 1");
+            if ((string)($ttlRow[0]['value'] ?? '') === '604800') {
+                Db::execute("UPDATE `{$configTable}` SET `value` = '7200' WHERE `name` = 'security.token_ttl'");
+                $output->writeln('  <info>令牌有效期</info> 604800 → 7200 秒（配合滑动续期缩短 XSS 有效窗口）');
+            }
+
+            // 补插新增配置项：老库不会重跑 seed.sql，缺行则后台看不到该设置
+            // （代码侧有默认值兜底，缺行不影响功能，只影响可调性）。
+            // INSERT IGNORE 保证幂等，重复执行不会覆盖管理员改过的值。
+            foreach (self::NEW_CONFIGS as $name => $cfg) {
+                [$title, $type, $value, $group, $sort, $remark] = $cfg;
+                $added = Db::execute(
+                    "INSERT IGNORE INTO `{$configTable}`
+                     (`name`, `title`, `type`, `value`, `options`, `group`, `sort`, `status`, `remark`, `create_time`, `update_time`)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, NOW(), NOW())",
+                    [$name, $title, $type, $value, $cfg[6] ?? null, $group, $sort, $remark]
+                );
+                if ($added > 0) {
+                    $output->writeln("  <info>新增配置</info> {$name}（{$title}）");
+                }
+            }
         }
 
         $output->writeln("<info>升级完成：建表 {$tables}，加列 {$cols}，加索引 {$idxs}，默认值 {$defaults}，时间戳 {$stamps}</info>");

@@ -13,10 +13,37 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ---------------------------------------------------------------------
+-- 租户（多租户隔离的边界；`tenant_id = 0` 是平台/默认租户，不落库，仅虚拟存在）
+--
+-- 隔离方式：**单库共享表 + tenant_id 列**。模型层
+-- （`BaseModel::$globalScope` 的 `tenant` 作用域）自动给查询加租户条件，
+-- 写入时由 `Support\TenantContext` 强制写入当前租户 —— 详见 docs/06-数据权限。
+--
+-- 本表只存**真实租户**（id >= 1）；平台租户（0）不占行，避免 MySQL
+-- 自增列「插入 0 即取下一个自增值」带来的语义歧义。
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `sys_tenant` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name`        varchar(64)  NOT NULL COMMENT '租户名称',
+  `code`        varchar(64)  NOT NULL COMMENT '租户标识(全局唯一)',
+  `contact`     varchar(64)  NOT NULL DEFAULT '' COMMENT '联系人',
+  `phone`       varchar(32)  NOT NULL DEFAULT '' COMMENT '联系电话',
+  `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '状态 1启用 0禁用',
+  `expire_at`   datetime     DEFAULT NULL COMMENT '到期时间(NULL=不过期)',
+  `remark`      varchar(255) NOT NULL DEFAULT '',
+  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户表';
+
+-- ---------------------------------------------------------------------
 -- 用户
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_user` (
   `id`           bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`    bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `username`     varchar(64)  NOT NULL COMMENT '登录账号',
   `password`     varchar(255) NOT NULL DEFAULT '' COMMENT '密码(bcrypt)',
   `nickname`     varchar(64)  NOT NULL DEFAULT '' COMMENT '昵称',
@@ -31,7 +58,8 @@ CREATE TABLE IF NOT EXISTS `sys_user` (
   `update_time`  datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `delete_time`  datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_username` (`username`)
+  UNIQUE KEY `uk_username` (`username`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ---------------------------------------------------------------------
@@ -39,6 +67,7 @@ CREATE TABLE IF NOT EXISTS `sys_user` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_role` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `name`        varchar(64)  NOT NULL COMMENT '角色名',
   `code`        varchar(64)  NOT NULL COMMENT '角色标识(唯一)',
   -- 默认 4（仅本人）而非 1（全部数据）：档位不继承父角色，靠「取最宽松」生效，
@@ -53,7 +82,8 @@ CREATE TABLE IF NOT EXISTS `sys_role` (
   `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_code` (`code`),
-  KEY `idx_parent` (`parent_id`)
+  KEY `idx_parent` (`parent_id`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色表';
 
 -- ---------------------------------------------------------------------
@@ -107,6 +137,7 @@ CREATE TABLE IF NOT EXISTS `sys_role_node` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_dept` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `parent_id`   bigint unsigned NOT NULL DEFAULT 0,
   `name`        varchar(64)  NOT NULL COMMENT '部门名',
   `leader`      varchar(64)  NOT NULL DEFAULT '' COMMENT '负责人',
@@ -118,7 +149,8 @@ CREATE TABLE IF NOT EXISTS `sys_dept` (
   `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
-  KEY `idx_parent` (`parent_id`)
+  KEY `idx_parent` (`parent_id`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='部门表';
 
 -- ---------------------------------------------------------------------
@@ -148,6 +180,7 @@ CREATE TABLE IF NOT EXISTS `sys_dept_role` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_post` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `code`        varchar(64)  NOT NULL COMMENT '岗位编码',
   `name`        varchar(64)  NOT NULL COMMENT '岗位名',
   `sort`        int          NOT NULL DEFAULT 0,
@@ -156,7 +189,8 @@ CREATE TABLE IF NOT EXISTS `sys_post` (
   `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_code` (`code`)
+  UNIQUE KEY `uk_code` (`code`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='岗位表';
 
 -- ---------------------------------------------------------------------
@@ -175,6 +209,7 @@ CREATE TABLE IF NOT EXISTS `sys_user_post` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_data_rule` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `name`        varchar(64)  NOT NULL DEFAULT '' COMMENT '规则名',
   `user_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '绑定用户 0=不限',
   `post_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '绑定岗位 0=不限',
@@ -194,7 +229,8 @@ CREATE TABLE IF NOT EXISTS `sys_data_rule` (
   PRIMARY KEY (`id`),
   KEY `idx_user` (`user_id`),
   KEY `idx_post` (`post_id`),
-  KEY `idx_role` (`role_id`)
+  KEY `idx_role` (`role_id`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据权限规则';
 
 -- ---------------------------------------------------------------------
@@ -204,6 +240,7 @@ CREATE TABLE IF NOT EXISTS `sys_data_rule` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_data_scope_table` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `table_name`  varchar(64)  NOT NULL COMMENT '表名(不含前缀)',
   `label`       varchar(64)  NOT NULL DEFAULT '' COMMENT '语义名，留空则取表注释',
   `status`      tinyint      NOT NULL DEFAULT 1 COMMENT '1受控 0停用',
@@ -211,7 +248,8 @@ CREATE TABLE IF NOT EXISTS `sys_data_scope_table` (
   `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
   `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_table` (`table_name`)
+  UNIQUE KEY `uk_table` (`table_name`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据权限受控表';
 
 -- ---------------------------------------------------------------------
@@ -220,6 +258,7 @@ CREATE TABLE IF NOT EXISTS `sys_data_scope_table` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_category` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `module`      varchar(32)  NOT NULL DEFAULT '' COMMENT '所属模块 dict/file',
   `parent_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '上级分类，0=顶级',
   `name`        varchar(64)  NOT NULL COMMENT '分类名',
@@ -230,7 +269,8 @@ CREATE TABLE IF NOT EXISTS `sys_category` (
   `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
-  KEY `idx_module` (`module`, `parent_id`)
+  KEY `idx_module` (`module`, `parent_id`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通用分类';
 
 -- ---------------------------------------------------------------------
@@ -238,6 +278,7 @@ CREATE TABLE IF NOT EXISTS `sys_category` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_dict_type` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `category_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT '分类ID(0=未分类)',
   `name`        varchar(64) NOT NULL COMMENT '字典名',
   `type`        varchar(64) NOT NULL COMMENT '字典类型标识',
@@ -248,11 +289,13 @@ CREATE TABLE IF NOT EXISTS `sys_dict_type` (
   `delete_time` datetime    DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_type` (`type`),
-  KEY `idx_category` (`category_id`)
+  KEY `idx_category` (`category_id`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='字典类型';
 
 CREATE TABLE IF NOT EXISTS `sys_dict_data` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `type_id`     bigint unsigned NOT NULL COMMENT '字典类型ID',
   `label`       varchar(64)  NOT NULL COMMENT '显示名',
   `value`       varchar(128) NOT NULL COMMENT '值',
@@ -263,7 +306,8 @@ CREATE TABLE IF NOT EXISTS `sys_dict_data` (
   `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `delete_time` datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
-  KEY `idx_type` (`type_id`)
+  KEY `idx_type` (`type_id`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='字典数据';
 
 -- ---------------------------------------------------------------------
@@ -319,6 +363,7 @@ CREATE TABLE IF NOT EXISTS `sys_log` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_file` (
   `id`            bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `name`          varchar(255) NOT NULL DEFAULT '' COMMENT '存储文件名',
   `original_name` varchar(255) NOT NULL DEFAULT '' COMMENT '原始文件名',
   `path`          varchar(255) NOT NULL DEFAULT '' COMMENT '存储路径',
@@ -334,7 +379,8 @@ CREATE TABLE IF NOT EXISTS `sys_file` (
   `delete_time`   datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
   KEY `idx_hash` (`hash`),
-  KEY `idx_category` (`category_id`)
+  KEY `idx_category` (`category_id`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='附件表';
 
 -- ---------------------------------------------------------------------
@@ -342,6 +388,7 @@ CREATE TABLE IF NOT EXISTS `sys_file` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_crontab` (
   `id`             bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`      bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `name`           varchar(64)  NOT NULL COMMENT '任务名称',
   `group_name`     varchar(32)  NOT NULL DEFAULT '' COMMENT '任务分组(仅用于归类与筛选)',
   `expression`     varchar(64)  NOT NULL COMMENT 'cron 表达式（秒 分 时 日 月 周，六段）',
@@ -364,7 +411,8 @@ CREATE TABLE IF NOT EXISTS `sys_crontab` (
   `delete_time`    datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
-  KEY `idx_retry` (`retry_left`, `retry_at`)
+  KEY `idx_retry` (`retry_left`, `retry_at`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务';
 
 CREATE TABLE IF NOT EXISTS `sys_crontab_log` (
@@ -406,6 +454,7 @@ CREATE TABLE IF NOT EXISTS `sys_crontab_retry` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_notice` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '租户ID(0=平台)',
   `title`       varchar(128) NOT NULL COMMENT '标题',
   `type`        tinyint      NOT NULL DEFAULT 1 COMMENT '1通知 2公告',
   `level`       tinyint      NOT NULL DEFAULT 1 COMMENT '1普通 2重要',
@@ -422,7 +471,8 @@ CREATE TABLE IF NOT EXISTS `sys_notice` (
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
   KEY `idx_scope` (`scope`),
-  KEY `idx_publish_at` (`publish_at`)
+  KEY `idx_publish_at` (`publish_at`),
+  KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告';
 
 CREATE TABLE IF NOT EXISTS `sys_notice_target` (

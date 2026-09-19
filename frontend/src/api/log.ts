@@ -35,3 +35,18 @@ export function logExport(params: Record<string, unknown>) {
 export function logDelete(ids: number[]) {
   return http.post<null>('/log/delete', { ids })
 }
+
+/** 一次请求的链路聚合结果（P2-6） */
+export interface LogTrace {
+  trace_id: string
+  total: number
+  failed: number
+  /** 该链路所有记录的耗时之和（ms） */
+  cost: number
+  list: LogRow[]
+}
+
+/** 按 trace_id 聚合查看同一次请求的全部日志 */
+export function logTrace(traceId: string) {
+  return http.get<LogTrace>('/log/trace', { trace_id: traceId })
+}

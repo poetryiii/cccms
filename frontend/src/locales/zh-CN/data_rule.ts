@@ -1,0 +1,162 @@
+/**
+ * 数据权限规则页。
+ *
+ * 与 `en-US/data_rule.ts` 保持**完全一致的 key 集合**。
+ * 规则名、表名、字段名、绑定对象名称等均为用户录入或后端下发数据，不在此维护。
+ */
+export default {
+  /* ---- 顶部说明 ---- */
+  tip: '预设档（角色的「数据范围」）决定基线，自定义行级规则在其上叠加（AND）；「全部数据」档位下规则不生效，「自定义规则」档位下若一条规则都没命中则看不到任何数据。绑定四项都不选 = 全局规则；绑定项之间的组合方式由「绑定关系」决定：任一命中（或）/ 全部命中（且）。指定了「目标表」的行级规则只在该表生效。目标表只能选「已接入数据权限」的表，字段随目标表级联。列表的「检测」列会标出条件互斥等风险（多条规则同时命中同一个用户时是 AND 叠加，条件互斥会让人看不到任何数据）。',
+
+  /* ---- 查询 / 表格 ---- */
+  nameLabel: '规则名',
+  searchPlaceholder: '请输入',
+  targetTableLabel: '目标表',
+  allPlaceholder: '全部',
+  fieldNameLabel: '字段名',
+  fieldLabel: '字段',
+  bindLabel: '绑定对象',
+  actionColumnLabel: '动作',
+  conditionLabel: '条件',
+  conflictColumnLabel: '检测',
+  recycleLabel: '数据权限规则',
+  create: '新增规则',
+  managedTables: '受控表',
+
+  /* ---- 绑定对象展示 ---- */
+  anyTable: '不限表',
+  global: '全局',
+  bindAnd: '且',
+  bindOr: '或',
+  bindAndTip: '已填写的绑定项全部命中才生效',
+  bindOrTip: '已填写的绑定项命中任意一项即生效',
+  bindUser: '用户：{name}',
+  bindPost: '岗位：{name}',
+  bindRole: '角色：{name}',
+  bindDept: '部门：{name}',
+  conflict: '冲突',
+  hint: '提示',
+
+  /* ---- 规则动作 / 操作符 ---- */
+  actionRow: '行级过滤',
+  actionHidden: '字段隐藏',
+  actionReadonly: '字段只读',
+  actionMask: '字段脱敏',
+  actionEncrypt: '字段加密',
+  opEq: '等于',
+  opNe: '不等于',
+  opGt: '大于',
+  opGe: '大于等于',
+  opLt: '小于',
+  opLe: '小于等于',
+  opLike: '包含',
+  opIn: '属于',
+  opBetween: '介于',
+
+  /* ---- 表单：绑定对象 ---- */
+  createTitle: '新增规则',
+  editTitle: '编辑规则',
+  namePlaceholder: '如 客服只看未关闭工单',
+  nameRequired: '请输入规则名',
+  fieldRequired: '请选择目标表与字段',
+  deleteConfirm: '确定删除该规则？',
+  userSearchPlaceholder: '输入账号或昵称搜索',
+  userTip: '按账号 / 昵称模糊搜索；命中条件：登录账号就是这个用户。',
+  postTip: '命中条件：用户被分配了该岗位。',
+  roleTipPrefix: '只认',
+  roleTipBold: '直接分配',
+  roleTipSuffix: '的角色：既不自动带上子角色，也不继承上级角色。',
+  deptTipPrefix: '可多选；绑定部门',
+  deptTipBold: '含下级',
+  deptTipSuffix: '：绑「总公司」会覆盖它下面所有部门的人。',
+  addToSelected: '添加到已选',
+  addHintMulti: '部门可多选：每次「添加」并入已选，重复的不会重复添加。',
+  addHintSingle: '单选维度：「添加」会替换该维度已有的选择。',
+  selectedBindings: '已选绑定对象',
+  clearAll: '清空全部',
+  noneSelected: '未选择 —— 四项都不选 = 全局规则',
+  bindUserLabel: '用户',
+  bindPostLabel: '岗位',
+  bindRoleLabel: '角色',
+  bindDeptLabel: '部门',
+  bindTabWithCount: '{name} ({count})',
+
+  /* ---- 表单：绑定关系 ---- */
+  bindModeLabel: '绑定关系',
+  bindModeOr: '任一命中（或）',
+  bindModeAnd: '全部命中（且）',
+  bindModeTipPrefix: '「或」= 已选的几项里，',
+  bindModeTipBoldOr: '命中任意一项',
+  bindModeTipMiddle: '就生效（范围更宽）；「且」= 只对',
+  bindModeTipBoldAnd: '同时满足所有已选项',
+  bindModeTipSuffix: '的人生效（范围更窄，如「张三 且 在客服岗」）。',
+  bindModeTipTail: '某项没选则不参与判断；四项都不选 = 全局规则，此开关不生效。',
+
+  /* ---- 表单：目标表 / 动作 / 取值 ---- */
+  targetPlaceholder: '选择目标表与字段',
+  anyTableOption: '不限表（对已接入的模块生效）',
+  fieldHintAnyTable: '不限表：对所有已接入数据权限的模块生效，字段名需在各表都存在；不确定时建议指定目标表。',
+  fieldHintTable: '先选「目标表」再选字段；只列该表已有的字段，括号里是字段注释。',
+  actionLabel: '规则动作',
+  optionWithCode: '{name}（{code}）',
+  actionTip: 'row = 行级过滤；其余为字段级（作用于出参，readonly 作用于入参）。',
+  encryptTitle: 'encrypt 只防「数据库裸读」，不是访问控制',
+  encryptDesc:
+    '解密密钥会下发给能配置本页的管理员与超管，接口泄露时密文等同明文。控制敏感字段的可见性请用「字段脱敏（mask）」配合数据权限档位；后端解密后再下发的方案需另行评估。',
+  operatorLabel: '操作符',
+  valueTypeLabel: '取值类型',
+  staticValue: '静态值',
+  dynamicValue: '动态变量',
+  valueTypeTipPrefix: '动态变量按',
+  valueTypeTipBold: '当前登录用户',
+  valueTypeTipSuffix: '实时解析，可表达「本部门及以下」这类动态范围。',
+  valueLabel: '取值',
+  valuePlaceholder: '选择变量，也可直接输入字面量',
+  staticValuePlaceholder: '如 1，或用英文逗号分隔：1,2,3',
+  valueHintStatic: 'in / between 用英文逗号分隔（between 形如 10,20）。',
+  valueHintBetween: "需要正好两个值，例如 {'{'}user.id{'}'},100。",
+  valueHintIn: "多个变量会合并成一个集合走「属于(IN)」，例如 dept_id in {'{'}dept.subtree{'}'}。",
+  valueHintOther: '变量展开成多个值时会按「属于(IN)」处理；建议改用「属于」操作符以表达集合语义。',
+  remarkLabel: '备注',
+
+  /* ---- 受控表维护 ---- */
+  managedTableTitle: '数据权限受控表',
+  managedTableTip:
+    '只有登记在这里的表才会出现在「目标表」候选中，其余表一律隐藏。登记的前提是该表已接入数据权限（模型声明参与、查询走模型），否则配了规则也不会生效；可用 php webman cccms:data-scope-check 校验。',
+  managedTableDesc:
+    '登记只决定「能不能配自定义规则」。未登记的表（如部门）并非没有数据权限，只是按角色档位套用预设基线，不能再单独配规则。',
+  addTablePlaceholder: '选择要加入受控表的表',
+  semanticNamePlaceholder: '语义名（留空取表注释）',
+  add: '加入',
+  tableNameLabel: '表名',
+  tableMissing: '表不存在',
+  semanticNameLabel: '语义名',
+  fieldCountLabel: '字段数',
+  controlledLabel: '受控',
+  remove: '移除',
+  removeConfirm: '移除后，该表上的规则会暂停生效，确定？',
+  noManagedTable: '暂未登记受控表',
+  tableAdded: '已加入受控表',
+  tableSaved: '已保存',
+  tableRemoved: '已移除',
+  tableRemovedWithRules: '已移除，该表上的 {count} 条规则暂停生效',
+
+  /* ---- 导入规则 ---- */
+  importTitle: '导入数据权限规则',
+  importTip:
+    'CSV 首行必须是列名；name 必填，同名规则会被更新，否则新增。绑定一律填 ID（0 = 不绑定），dept_ids 多个用 | 分隔；末尾的 *_name 列仅供人工校对，导入时忽略。',
+  downloadTemplate: '下载导入模板',
+  uploadTextPrefix: '将 CSV 拖到此处，或',
+  uploadTextClick: '点击选择',
+  importSummary: '共 {total} 行：新增 {created}，更新 {updated}，失败 {failed}',
+  startImport: '开始导入',
+  close: '关闭',
+  importFailed: '导入失败',
+  importDone: '导入完成：新增 {created}，更新 {updated}',
+  importPartial: '导入完成，但有 {failed} 行失败，详见下方列表',
+  importError: '导入失败，请检查文件格式或网络',
+
+  /* ---- 通用提示 ---- */
+  saveSuccess: '保存成功',
+  deleteSuccess: '删除成功',
+}

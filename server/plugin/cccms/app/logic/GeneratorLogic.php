@@ -6,6 +6,7 @@ namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\Menu;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use think\facade\Db;
 
 /**
@@ -88,13 +89,13 @@ final class GeneratorLogic
             $full = $root . '/' . $file['path'];
             $dir = dirname($full);
             if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
-                throw new ApiException('目录创建失败：' . $dir, 500);
+                throw new ApiException(I18n::t('generator.dir_create_failed', ['dir' => $dir]), 500);
             }
             if (is_file($full) && empty($config['overwrite'])) {
-                throw new ApiException('文件已存在，未覆盖：' . $file['path'], 422);
+                throw new ApiException(I18n::t('generator.file_exists', ['path' => $file['path']]), 422);
             }
             if (file_put_contents($full, $file['content']) === false) {
-                throw new ApiException('文件写入失败：' . $file['path'], 500);
+                throw new ApiException(I18n::t('generator.file_write_failed', ['path' => $file['path']]), 500);
             }
             $written[] = $file['path'];
         }
@@ -125,7 +126,7 @@ final class GeneratorLogic
         $plugin = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($config['plugin'] ?? 'cccms'))) ?: 'cccms';
         $table  = strtolower(trim((string)($config['table'] ?? '')));
         if ($table === '') {
-            throw new ApiException('请选择数据表', 422);
+            throw new ApiException(I18n::t('generator.table_required'), 422);
         }
 
         // 去掉连接配置里的 sys_ 前缀，作为模型表名
@@ -134,12 +135,12 @@ final class GeneratorLogic
 
         $module = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($config['module'] ?? $bare))) ?: $bare;
         if ($module === '') {
-            throw new ApiException('无法推导模块名，请手工指定', 422);
+            throw new ApiException(I18n::t('generator.module_required'), 422);
         }
 
         $columns = self::columns($table);
         if (!$columns) {
-            throw new ApiException('数据表不存在或无字段：' . $table, 422);
+            throw new ApiException(I18n::t('generator.table_not_found', ['table' => $table]), 422);
         }
         $pk = 'id';
         foreach ($columns as $c) {

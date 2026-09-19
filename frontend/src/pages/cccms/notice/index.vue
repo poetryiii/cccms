@@ -17,54 +17,56 @@
       @force-delete="onForceDelete"
     >
       <template #search>
-        <el-form-item label="标题">
-          <el-input v-model="query.title" placeholder="请输入" clearable style="width: 180px" />
+        <el-form-item :label="t('notice.titleLabel')">
+          <el-input v-model="query.title" :placeholder="t('notice.searchPlaceholder')" clearable style="width: 180px" />
         </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="query.type" placeholder="全部" clearable style="width: 110px">
-            <el-option label="通知" :value="1" />
-            <el-option label="公告" :value="2" />
+        <el-form-item :label="t('notice.typeLabel')">
+          <el-select v-model="query.type" :placeholder="t('notice.allPlaceholder')" clearable style="width: 110px">
+            <el-option :label="t('notice.typeNotification')" :value="1" />
+            <el-option :label="t('notice.typeAnnouncement')" :value="2" />
           </el-select>
         </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" clearable style="width: 110px">
-            <el-option label="已发布" :value="1" />
-            <el-option label="草稿" :value="0" />
+        <el-form-item :label="t('notice.statusLabel')">
+          <el-select v-model="query.status" :placeholder="t('notice.allPlaceholder')" clearable style="width: 110px">
+            <el-option :label="t('notice.published')" :value="1" />
+            <el-option :label="t('notice.draft')" :value="0" />
           </el-select>
         </el-form-item>
-        <el-form-item label="投放">
-          <el-select v-model="query.scope" placeholder="全部" clearable style="width: 130px">
-            <el-option label="全部用户" :value="0" />
-            <el-option label="指定部门" :value="1" />
-            <el-option label="指定角色" :value="2" />
-            <el-option label="指定用户" :value="3" />
+        <el-form-item :label="t('notice.scopeFilterLabel')">
+          <el-select v-model="query.scope" :placeholder="t('notice.allPlaceholder')" clearable style="width: 130px">
+            <el-option :label="t('notice.scopeAll')" :value="0" />
+            <el-option :label="t('notice.scopeDept')" :value="1" />
+            <el-option :label="t('notice.scopeRole')" :value="2" />
+            <el-option :label="t('notice.scopeUser')" :value="3" />
           </el-select>
         </el-form-item>
       </template>
 
       <template #toolbar>
-        <el-button v-auth="'cccms:notice:save'" type="primary" :icon="Plus" @click="openCreate"> 新增 </el-button>
+        <el-button v-auth="'cccms:notice:save'" type="primary" :icon="Plus" @click="openCreate">
+          {{ t('common.create') }}
+        </el-button>
       </template>
 
       <template #toolbar-right>
-        <RecycleToggle :active="recycle" label="通知公告" @toggle="toggle" />
+        <RecycleToggle :active="recycle" :label="t('notice.recycleLabel')" @toggle="toggle" />
       </template>
 
       <template #type="{ row }">
         <el-tag :type="row.type === 2 ? 'primary' : 'info'" effect="plain">
-          {{ row.type === 2 ? '公告' : '通知' }}
+          {{ row.type === 2 ? t('notice.typeAnnouncement') : t('notice.typeNotification') }}
         </el-tag>
       </template>
 
       <template #level="{ row }">
         <el-tag :type="row.level === 2 ? 'danger' : 'info'" effect="light">
-          {{ row.level === 2 ? '重要' : '普通' }}
+          {{ row.level === 2 ? t('notice.levelImportant') : t('notice.levelNormal') }}
         </el-tag>
       </template>
 
       <template #status="{ row }">
         <el-tag :type="row.status === 1 ? 'success' : 'warning'" effect="light" round>
-          {{ row.status === 1 ? '已发布' : '草稿' }}
+          {{ row.status === 1 ? t('notice.published') : t('notice.draft') }}
         </el-tag>
       </template>
 
@@ -75,11 +77,15 @@
       </template>
 
       <template #action="{ row }">
-        <el-button v-auth="'cccms:notice:report'" link type="success" @click="openReport(row)">回执</el-button>
-        <el-button v-auth="'cccms:notice:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
-        <el-popconfirm title="确定删除该通知公告？" @confirm="onDelete(row.id)">
+        <el-button v-auth="'cccms:notice:report'" link type="success" @click="openReport(row)">
+          {{ t('notice.report') }}
+        </el-button>
+        <el-button v-auth="'cccms:notice:update'" link type="primary" @click="openEdit(row)">
+          {{ t('common.edit') }}
+        </el-button>
+        <el-popconfirm :title="t('notice.deleteConfirm')" @confirm="onDelete(row.id)">
           <template #reference>
-            <el-button v-auth="'cccms:notice:delete'" link type="danger">删除</el-button>
+            <el-button v-auth="'cccms:notice:delete'" link type="danger">{{ t('common.delete') }}</el-button>
           </template>
         </el-popconfirm>
       </template>
@@ -87,49 +93,57 @@
 
     <el-dialog
       v-model="formVisible"
-      :title="form.id ? '编辑通知公告' : '新增通知公告'"
+      :title="form.id ? t('notice.editTitle') : t('notice.createTitle')"
       width="720px"
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="form.title" placeholder="请输入标题" maxlength="128" show-word-limit />
+        <el-form-item :label="t('notice.titleLabel')" prop="title">
+          <el-input v-model="form.title" :placeholder="t('notice.titlePlaceholder')" maxlength="128" show-word-limit />
         </el-form-item>
-        <el-form-item label="类型" prop="type">
+        <el-form-item :label="t('notice.typeLabel')" prop="type">
           <el-radio-group v-model="form.type">
-            <el-radio :value="1">通知</el-radio>
-            <el-radio :value="2">公告</el-radio>
+            <el-radio :value="1">{{ t('notice.typeNotification') }}</el-radio>
+            <el-radio :value="2">{{ t('notice.typeAnnouncement') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="级别" prop="level">
+        <el-form-item :label="t('notice.levelLabel')" prop="level">
           <el-radio-group v-model="form.level">
-            <el-radio :value="1">普通</el-radio>
-            <el-radio :value="2">重要</el-radio>
+            <el-radio :value="1">{{ t('notice.levelNormal') }}</el-radio>
+            <el-radio :value="2">{{ t('notice.levelImportant') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="状态" prop="status">
+        <el-form-item :label="t('notice.statusLabel')" prop="status">
           <el-radio-group v-model="form.status">
-            <el-radio :value="1">发布</el-radio>
-            <el-radio :value="0">草稿</el-radio>
+            <el-radio :value="1">{{ t('notice.publish') }}</el-radio>
+            <el-radio :value="0">{{ t('notice.draft') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="投放范围" prop="scope">
+        <el-form-item :label="t('notice.scopeLabel')" prop="scope">
           <el-radio-group v-model="form.scope" @change="onScopeChange">
-            <el-radio :value="0">全部用户</el-radio>
-            <el-radio :value="1">指定部门</el-radio>
-            <el-radio :value="2">指定角色</el-radio>
-            <el-radio :value="3">指定用户</el-radio>
+            <el-radio :value="0">{{ t('notice.scopeAll') }}</el-radio>
+            <el-radio :value="1">{{ t('notice.scopeDept') }}</el-radio>
+            <el-radio :value="2">{{ t('notice.scopeRole') }}</el-radio>
+            <el-radio :value="3">{{ t('notice.scopeUser') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="form.scope === 1" label="选择部门">
+        <el-form-item v-if="form.scope === 1" :label="t('notice.selectDeptLabel')">
           <ArtNodePicker v-model="form.target_ids" :data="options.depts" multiple />
-          <div class="form-tip">投放给所选部门（<b>含下级</b>）下的所有用户。</div>
+          <i18n-t keypath="notice.scopeDeptTip" scope="global" tag="div" class="form-tip">
+            <template #sub>
+              <b>{{ t('notice.scopeDeptTipSub') }}</b>
+            </template>
+          </i18n-t>
         </el-form-item>
-        <el-form-item v-if="form.scope === 2" label="选择角色">
+        <el-form-item v-if="form.scope === 2" :label="t('notice.selectRoleLabel')">
           <ArtNodePicker v-model="form.target_ids" :data="options.roles" multiple />
-          <div class="form-tip">投放给所选角色（<b>含后代角色</b>）下的所有用户。</div>
+          <i18n-t keypath="notice.scopeRoleTip" scope="global" tag="div" class="form-tip">
+            <template #sub>
+              <b>{{ t('notice.scopeRoleTipSub') }}</b>
+            </template>
+          </i18n-t>
         </el-form-item>
-        <el-form-item v-if="form.scope === 3" label="选择用户">
+        <el-form-item v-if="form.scope === 3" :label="t('notice.selectUserLabel')">
           <el-select
             v-model="form.target_ids"
             multiple
@@ -138,7 +152,7 @@
             reserve-keyword
             :remote-method="searchUsers"
             :loading="userLoading"
-            placeholder="输入账号/昵称搜索"
+            :placeholder="t('notice.userSearchPlaceholder')"
             style="width: 100%"
           >
             <el-option
@@ -148,57 +162,58 @@
               :value="u.id"
             />
           </el-select>
-          <div class="form-tip">投放给所选用户；输入账号/昵称模糊搜索。</div>
+          <div class="form-tip">{{ t('notice.scopeUserTip') }}</div>
         </el-form-item>
-        <el-form-item label="发布时间">
+        <el-form-item :label="t('notice.publishAtLabel')">
           <el-date-picker
             v-model="form.publish_at"
             type="datetime"
             value-format="YYYY-MM-DD HH:mm:ss"
-            placeholder="留空则立即发布"
+            :placeholder="t('notice.publishAtPlaceholder')"
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="过期时间">
+        <el-form-item :label="t('notice.expireAtLabel')">
           <el-date-picker
             v-model="form.expire_at"
             type="datetime"
             value-format="YYYY-MM-DD HH:mm:ss"
-            placeholder="留空则不过期"
+            :placeholder="t('notice.expireAtPlaceholder')"
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="正文" prop="content">
-          <el-input v-model="form.content" type="textarea" :rows="8" placeholder="请输入正文" />
+        <!-- 正文是长文，用富文本编辑器；备注/说明这类短文本仍用 textarea -->
+        <el-form-item :label="t('notice.contentLabel')" prop="content">
+          <ArtRichEditor v-model="form.content" :placeholder="t('notice.contentPlaceholder')" :min-height="220" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
+        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 已读回执统计报表 -->
     <el-dialog
       v-model="reportVisible"
-      :title="`已读回执：${report.notice.title}`"
+      :title="t('notice.reportTitle', { title: report.notice.title })"
       width="780px"
       :close-on-click-modal="false"
     >
       <div class="report-summary">
-        <el-tag type="info" effect="plain">应读 {{ report.total }} 人</el-tag>
-        <el-tag type="success" effect="plain">已读 {{ report.read }} 人</el-tag>
-        <el-tag type="warning" effect="plain">未读 {{ report.unread }} 人</el-tag>
+        <el-tag type="info" effect="plain">{{ t('notice.reportShouldRead', { count: report.total }) }}</el-tag>
+        <el-tag type="success" effect="plain">{{ t('notice.reportRead', { count: report.read }) }}</el-tag>
+        <el-tag type="warning" effect="plain">{{ t('notice.reportUnread', { count: report.unread }) }}</el-tag>
         <el-radio-group v-model="reportView" size="small" class="report-switch" @change="onReportViewChange">
-          <el-radio-button value="read">已读明细</el-radio-button>
-          <el-radio-button value="unread">未读明细</el-radio-button>
+          <el-radio-button value="read">{{ t('notice.reportReadDetail') }}</el-radio-button>
+          <el-radio-button value="unread">{{ t('notice.reportUnreadDetail') }}</el-radio-button>
         </el-radio-group>
       </div>
       <el-table v-loading="reportLoading" :data="report.list" size="small" border>
-        <el-table-column prop="user_id" label="用户ID" width="90" />
-        <el-table-column prop="username" label="账号" min-width="120" />
-        <el-table-column prop="nickname" label="昵称" min-width="120" />
-        <el-table-column prop="read_time" label="已读时间" min-width="170">
+        <el-table-column prop="user_id" :label="t('notice.userIdLabel')" width="90" />
+        <el-table-column prop="username" :label="t('notice.usernameLabel')" min-width="120" />
+        <el-table-column prop="nickname" :label="t('notice.nicknameLabel')" min-width="120" />
+        <el-table-column prop="read_time" :label="t('notice.readTimeLabel')" min-width="170">
           <template #default="{ row }">{{ row.read_time || '—' }}</template>
         </el-table-column>
       </el-table>
@@ -212,7 +227,7 @@
         />
       </div>
       <template #footer>
-        <el-button @click="reportVisible = false">关闭</el-button>
+        <el-button @click="reportVisible = false">{{ t('notice.close') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -221,9 +236,11 @@
 <script setup lang="ts">
 defineOptions({ name: 'cccms:notice' })
 
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import ArtRichEditor from '@/components/core/ArtRichEditor.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import ArtNodePicker from '@/components/core/ArtNodePicker.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
@@ -245,6 +262,8 @@ import {
 } from '@/api/notice'
 import type { ArtTableColumn } from '@/types/table'
 
+const { t } = useI18n({ useScope: 'global' })
+
 interface Query {
   title: string
   type: number | ''
@@ -252,24 +271,33 @@ interface Query {
   scope: number | ''
 }
 
-const columns: ArtTableColumn[] = [
+// 表格列文案跟随语言切换，用 computed 包裹
+const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'title', label: '标题', minWidth: 220 },
-  { prop: 'type', label: '类型', width: 90, align: 'center', slot: 'type' },
-  { prop: 'level', label: '级别', width: 90, align: 'center', slot: 'level' },
-  { prop: 'status', label: '状态', width: 100, align: 'center', slot: 'status' },
-  { prop: 'scope', label: '投放范围', width: 110, align: 'center', slot: 'scope' },
-  { prop: 'publish_at', label: '发布时间', width: 170 },
-  { prop: 'expire_at', label: '过期时间', width: 170, defaultHidden: true },
-  { prop: 'read_count', label: '已读人数', width: 100, align: 'right' },
-  { prop: 'create_time', label: '创建时间', width: 170, defaultHidden: true },
-  { prop: 'action', label: '操作', width: 170, fixed: 'right', slot: 'action', lockVisible: true },
-]
+  { prop: 'title', label: t('notice.titleLabel'), minWidth: 220 },
+  { prop: 'type', label: t('notice.typeLabel'), width: 90, align: 'center', slot: 'type' },
+  { prop: 'level', label: t('notice.levelLabel'), width: 90, align: 'center', slot: 'level' },
+  { prop: 'status', label: t('notice.statusLabel'), width: 100, align: 'center', slot: 'status' },
+  { prop: 'scope', label: t('notice.scopeLabel'), width: 110, align: 'center', slot: 'scope' },
+  { prop: 'publish_at', label: t('notice.publishAtLabel'), width: 170 },
+  { prop: 'expire_at', label: t('notice.expireAtLabel'), width: 170, defaultHidden: true },
+  { prop: 'read_count', label: t('notice.readCountLabel'), width: 100, align: 'right' },
+  { prop: 'create_time', label: t('notice.createdAtLabel'), width: 170, defaultHidden: true },
+  { prop: 'action', label: t('table.action'), width: 170, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
-const SCOPE_LABELS: Record<number, string> = { 0: '全部用户', 1: '指定部门', 2: '指定角色', 3: '指定用户' }
-function scopeLabel(scope: number): string {
-  return SCOPE_LABELS[scope] ?? '全部用户'
+// 投放范围 → 语言包 key（整句在语言包里，这里只做映射）
+const SCOPE_KEYS: Record<number, string> = {
+  0: 'notice.scopeAll',
+  1: 'notice.scopeDept',
+  2: 'notice.scopeRole',
+  3: 'notice.scopeUser',
 }
+
+function scopeLabel(scope: number): string {
+  return t(SCOPE_KEYS[scope] ?? SCOPE_KEYS[0])
+}
+
 function scopeTagType(scope: number): 'info' | 'primary' | 'success' | 'warning' | 'danger' {
   return scope === 0 ? 'info' : 'primary'
 }
@@ -305,9 +333,10 @@ const emptyForm = {
 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
 
-const rules: FormRules = {
-  title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
-}
+// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
+const rules = computed<FormRules>(() => ({
+  title: [{ required: true, message: t('notice.titleRequired'), trigger: 'blur' }],
+}))
 
 // ---- 投放目标候选 ----
 const options = reactive<NoticeOptions>({ depts: [], roles: [] })
@@ -376,7 +405,7 @@ async function submitForm(): Promise<void> {
     return
   }
   if (form.scope !== 0 && (!Array.isArray(form.target_ids) || form.target_ids.length === 0)) {
-    ElMessage.warning('请选择投放目标')
+    ElMessage.warning(t('notice.targetRequired'))
     return
   }
   saving.value = true
@@ -387,7 +416,7 @@ async function submitForm(): Promise<void> {
     } else {
       await noticeSave(payload)
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('notice.saveSuccess'))
     formVisible.value = false
     load()
   } finally {
@@ -397,7 +426,7 @@ async function submitForm(): Promise<void> {
 
 async function onDelete(id: number): Promise<void> {
   await noticeDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('notice.deleteSuccess'))
   load()
 }
 

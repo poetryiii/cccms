@@ -12,14 +12,16 @@
       @force-delete="onForceDelete"
     >
       <template #toolbar>
-        <el-button v-auth="'cccms:menu:save'" type="primary" :icon="Plus" @click="openCreate(0)"> 新增 </el-button>
+        <el-button v-auth="'cccms:menu:save'" type="primary" :icon="Plus" @click="openCreate(0)">
+          {{ t('common.create') }}
+        </el-button>
         <span class="toolbar-tip">
-          按钮节点由控制器 #[Permission] 注解经 cccms:perm-scan 生成，人工改动会在下次扫描时保留
+          {{ t('menu.permTip') }}
         </span>
       </template>
 
       <template #toolbar-right>
-        <RecycleToggle :active="recycle" label="菜单" @toggle="toggle" />
+        <RecycleToggle :active="recycle" :label="t('menu.menuLabel')" @toggle="toggle" />
       </template>
 
       <template #type="{ row }">
@@ -32,18 +34,20 @@
 
       <template #status="{ row }">
         <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
-          {{ row.status === 1 ? '显示' : '隐藏' }}
+          {{ row.status === 1 ? t('menu.shown') : t('menu.hidden') }}
         </el-tag>
       </template>
 
       <template #action="{ row }">
         <el-button v-if="row.type !== 3" v-auth="'cccms:menu:save'" link type="primary" @click="openCreate(row.id)">
-          新增子项
+          {{ t('menu.addChild') }}
         </el-button>
-        <el-button v-auth="'cccms:menu:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
-        <el-popconfirm title="确定删除该节点？" @confirm="onDelete(row.id)">
+        <el-button v-auth="'cccms:menu:update'" link type="primary" @click="openEdit(row)">
+          {{ t('common.edit') }}
+        </el-button>
+        <el-popconfirm :title="t('menu.deleteConfirm')" @confirm="onDelete(row.id)">
           <template #reference>
-            <el-button v-auth="'cccms:menu:delete'" link type="danger">删除</el-button>
+            <el-button v-auth="'cccms:menu:delete'" link type="danger">{{ t('common.delete') }}</el-button>
           </template>
         </el-popconfirm>
       </template>
@@ -51,46 +55,46 @@
 
     <el-dialog
       v-model="formVisible"
-      :title="form.id ? '编辑菜单' : '新增菜单'"
+      :title="form.id ? t('menu.editTitle') : t('menu.createTitle')"
       width="600px"
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
-        <el-form-item label="上级节点" prop="parent_id">
+        <el-form-item :label="t('menu.parentNode')" prop="parent_id">
           <el-tree-select
             v-model="form.parent_id"
             :data="parentOptions"
             :props="{ label: 'title', children: 'children' }"
             node-key="id"
             check-strictly
-            placeholder="顶级"
+            :placeholder="t('menu.top')"
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="类型" prop="type">
+        <el-form-item :label="t('menu.typeLabel')" prop="type">
           <el-radio-group v-model="form.type">
-            <el-radio :value="1">目录</el-radio>
-            <el-radio :value="2">菜单</el-radio>
-            <el-radio :value="3">按钮</el-radio>
+            <el-radio :value="1">{{ t('menu.typeDir') }}</el-radio>
+            <el-radio :value="2">{{ t('menu.typeMenu') }}</el-radio>
+            <el-radio :value="3">{{ t('menu.typeButton') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="名称" prop="title">
-          <el-input v-model="form.title" placeholder="请输入名称" />
+        <el-form-item :label="t('menu.name')" prop="title">
+          <el-input v-model="form.title" :placeholder="t('menu.namePlaceholder')" />
         </el-form-item>
-        <el-form-item label="权限节点" prop="node">
-          <el-input v-model="form.node" placeholder="如 cccms:user:index" />
-          <div class="form-tip">命名规范：{插件}:{模块}:{动作}，全局唯一</div>
+        <el-form-item :label="t('menu.node')" prop="node">
+          <el-input v-model="form.node" :placeholder="t('menu.nodePlaceholder')" />
+          <div class="form-tip">{{ t('menu.nodeTip') }}</div>
         </el-form-item>
-        <el-form-item v-if="form.type !== 3" label="路由地址" prop="path">
-          <el-input v-model="form.path" placeholder="如 /cccms/user" />
+        <el-form-item v-if="form.type !== 3" :label="t('menu.path')" prop="path">
+          <el-input v-model="form.path" :placeholder="t('menu.pathPlaceholder')" />
         </el-form-item>
-        <el-form-item v-if="form.type === 2" label="组件路径" prop="component">
-          <el-input v-model="form.component" placeholder="如 cccms/user/index" />
+        <el-form-item v-if="form.type === 2" :label="t('menu.component')" prop="component">
+          <el-input v-model="form.component" :placeholder="t('menu.componentPlaceholder')" />
         </el-form-item>
-        <el-form-item v-if="form.type !== 3" label="图标" prop="icon">
+        <el-form-item v-if="form.type !== 3" :label="t('menu.icon')" prop="icon">
           <el-popover trigger="click" :width="372" placement="bottom-start">
             <template #reference>
-              <el-input v-model="form.icon" readonly placeholder="点击选择图标" style="width: 100%">
+              <el-input v-model="form.icon" readonly :placeholder="t('menu.iconPlaceholder')" style="width: 100%">
                 <template #prefix>
                   <el-icon><ArtIcon :name="form.icon" /></el-icon>
                 </template>
@@ -111,19 +115,19 @@
             </div>
           </el-popover>
         </el-form-item>
-        <el-form-item label="排序" prop="sort">
+        <el-form-item :label="t('menu.sort')" prop="sort">
           <el-input-number v-model="form.sort" :min="0" />
         </el-form-item>
-        <el-form-item label="状态" prop="status">
+        <el-form-item :label="t('menu.status')" prop="status">
           <el-radio-group v-model="form.status">
-            <el-radio :value="1">显示</el-radio>
-            <el-radio :value="0">隐藏</el-radio>
+            <el-radio :value="1">{{ t('menu.shown') }}</el-radio>
+            <el-radio :value="0">{{ t('menu.hidden') }}</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
+        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -132,7 +136,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'cccms:menu' })
 
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
@@ -144,30 +149,37 @@ import { MENU_ICON_OPTIONS } from '@/utils/icon'
 import type { MenuNode } from '@/api/types'
 import type { ArtTableColumn } from '@/types/table'
 
-const typeTextMap: Record<number, string> = { 1: '目录', 2: '菜单', 3: '按钮' }
+const { t } = useI18n({ useScope: 'global' })
+
+/** 类型枚举：值是 i18n key，渲染处翻译 */
+const typeTextMap: Record<number, string> = {
+  1: 'menu.typeDir',
+  2: 'menu.typeMenu',
+  3: 'menu.typeButton',
+}
 const typeTagMap: Record<number, 'primary' | 'success' | 'warning'> = {
   1: 'primary',
   2: 'success',
   3: 'warning',
 }
 
-const columns: ArtTableColumn[] = [
-  { prop: 'title', label: '名称', minWidth: 200 },
-  { prop: 'type', label: '类型', width: 90, align: 'center', slot: 'type' },
-  { prop: 'node', label: '权限节点', minWidth: 190, slot: 'node' },
-  { prop: 'path', label: '路由', width: 160 },
-  { prop: 'component', label: '组件', width: 190, defaultHidden: true },
-  { prop: 'sort', label: '排序', width: 80, align: 'center' },
-  { prop: 'status', label: '状态', width: 90, align: 'center', slot: 'status' },
-  { prop: 'action', label: '操作', width: 210, fixed: 'right', slot: 'action', lockVisible: true },
-]
+const columns = computed<ArtTableColumn[]>(() => [
+  { prop: 'title', label: t('menu.name'), minWidth: 200 },
+  { prop: 'type', label: t('menu.typeLabel'), width: 90, align: 'center', slot: 'type' },
+  { prop: 'node', label: t('menu.node'), minWidth: 190, slot: 'node' },
+  { prop: 'path', label: t('menu.path'), width: 160 },
+  { prop: 'component', label: t('menu.component'), width: 190, defaultHidden: true },
+  { prop: 'sort', label: t('menu.sort'), width: 80, align: 'center' },
+  { prop: 'status', label: t('menu.status'), width: 90, align: 'center', slot: 'status' },
+  { prop: 'action', label: t('table.action'), width: 210, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 const loading = ref(false)
 const list = ref<MenuNode[]>([])
 const parentOptions = ref<MenuNode[]>([])
 
-const typeText = (t: number): string => typeTextMap[t] ?? '-'
-const typeTag = (t: number): 'primary' | 'success' | 'warning' => typeTagMap[t] ?? 'primary'
+const typeText = (type: number): string => (typeTextMap[type] ? t(typeTextMap[type]) : '-')
+const typeTag = (type: number): 'primary' | 'success' | 'warning' => typeTagMap[type] ?? 'primary'
 
 // 回收站开关（load() 在本文件末尾首次执行，那时它已初始化）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('menu', {
@@ -179,7 +191,7 @@ async function load(): Promise<void> {
   try {
     // trashed=true → 后端返回平铺的已删节点（含隐藏节点），恢复后父子关系自动接上
     list.value = await menuTree(recycle.value)
-    parentOptions.value = [{ id: 0, title: '顶级', children: list.value } as unknown as MenuNode]
+    parentOptions.value = [{ id: 0, title: t('menu.top'), children: list.value } as unknown as MenuNode]
   } finally {
     loading.value = false
   }
@@ -203,10 +215,10 @@ const emptyForm = {
 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
 
-const rules: FormRules = {
-  title: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  node: [{ required: true, message: '请输入权限节点', trigger: 'blur' }],
-}
+const rules = computed<FormRules>(() => ({
+  title: [{ required: true, message: t('menu.nameRequired'), trigger: 'blur' }],
+  node: [{ required: true, message: t('menu.nodeRequired'), trigger: 'blur' }],
+}))
 
 function openCreate(parentId: number): void {
   Object.assign(form, emptyForm, { parent_id: parentId })
@@ -230,7 +242,7 @@ async function submitForm(): Promise<void> {
     } else {
       await menuSave({ ...form })
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('menu.saveSuccess'))
     formVisible.value = false
     await load()
   } finally {
@@ -240,7 +252,7 @@ async function submitForm(): Promise<void> {
 
 async function onDelete(id: number): Promise<void> {
   await menuDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('menu.deleteSuccess'))
   await load()
 }
 

@@ -9,6 +9,7 @@ use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\NoAuth;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -40,7 +41,7 @@ class NoticeController extends BaseController
     {
         $id = NoticeLogic::create($request->post(), $request->user);
 
-        return $this->ok(['id' => $id], '新增成功');
+        return $this->ok(['id' => $id], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:notice:update', title: '更新通知公告')]
@@ -49,7 +50,7 @@ class NoticeController extends BaseController
     {
         NoticeLogic::update((int)$request->post('id', 0), $request->post());
 
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:notice:delete', title: '删除通知公告')]
@@ -58,7 +59,7 @@ class NoticeController extends BaseController
     {
         NoticeLogic::delete((int)$request->post('id', 0));
 
-        return $this->ok(null, '已删除');
+        return $this->ok(null, I18n::t('common.deleted'));
     }
 
     #[Permission(slug: 'cccms:notice:report', title: '通知公告已读回执报表')]
@@ -102,13 +103,13 @@ class NoticeController extends BaseController
     {
         NoticeLogic::markRead($request->user->id, (int)$request->post('id', 0));
 
-        return $this->ok(null, '已标记为已读');
+        return $this->ok(null, I18n::t('common.marked_read'));
     }
 
     #[NoAuth(title: '全部标记已读')]
     #[Restrict(methods: ['POST'])]
     public function markAllRead(Request $request): Response
     {
-        return $this->ok(['count' => NoticeLogic::markAllRead($request->user->id)], '已全部标记为已读');
+        return $this->ok(['count' => NoticeLogic::markAllRead($request->user->id)], I18n::t('common.marked_all_read'));
     }
 }

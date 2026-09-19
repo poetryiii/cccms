@@ -7,18 +7,18 @@
           v-model="keyword"
           size="small"
           clearable
-          :placeholder="placeholder"
+          :placeholder="searchPlaceholder"
           class="art-node-picker-search"
           @input="onKeywordInput"
         />
-        <el-button size="small" @click="clear">清空</el-button>
+        <el-button size="small" @click="clear">{{ t('common.nodePicker.clear') }}</el-button>
       </template>
       <template v-else>
         <el-button v-if="hasChildren" size="small" @click="toggleExpand">
-          {{ expanded ? '全部折叠' : '全部展开' }}
+          {{ expanded ? t('common.nodePicker.collapseAll') : t('common.nodePicker.expandAll') }}
         </el-button>
-        <el-button v-if="multiple" size="small" @click="checkAll">全选</el-button>
-        <el-button size="small" @click="clear">清空</el-button>
+        <el-button v-if="multiple" size="small" @click="checkAll">{{ t('common.nodePicker.selectAll') }}</el-button>
+        <el-button size="small" @click="clear">{{ t('common.nodePicker.clear') }}</el-button>
       </template>
     </div>
 
@@ -68,8 +68,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElTree } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 
 type NodeRow = Record<string, any>
+
+const { t } = useI18n({ useScope: 'global' })
 
 /**
  * 节点选择器（与角色管理「权限节点」同一套结构：上面按钮、下面节点）。
@@ -96,6 +99,7 @@ const props = withDefaults(
     nodeKey?: string
     labelField?: string
     multiple?: boolean
+    /** 搜索框占位文案；缺省时用内置翻译 */
     placeholder?: string
   }>(),
   {
@@ -105,7 +109,7 @@ const props = withDefaults(
     nodeKey: 'id',
     labelField: 'name',
     multiple: false,
-    placeholder: '输入关键词搜索',
+    placeholder: '',
   },
 )
 
@@ -232,11 +236,13 @@ const rows = computed<NodeRow[]>(() => {
   return out
 })
 
+const searchPlaceholder = computed(() => props.placeholder || t('common.nodePicker.searchPlaceholder'))
+
 const emptyText = computed(() => {
   if (keyword.value.trim()) {
-    return searching.value ? '搜索中…' : '没有匹配的用户'
+    return searching.value ? t('common.nodePicker.searching') : t('common.nodePicker.noMatchUser')
   }
-  return props.selectedRow ? '' : props.placeholder
+  return props.selectedRow ? '' : searchPlaceholder.value
 })
 
 function toggle(key: number): void {

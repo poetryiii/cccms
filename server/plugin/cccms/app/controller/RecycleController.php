@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\RecycleLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -29,7 +30,7 @@ class RecycleController extends BaseController
     {
         $count = RecycleLogic::restore((string)$request->post('type', ''), (array)$request->post('ids', []));
 
-        return $this->ok(['restored' => $count], "已恢复 {$count} 条");
+        return $this->ok(['restored' => $count], I18n::t('common.restored_count', ['count' => $count]));
     }
 
     #[Permission(slug: 'cccms:recycle:delete', title: '彻底删除回收站数据', group: 'cccms:setting')]
@@ -38,6 +39,6 @@ class RecycleController extends BaseController
     {
         $count = RecycleLogic::forceDelete((string)$request->post('type', ''), (array)$request->post('ids', []));
 
-        return $this->ok(['deleted' => $count], "已彻底删除 {$count} 条");
+        return $this->ok(['deleted' => $count], I18n::t('common.purged_count', ['count' => $count]));
     }
 }

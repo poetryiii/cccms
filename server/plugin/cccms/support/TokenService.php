@@ -17,11 +17,29 @@ final class TokenService
 {
     private const ALG = 'HS256';
 
+    /** HS256 的密钥长度下限（字节） */
+    public const MIN_SECRET_LENGTH = 32;
+
+    /**
+     * 未配置 `security.token_ttl` 时的兜底有效期（秒）= 2 小时。
+     *
+     * 刻意不用「7 天」这类长值：令牌存在 localStorage，TTL 就是 XSS 一旦发生
+     * 攻击者能用的**窗口长度**。缩短 TTL 的体验代价由**滑动续期**抵消
+     * （见 `shouldRenew()`：剩余不足 1/3 时自动换新令牌，活跃用户无感）。
+     */
+    public const DEFAULT_TTL = 7200;
+
+    /** 剩余有效期低于 TTL 的几分之一时触发续期 */
+    private const RENEW_RATIO = 3;
+
     public static function secret(): string
     {
         $secret = config('plugin.cccms.auth.secret', '');
         if (!is_string($secret) || $secret === '') {
             throw new ApiException('JWT secret 未配置', 500);
+        }
+        if (strlen($secret) < self::MIN_SECRET_LENGTH) {
+            throw new ApiException('JWT secret 长度不足 ' . self::MIN_SECRET_LENGTH . ' 字节', 500);
         }
         return $secret;
     }
@@ -29,8 +47,30 @@ final class TokenService
     /** 令牌有效期：优先取后台配置（security.token_ttl），回退到配置文件 */
     public static function ttl(): int
     {
-        $ttl = SysConfig::getInt('security.token_ttl', (int)config('plugin.cccms.auth.ttl', 604800));
-        return $ttl > 0 ? $ttl : 604800;
+        $ttl = SysConfig::getInt('security.token_ttl', (int)config('plugin.cccms.auth.ttl', self::DEFAULT_TTL));
+        return $ttl > 0 ? $ttl : self::DEFAULT_TTL;
+    }
+
+    /**
+     * 是否需要滑动续期：剩余有效期不足 TTL 的 1/3。
+     *
+     * 由 `CheckLogin` 在每个已鉴权请求上判断，命中则签发新令牌并经响应头
+     * `X-Refresh-Token` 下发，前端静默替换（用户无感）。
+     *
+     * 已过期 / 缺少 `exp` 一律返回 false：那是 401 的职责，不在这里救。
+     *
+     * @param array<string,mixed> $claims
+     */
+    public static function shouldRenew(array $claims): bool
+    {
+        $exp = (int)($claims['exp'] ?? 0);
+        if ($exp <= 0) {
+            return false;
+        }
+
+        $left = $exp - time();
+
+        return $left > 0 && $left < (int)ceil(self::ttl() / self::RENEW_RATIO);
     }
 
     /**

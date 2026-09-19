@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\app\logic;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\TokenBlacklist;
 use plugin\cccms\support\UserContext;
@@ -45,10 +46,10 @@ final class OnlineLogic
     public static function kick(string $jti, string $selfJti): void
     {
         if ($jti === '') {
-            throw new ApiException('请选择要下线的会话', 422);
+            throw new ApiException(I18n::t('online.session_required'), 422);
         }
         if ($selfJti !== '' && $jti === $selfJti) {
-            throw new ApiException('不能强制下线当前会话，请使用「退出登录」', 422);
+            throw new ApiException(I18n::t('online.cannot_kick_self_session'), 422);
         }
 
         // 精确作废：用会话里登记的 exp 计算黑名单 TTL，不留多余垃圾
@@ -64,10 +65,10 @@ final class OnlineLogic
     public static function kickUser(int $userId, UserContext $operator): int
     {
         if ($userId <= 0) {
-            throw new ApiException('请选择要下线的用户', 422);
+            throw new ApiException(I18n::t('online.user_required'), 422);
         }
         if ($userId === $operator->id) {
-            throw new ApiException('不能强制下线自己，请使用「退出登录」', 422);
+            throw new ApiException(I18n::t('online.cannot_kick_self'), 422);
         }
 
         // 用户级时间分界线：该用户此前签发的令牌全部作废（比逐条 jti 更彻底）。

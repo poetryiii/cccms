@@ -18,6 +18,8 @@
 return [
     'enable' => true,
     'middleware' => [     // Static file Middleware
-        //app\middleware\StaticFile::class,
+        // 本地存储（public/storage）与后台同域直出，统一加 nosniff 并对非图片/PDF
+        // 强制下载，避免含脚本的存量附件被内联渲染成存储型 XSS。
+        plugin\cccms\app\middleware\StorageGuard::class,
     ],
 ];

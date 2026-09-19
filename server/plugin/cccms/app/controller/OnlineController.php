@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\OnlineLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -26,7 +27,7 @@ class OnlineController extends BaseController
     {
         OnlineLogic::kick((string)$request->post('jti', ''), (string)($request->jti ?? ''));
 
-        return $this->ok(null, '已强制下线');
+        return $this->ok(null, I18n::t('common.forced_offline'));
     }
 
     #[Permission(slug: 'cccms:online:kick_user', title: '强制用户全部下线')]
@@ -35,6 +36,6 @@ class OnlineController extends BaseController
     {
         $sessions = OnlineLogic::kickUser((int)$request->post('user_id', 0), $request->user);
 
-        return $this->ok(['sessions' => $sessions], '已强制下线');
+        return $this->ok(['sessions' => $sessions], I18n::t('common.forced_offline'));
     }
 }

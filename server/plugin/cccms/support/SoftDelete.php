@@ -31,6 +31,9 @@ use think\facade\Db;
  *
  * 注意：构造器直查是「显式」的——**每个读取入口都要记得调用 apply()**；
  * 能走模型的地方请优先走模型（自动过滤，不会漏）。
+ *
+ * 租户边界同理：模型查询由 `BaseModel` 的全局作用域自动收敛，构造器直查请用
+ * `TenantContext::table('表名')` 替代 `Db::name('表名')`（写入用 `TenantContext::stamp()`）。
  */
 final class SoftDelete
 {
@@ -56,11 +59,14 @@ final class SoftDelete
     /**
      * 列表查询入口：按请求参数 `trashed` 决定数据源。
      *
+     * 走 `TenantContext::table()`：参与租户隔离的表自动带上租户条件
+     * （未参与的表与 CLI / 登录前无上下文时原样返回）。
+     *
      * @param array<string,mixed> $params 控制器透传的查询参数
      */
     public static function listQuery(string $table, array $params)
     {
-        return self::scope(Db::name($table), !empty($params['trashed']));
+        return self::scope(TenantContext::table($table), !empty($params['trashed']));
     }
 
     /** 该行是否已进回收站（按已取出的行判断，不再查库） */

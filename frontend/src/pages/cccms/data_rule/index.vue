@@ -1,12 +1,6 @@
 <template>
   <div class="art-fill">
-    <el-alert
-      class="rule-tip"
-      type="info"
-      :closable="false"
-      show-icon
-      title="预设档（角色的「数据范围」）决定基线，自定义行级规则在其上叠加（AND）；「全部数据」档位下规则不生效，「自定义规则」档位下若一条规则都没命中则看不到任何数据。绑定四项都不选 = 全局规则；绑定项之间的组合方式由「绑定关系」决定：任一命中（或）/ 全部命中（且）。指定了「目标表」的行级规则只在该表生效。目标表只能选「已接入数据权限」的表，字段随目标表级联。列表的「检测」列会标出条件互斥等风险（多条规则同时命中同一个用户时是 AND 叠加，条件互斥会让人看不到任何数据）。"
-    />
+    <el-alert class="rule-tip" type="info" :closable="false" show-icon :title="t('data_rule.tip')" />
 
     <ArtTable
       :columns="columns"
@@ -25,56 +19,83 @@
       @force-delete="onForceDelete"
     >
       <template #search>
-        <el-form-item label="规则名">
-          <el-input v-model="query.name" placeholder="请输入" clearable style="width: 150px" />
+        <el-form-item :label="t('data_rule.nameLabel')">
+          <el-input
+            v-model="query.name"
+            :placeholder="t('data_rule.searchPlaceholder')"
+            clearable
+            style="width: 150px"
+          />
         </el-form-item>
-        <el-form-item label="目标表">
-          <el-select v-model="query.table_name" clearable placeholder="全部" style="width: 170px">
-            <el-option v-for="t in options.tables" :key="t.table" :label="t.label" :value="t.table" />
+        <el-form-item :label="t('data_rule.targetTableLabel')">
+          <el-select
+            v-model="query.table_name"
+            clearable
+            :placeholder="t('data_rule.allPlaceholder')"
+            style="width: 170px"
+          >
+            <el-option v-for="item in options.tables" :key="item.table" :label="item.label" :value="item.table" />
           </el-select>
         </el-form-item>
-        <el-form-item label="字段名">
-          <el-input v-model="query.field" placeholder="请输入" clearable style="width: 140px" />
+        <el-form-item :label="t('data_rule.fieldNameLabel')">
+          <el-input
+            v-model="query.field"
+            :placeholder="t('data_rule.searchPlaceholder')"
+            clearable
+            style="width: 140px"
+          />
         </el-form-item>
       </template>
 
       <template #toolbar>
         <el-button v-auth="'cccms:data_rule:save'" type="primary" :icon="Plus" @click="openCreate">
-          新增规则
+          {{ t('data_rule.create') }}
         </el-button>
-        <el-button v-auth="'cccms:data_rule:table_index'" :icon="Setting" @click="openTables"> 受控表 </el-button>
+        <el-button v-auth="'cccms:data_rule:table_index'" :icon="Setting" @click="openTables">
+          {{ t('data_rule.managedTables') }}
+        </el-button>
       </template>
 
       <template #toolbar-right>
-        <el-button v-auth="'cccms:data_rule:export'" :icon="Download" @click="onExport"> 导出 </el-button>
-        <el-button v-auth="'cccms:data_rule:import'" :icon="Upload" @click="openImport"> 导入 </el-button>
-        <RecycleToggle :active="recycle" label="数据权限规则" @toggle="toggle" />
+        <el-button v-auth="'cccms:data_rule:export'" :icon="Download" @click="onExport">
+          {{ t('common.export') }}
+        </el-button>
+        <el-button v-auth="'cccms:data_rule:import'" :icon="Upload" @click="openImport">
+          {{ t('common.import') }}
+        </el-button>
+        <RecycleToggle :active="recycle" :label="t('data_rule.recycleLabel')" @toggle="toggle" />
       </template>
 
       <template #target="{ row }">
         <el-tag v-if="row.table_name" effect="plain" size="small">
           {{ row.table_label || row.table_name }}
         </el-tag>
-        <span v-else class="cond-empty">不限表</span>
+        <span v-else class="cond-empty">{{ t('data_rule.anyTable') }}</span>
       </template>
 
       <template #bind="{ row }">
-        <span v-if="!hasBind(row)">全局</span>
+        <span v-if="!hasBind(row)">{{ t('data_rule.global') }}</span>
         <template v-else>
           <!-- 组合方式打头：多行规则并排时，立刻能看出是「且」还是「或」 -->
           <el-tag
             size="small"
             :type="row.bind_mode === 'and' ? 'warning' : 'info'"
             class="bind-mode-tag"
-            :title="row.bind_mode === 'and' ? '已填写的绑定项全部命中才生效' : '已填写的绑定项命中任意一项即生效'"
+            :title="row.bind_mode === 'and' ? t('data_rule.bindAndTip') : t('data_rule.bindOrTip')"
           >
-            {{ row.bind_mode === 'and' ? '且' : '或' }}
+            {{ row.bind_mode === 'and' ? t('data_rule.bindAnd') : t('data_rule.bindOr') }}
           </el-tag>
-          <el-tag v-if="row.user_name" size="small" effect="plain">用户：{{ row.user_name }}</el-tag>
-          <el-tag v-if="row.post_name" size="small" effect="plain" class="bind-tag"> 岗位：{{ row.post_name }} </el-tag>
-          <el-tag v-if="row.role_name" size="small" effect="plain" class="bind-tag"> 角色：{{ row.role_name }} </el-tag>
+          <el-tag v-if="row.user_name" size="small" effect="plain">
+            {{ t('data_rule.bindUser', { name: row.user_name }) }}
+          </el-tag>
+          <el-tag v-if="row.post_name" size="small" effect="plain" class="bind-tag">
+            {{ t('data_rule.bindPost', { name: row.post_name }) }}
+          </el-tag>
+          <el-tag v-if="row.role_name" size="small" effect="plain" class="bind-tag">
+            {{ t('data_rule.bindRole', { name: row.role_name }) }}
+          </el-tag>
           <el-tag v-if="row.dept_names" size="small" effect="plain" class="bind-tag">
-            部门：{{ row.dept_names }}
+            {{ t('data_rule.bindDept', { name: row.dept_names }) }}
           </el-tag>
         </template>
       </template>
@@ -85,7 +106,7 @@
             <div v-for="(c, i) in row.conflicts" :key="i" class="conflict-line">{{ c.message }}</div>
           </template>
           <el-tag :type="hasUnsat(row) ? 'danger' : 'warning'" size="small" effect="light">
-            {{ hasUnsat(row) ? '冲突' : '提示' }}
+            {{ hasUnsat(row) ? t('data_rule.conflict') : t('data_rule.hint') }}
           </el-tag>
         </el-tooltip>
         <span v-else class="cond-empty">—</span>
@@ -105,10 +126,12 @@
       </template>
 
       <template #action="{ row }">
-        <el-button v-auth="'cccms:data_rule:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
-        <el-popconfirm title="确定删除该规则？" @confirm="onDelete(row.id)">
+        <el-button v-auth="'cccms:data_rule:update'" link type="primary" @click="openEdit(row)">
+          {{ t('common.edit') }}
+        </el-button>
+        <el-popconfirm :title="t('data_rule.deleteConfirm')" @confirm="onDelete(row.id)">
           <template #reference>
-            <el-button v-auth="'cccms:data_rule:delete'" link type="danger">删除</el-button>
+            <el-button v-auth="'cccms:data_rule:delete'" link type="danger">{{ t('common.delete') }}</el-button>
           </template>
         </el-popconfirm>
       </template>
@@ -116,18 +139,18 @@
 
     <el-dialog
       v-model="formVisible"
-      :title="form.id ? '编辑规则' : '新增规则'"
+      :title="form.id ? t('data_rule.editTitle') : t('data_rule.createTitle')"
       width="660px"
       top="6vh"
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
-        <el-form-item label="规则名" prop="name">
-          <el-input v-model="form.name" placeholder="如 客服只看未关闭工单" />
+        <el-form-item :label="t('data_rule.nameLabel')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('data_rule.namePlaceholder')" />
         </el-form-item>
 
         <!-- 绑定对象：四个维度做成选项卡，已选项常驻在选项卡下方（切换选项卡也能看到） -->
-        <el-form-item label="绑定对象">
+        <el-form-item :label="t('data_rule.bindLabel')">
           <div class="bind-panel">
             <el-tabs v-model="bindTab" class="bind-tabs">
               <el-tab-pane :label="tabLabel('user')" name="user">
@@ -136,40 +159,46 @@
                   :search="searchUsers"
                   :selected-row="selectedUser"
                   :label-fn="userLabel"
-                  placeholder="输入账号或昵称搜索"
+                  :placeholder="t('data_rule.userSearchPlaceholder')"
                 />
-                <div class="form-tip">按账号 / 昵称模糊搜索；命中条件：登录账号就是这个用户。</div>
+                <div class="form-tip">{{ t('data_rule.userTip') }}</div>
               </el-tab-pane>
 
               <el-tab-pane :label="tabLabel('post')" name="post">
                 <ArtNodePicker v-model="draft.post" :data="options.posts" />
-                <div class="form-tip">命中条件：用户被分配了该岗位。</div>
+                <div class="form-tip">{{ t('data_rule.postTip') }}</div>
               </el-tab-pane>
 
               <el-tab-pane :label="tabLabel('role')" name="role">
                 <ArtNodePicker v-model="draft.role" :data="options.roles" />
-                <div class="form-tip">只认<b>直接分配</b>的角色：既不自动带上子角色，也不继承上级角色。</div>
+                <div class="form-tip">
+                  {{ t('data_rule.roleTipPrefix') }}<b>{{ t('data_rule.roleTipBold') }}</b
+                  >{{ t('data_rule.roleTipSuffix') }}
+                </div>
               </el-tab-pane>
 
               <el-tab-pane :label="tabLabel('dept')" name="dept">
                 <ArtNodePicker v-model="draft.dept" :data="options.depts" multiple />
-                <div class="form-tip">可多选；绑定部门<b>含下级</b>：绑「总公司」会覆盖它下面所有部门的人。</div>
+                <div class="form-tip">
+                  {{ t('data_rule.deptTipPrefix') }}<b>{{ t('data_rule.deptTipBold') }}</b
+                  >{{ t('data_rule.deptTipSuffix') }}
+                </div>
               </el-tab-pane>
             </el-tabs>
 
             <div class="bind-add">
               <el-button type="primary" plain size="small" :icon="Plus" :disabled="!canAdd" @click="addBinding">
-                添加到已选
+                {{ t('data_rule.addToSelected') }}
               </el-button>
-              <span class="form-tip bind-add-tip">{{ addHint }}移除已选项请点下方标签上的 ×。</span>
+              <span class="form-tip bind-add-tip">{{ addHint }}</span>
             </div>
 
             <!-- 已选项：放在选项卡之外，切到哪个选项卡都看得见 -->
             <div class="bind-selected">
               <div class="bind-selected-head">
-                <span>已选绑定对象</span>
+                <span>{{ t('data_rule.selectedBindings') }}</span>
                 <el-button v-if="selectedGroups.length" link type="danger" size="small" @click="clearBindings">
-                  清空全部
+                  {{ t('data_rule.clearAll') }}
                 </el-button>
               </div>
               <template v-if="selectedGroups.length">
@@ -188,26 +217,27 @@
                   </el-tag>
                 </div>
               </template>
-              <span v-else class="cond-empty">未选择 —— 四项都不选 = 全局规则</span>
+              <span v-else class="cond-empty">{{ t('data_rule.noneSelected') }}</span>
             </div>
           </div>
         </el-form-item>
 
         <!-- 绑定关系：单条规则内部的组合方式；默认 or 与历史行为一致 -->
-        <el-form-item label="绑定关系" prop="bind_mode">
+        <el-form-item :label="t('data_rule.bindModeLabel')" prop="bind_mode">
           <el-radio-group v-model="form.bind_mode">
-            <el-radio value="or">任一命中（或）</el-radio>
-            <el-radio value="and">全部命中（且）</el-radio>
+            <el-radio value="or">{{ t('data_rule.bindModeOr') }}</el-radio>
+            <el-radio value="and">{{ t('data_rule.bindModeAnd') }}</el-radio>
           </el-radio-group>
           <div class="form-tip">
-            「或」= 已选的几项里，<b>命中任意一项</b>就生效（范围更宽）；「且」=
-            只对<b>同时满足所有已选项</b>的人生效（范围更窄，如「张三 且 在客服岗」）。<br />
-            某项没选则不参与判断；四项都不选 = 全局规则，此开关不生效。
+            {{ t('data_rule.bindModeTipPrefix') }}<b>{{ t('data_rule.bindModeTipBoldOr') }}</b
+            >{{ t('data_rule.bindModeTipMiddle') }}<b>{{ t('data_rule.bindModeTipBoldAnd') }}</b
+            >{{ t('data_rule.bindModeTipSuffix') }}<br />
+            {{ t('data_rule.bindModeTipTail') }}
           </div>
         </el-form-item>
 
         <!-- 目标表 + 字段（级联选择） -->
-        <el-form-item label="目标表" prop="field">
+        <el-form-item :label="t('data_rule.targetTableLabel')" prop="field">
           <el-cascader
             v-model="targetValue"
             :options="cascaderOptions"
@@ -215,33 +245,56 @@
             filterable
             clearable
             class="target-cascader"
-            placeholder="选择目标表与字段"
+            :placeholder="t('data_rule.targetPlaceholder')"
           />
           <div class="form-tip">{{ fieldHint }}</div>
         </el-form-item>
 
-        <el-form-item label="规则动作" prop="action">
+        <el-form-item :label="t('data_rule.actionLabel')" prop="action">
           <el-select v-model="form.action" style="width: 100%">
-            <el-option v-for="a in options.actions" :key="a" :label="`${actionLabel(a)}（${a}）`" :value="a" />
+            <el-option
+              v-for="a in options.actions"
+              :key="a"
+              :label="t('data_rule.optionWithCode', { name: actionLabel(a), code: a })"
+              :value="a"
+            />
           </el-select>
-          <div class="form-tip">row = 行级过滤；其余为字段级（作用于出参，readonly 作用于入参）。</div>
+          <div class="form-tip">{{ t('data_rule.actionTip') }}</div>
+          <!-- 风险提示：encrypt 是「存储加密」而不是访问控制，容易被误当成敏感字段的防护手段 -->
+          <el-alert
+            v-if="form.action === 'encrypt'"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-top: 8px"
+            :title="t('data_rule.encryptTitle')"
+            :description="t('data_rule.encryptDesc')"
+          />
         </el-form-item>
 
         <template v-if="form.action === 'row'">
-          <el-form-item label="操作符" prop="operator">
+          <el-form-item :label="t('data_rule.operatorLabel')" prop="operator">
             <el-select v-model="form.operator" style="width: 100%">
-              <el-option v-for="op in operatorOptions" :key="op" :label="`${operatorLabel(op)}（${op}）`" :value="op" />
+              <el-option
+                v-for="op in operatorOptions"
+                :key="op"
+                :label="t('data_rule.optionWithCode', { name: operatorLabel(op), code: op })"
+                :value="op"
+              />
             </el-select>
           </el-form-item>
-          <el-form-item label="取值类型" prop="value_type">
+          <el-form-item :label="t('data_rule.valueTypeLabel')" prop="value_type">
             <el-radio-group v-model="form.value_type">
-              <el-radio value="static">静态值</el-radio>
-              <el-radio value="dynamic">动态变量</el-radio>
+              <el-radio value="static">{{ t('data_rule.staticValue') }}</el-radio>
+              <el-radio value="dynamic">{{ t('data_rule.dynamicValue') }}</el-radio>
             </el-radio-group>
-            <div class="form-tip">动态变量按<b>当前登录用户</b>实时解析，可表达「本部门及以下」这类动态范围。</div>
+            <div class="form-tip">
+              {{ t('data_rule.valueTypeTipPrefix') }}<b>{{ t('data_rule.valueTypeTipBold') }}</b
+              >{{ t('data_rule.valueTypeTipSuffix') }}
+            </div>
           </el-form-item>
 
-          <el-form-item label="取值" prop="value">
+          <el-form-item :label="t('data_rule.valueLabel')" prop="value">
             <el-select
               v-if="form.value_type === 'dynamic'"
               v-model="valueTokens"
@@ -250,7 +303,7 @@
               allow-create
               default-first-option
               style="width: 100%"
-              placeholder="选择变量，也可直接输入字面量"
+              :placeholder="t('data_rule.valuePlaceholder')"
             >
               <el-option
                 v-for="v in options.value_vars ?? []"
@@ -259,30 +312,36 @@
                 :value="v.value"
               />
             </el-select>
-            <el-input v-else v-model="form.value" placeholder="如 1，或用英文逗号分隔：1,2,3" />
+            <el-input v-else v-model="form.value" :placeholder="t('data_rule.staticValuePlaceholder')" />
             <div class="form-tip">{{ valueHint }}</div>
           </el-form-item>
         </template>
 
-        <el-form-item label="备注" prop="remark">
+        <el-form-item :label="t('data_rule.remarkLabel')" prop="remark">
           <el-input v-model="form.remark" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
+        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 受控表：只有登记在此的表才会出现在「目标表」候选里 -->
-    <el-dialog v-model="tableVisible" title="数据权限受控表" width="820px" top="8vh" :close-on-click-modal="false">
+    <el-dialog
+      v-model="tableVisible"
+      :title="t('data_rule.managedTableTitle')"
+      width="820px"
+      top="8vh"
+      :close-on-click-modal="false"
+    >
       <el-alert
         class="rule-tip"
         type="info"
         :closable="false"
         show-icon
-        title="只有登记在这里的表才会出现在「目标表」候选中，其余表一律隐藏。登记的前提是该表已接入数据权限（模型声明参与、查询走模型），否则配了规则也不会生效；可用 php webman cccms:data-scope-check 校验。"
-        description="登记只决定「能不能配自定义规则」。未登记的表（如部门）并非没有数据权限，只是按角色档位套用预设基线，不能再单独配规则。"
+        :title="t('data_rule.managedTableTip')"
+        :description="t('data_rule.managedTableDesc')"
       />
 
       <div class="tbl-add">
@@ -290,17 +349,17 @@
           v-model="addForm.table_name"
           filterable
           clearable
-          placeholder="选择要加入受控表的表"
+          :placeholder="t('data_rule.addTablePlaceholder')"
           class="tbl-add-select"
         >
           <el-option
-            v-for="t in tableData.available"
-            :key="t.table"
-            :label="`${t.label}（${t.full}）`"
-            :value="t.table"
+            v-for="item in tableData.available"
+            :key="item.table"
+            :label="`${item.label}（${item.full}）`"
+            :value="item.table"
           />
         </el-select>
-        <el-input v-model="addForm.label" placeholder="语义名（留空取表注释）" class="tbl-add-label" />
+        <el-input v-model="addForm.label" :placeholder="t('data_rule.semanticNamePlaceholder')" class="tbl-add-label" />
         <el-button
           v-auth="'cccms:data_rule:table_save'"
           type="primary"
@@ -308,62 +367,60 @@
           :loading="tableSaving"
           @click="onAddTable"
         >
-          加入
+          {{ t('data_rule.add') }}
         </el-button>
       </div>
 
       <el-table :data="tableData.list" size="small" border>
-        <el-table-column label="表名" width="180">
+        <el-table-column :label="t('data_rule.tableNameLabel')" width="180">
           <template #default="{ row }">
             <span class="tbl-name">{{ row.table_name }}</span>
-            <el-tag v-if="!row.exists" type="danger" size="small" effect="plain">表不存在</el-tag>
+            <el-tag v-if="!row.exists" type="danger" size="small" effect="plain">
+              {{ t('data_rule.tableMissing') }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="语义名" min-width="170">
+        <el-table-column :label="t('data_rule.semanticNameLabel')" min-width="170">
           <template #default="{ row }">
             <el-input v-model="row.label" size="small" @change="onUpdateTable(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="备注" min-width="150">
+        <el-table-column :label="t('data_rule.remarkLabel')" min-width="150">
           <template #default="{ row }">
             <el-input v-model="row.remark" size="small" @change="onUpdateTable(row)" />
           </template>
         </el-table-column>
-        <el-table-column prop="field_count" label="字段数" width="80" align="center" />
-        <el-table-column label="受控" width="80" align="center">
+        <el-table-column prop="field_count" :label="t('data_rule.fieldCountLabel')" width="80" align="center" />
+        <el-table-column :label="t('data_rule.controlledLabel')" width="80" align="center">
           <template #default="{ row }">
             <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="onUpdateTable(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="80" align="center">
+        <el-table-column :label="t('table.action')" width="80" align="center">
           <template #default="{ row }">
-            <el-popconfirm title="移除后，该表上的规则会暂停生效，确定？" @confirm="onRemoveTable(row)">
+            <el-popconfirm :title="t('data_rule.removeConfirm')" @confirm="onRemoveTable(row)">
               <template #reference>
-                <el-button v-auth="'cccms:data_rule:table_delete'" link type="danger">移除</el-button>
+                <el-button v-auth="'cccms:data_rule:table_delete'" link type="danger">
+                  {{ t('data_rule.remove') }}
+                </el-button>
               </template>
             </el-popconfirm>
           </template>
         </el-table-column>
-        <template #empty>暂未登记受控表</template>
+        <template #empty>{{ t('data_rule.noManagedTable') }}</template>
       </el-table>
 
       <template #footer>
-        <el-button @click="tableVisible = false">关闭</el-button>
+        <el-button @click="tableVisible = false">{{ t('data_rule.close') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 导入规则（CSV） -->
-    <el-dialog v-model="importVisible" title="导入数据权限规则" width="580px">
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        title="CSV 首行必须是列名；name 必填，同名规则会被更新，否则新增。绑定一律填 ID（0 = 不绑定），dept_ids 多个用 | 分隔；末尾的 *_name 列仅供人工校对，导入时忽略。"
-        style="margin-bottom: 12px"
-      />
+    <el-dialog v-model="importVisible" :title="t('data_rule.importTitle')" width="580px">
+      <el-alert type="info" :closable="false" show-icon :title="t('data_rule.importTip')" style="margin-bottom: 12px" />
 
       <div class="import-actions">
-        <el-button link type="primary" @click="onTemplate">下载导入模板</el-button>
+        <el-button link type="primary" @click="onTemplate">{{ t('data_rule.downloadTemplate') }}</el-button>
       </div>
 
       <el-upload
@@ -379,13 +436,21 @@
         :on-error="onImportError"
       >
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-        <div class="el-upload__text">将 CSV 拖到此处，或<em>点击选择</em></div>
+        <div class="el-upload__text">
+          {{ t('data_rule.uploadTextPrefix') }}<em>{{ t('data_rule.uploadTextClick') }}</em>
+        </div>
       </el-upload>
 
       <div v-if="importResult" class="import-result">
         <p>
-          共 {{ importResult.total }} 行：新增 {{ importResult.created }}，更新 {{ importResult.updated }}，失败
-          {{ importResult.failed.length }}
+          {{
+            t('data_rule.importSummary', {
+              total: importResult.total,
+              created: importResult.created,
+              updated: importResult.updated,
+              failed: importResult.failed.length,
+            })
+          }}
         </p>
         <ul v-if="importResult.failed.length" class="import-failed">
           <li v-for="(msg, index) in importResult.failed.slice(0, 20)" :key="index">{{ msg }}</li>
@@ -393,8 +458,10 @@
       </div>
 
       <template #footer>
-        <el-button @click="importVisible = false">关闭</el-button>
-        <el-button type="primary" :loading="importing" @click="submitImport">开始导入</el-button>
+        <el-button @click="importVisible = false">{{ t('data_rule.close') }}</el-button>
+        <el-button type="primary" :loading="importing" @click="submitImport">
+          {{ t('data_rule.startImport') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -404,6 +471,7 @@
 defineOptions({ name: 'cccms:data_rule' })
 
 import { computed, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Download, Plus, Setting, Upload, UploadFilled } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
@@ -441,6 +509,8 @@ interface Query {
   field: string
 }
 
+const { t } = useI18n({ useScope: 'global' })
+
 /** 目标表 → 字段 的级联节点 */
 interface CascadeNode {
   value: string
@@ -448,26 +518,27 @@ interface CascadeNode {
   children?: CascadeNode[]
 }
 
-const ACTION_LABELS: Record<string, string> = {
-  row: '行级过滤',
-  hidden: '字段隐藏',
-  readonly: '字段只读',
-  mask: '字段脱敏',
-  encrypt: '字段加密',
+/** 规则动作 → 语言包 key（文案跟随语言切换） */
+const ACTION_LABEL_KEYS: Record<string, string> = {
+  row: 'data_rule.actionRow',
+  hidden: 'data_rule.actionHidden',
+  readonly: 'data_rule.actionReadonly',
+  mask: 'data_rule.actionMask',
+  encrypt: 'data_rule.actionEncrypt',
 }
 
-/** 操作符语义（后端 options.operator_labels 优先，这里做兜底） */
-const OPERATOR_LABELS: Record<string, string> = {
-  '=': '等于',
-  '!=': '不等于',
-  '<>': '不等于',
-  '>': '大于',
-  '>=': '大于等于',
-  '<': '小于',
-  '<=': '小于等于',
-  like: '包含',
-  in: '属于',
-  between: '介于',
+/** 操作符语义 → 语言包 key（后端 options.operator_labels 优先，这里做兜底） */
+const OPERATOR_LABEL_KEYS: Record<string, string> = {
+  '=': 'data_rule.opEq',
+  '!=': 'data_rule.opNe',
+  '<>': 'data_rule.opNe',
+  '>': 'data_rule.opGt',
+  '>=': 'data_rule.opGe',
+  '<': 'data_rule.opLt',
+  '<=': 'data_rule.opLe',
+  like: 'data_rule.opLike',
+  in: 'data_rule.opIn',
+  between: 'data_rule.opBetween',
 }
 
 /** 这些类型用 like 没有意义；反过来，字符串列也不该出现比较操作符 */
@@ -487,19 +558,20 @@ const NUMERIC_TYPES = [
   'year',
 ]
 
-const columns: ArtTableColumn[] = [
+// 表格列文案跟随语言切换，用 computed 包裹
+const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 70 },
-  { prop: 'name', label: '规则名', minWidth: 140 },
-  { prop: 'table_name', label: '目标表', width: 160, slot: 'target' },
-  { prop: 'field', label: '字段', width: 120 },
-  { prop: 'bind', label: '绑定对象', minWidth: 200, slot: 'bind' },
+  { prop: 'name', label: t('data_rule.nameLabel'), minWidth: 140 },
+  { prop: 'table_name', label: t('data_rule.targetTableLabel'), width: 160, slot: 'target' },
+  { prop: 'field', label: t('data_rule.fieldLabel'), width: 120 },
+  { prop: 'bind', label: t('data_rule.bindLabel'), minWidth: 200, slot: 'bind' },
   // prop 用 action_type 而不是 action：下面还有一个「操作」列，重复 key 会让 v-for 出问题
-  { prop: 'action_type', label: '动作', width: 106, align: 'center', slot: 'action_type' },
-  { prop: 'condition', label: '条件', minWidth: 150, slot: 'condition' },
+  { prop: 'action_type', label: t('data_rule.actionColumnLabel'), width: 106, align: 'center', slot: 'action_type' },
+  { prop: 'condition', label: t('data_rule.conditionLabel'), minWidth: 150, slot: 'condition' },
   // 体检结果：冲突这类问题「配的时候看不出来、用的时候页面空白」，列表上直接标出来
-  { prop: 'conflict', label: '检测', width: 78, align: 'center', slot: 'conflict' },
-  { prop: 'action', label: '操作', width: 130, fixed: 'right', slot: 'action', lockVisible: true },
-]
+  { prop: 'conflict', label: t('data_rule.conflictColumnLabel'), width: 78, align: 'center', slot: 'conflict' },
+  { prop: 'action', label: t('table.action'), width: 130, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 // 回收站开关：必须在 useTable 之前（列表闭包在 setup 阶段就会执行一次）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('data_rule', {
@@ -532,12 +604,19 @@ async function loadOptions(): Promise<void> {
   primeBindNames()
 }
 
-const actionLabel = (action?: string): string => ACTION_LABELS[action ?? ''] ?? action ?? '-'
+const actionLabel = (action?: string): string => {
+  const key = ACTION_LABEL_KEYS[action ?? '']
+  return key ? t(key) : (action ?? '-')
+}
 
-/** 操作符语义化展示：优先用后端返回的映射，缺失时回退到本地表 */
+/** 操作符语义化展示：优先用后端返回的映射，缺失时回退到本地语言包 */
 function operatorLabel(operator?: string): string {
-  const map = options.value.operator_labels ?? OPERATOR_LABELS
-  return map[operator ?? ''] ?? operator ?? '-'
+  const backend = options.value.operator_labels?.[operator ?? '']
+  if (backend) {
+    return backend
+  }
+  const key = OPERATOR_LABEL_KEYS[operator ?? '']
+  return key ? t(key) : (operator ?? '-')
 }
 
 function actionTag(action?: string): 'primary' | 'success' | 'warning' | 'danger' | 'info' {
@@ -589,10 +668,11 @@ const emptyForm = {
 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
 
-const rules: FormRules = {
-  name: [{ required: true, message: '请输入规则名', trigger: 'blur' }],
-  field: [{ required: true, message: '请选择目标表与字段', trigger: 'change' }],
-}
+// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
+const rules = computed<FormRules>(() => ({
+  name: [{ required: true, message: t('data_rule.nameRequired'), trigger: 'blur' }],
+  field: [{ required: true, message: t('data_rule.fieldRequired'), trigger: 'change' }],
+}))
 
 /** 目标表 → 字段 的级联候选；「不限表」用 __none__ 表示，子节点是各表字段并集 */
 const cascaderOptions = computed<CascadeNode[]>(() => {
@@ -600,8 +680,8 @@ const cascaderOptions = computed<CascadeNode[]>(() => {
 
   const union: CascadeNode[] = []
   const seen = new Set<string>()
-  for (const t of tables) {
-    for (const f of t.fields) {
+  for (const table of tables) {
+    for (const f of table.fields) {
       if (seen.has(f.field)) {
         continue
       }
@@ -614,11 +694,11 @@ const cascaderOptions = computed<CascadeNode[]>(() => {
   }
 
   return [
-    { value: '__none__', label: '不限表（对已接入的模块生效）', children: union },
-    ...tables.map((t) => ({
-      value: t.table,
-      label: `${t.label}（${t.full}）`,
-      children: t.fields.map((f) => ({
+    { value: '__none__', label: t('data_rule.anyTableOption'), children: union },
+    ...tables.map((table) => ({
+      value: table.table,
+      label: `${table.label}（${table.full}）`,
+      children: table.fields.map((f) => ({
         value: f.field,
         label: f.label === f.field ? f.field : `${f.field}（${f.label}）`,
       })),
@@ -639,11 +719,11 @@ const targetValue = computed<string[]>({
 const currentFieldType = computed(() => {
   const tables = options.value.tables ?? []
   if (form.table_name) {
-    const chosen = tables.find((t) => t.table === form.table_name)
+    const chosen = tables.find((table) => table.table === form.table_name)
     return chosen?.fields.find((f) => f.field === form.field)?.type ?? ''
   }
-  for (const t of tables) {
-    const hit = t.fields.find((f) => f.field === form.field)
+  for (const table of tables) {
+    const hit = table.fields.find((f) => f.field === form.field)
     if (hit) {
       return hit.type
     }
@@ -671,9 +751,9 @@ watch(operatorOptions, (available) => {
 
 const fieldHint = computed(() => {
   if (!form.table_name) {
-    return '不限表：对所有已接入数据权限的模块生效，字段名需在各表都存在；不确定时建议指定目标表。'
+    return t('data_rule.fieldHintAnyTable')
   }
-  return '先选「目标表」再选字段；只列该表已有的字段，括号里是字段注释。'
+  return t('data_rule.fieldHintTable')
 })
 
 /* ---- 行级取值：动态变量 ---- */
@@ -694,15 +774,15 @@ const valueTokens = computed<string[]>({
 
 const valueHint = computed(() => {
   if (form.value_type !== 'dynamic') {
-    return 'in / between 用英文逗号分隔（between 形如 10,20）。'
+    return t('data_rule.valueHintStatic')
   }
   if (form.operator === 'between') {
-    return '需要正好两个值，例如 {user.id},100。'
+    return t('data_rule.valueHintBetween')
   }
   if (form.operator === 'in') {
-    return '多个变量会合并成一个集合走「属于(IN)」，例如 dept_id in {dept.subtree}。'
+    return t('data_rule.valueHintIn')
   }
-  return '变量展开成多个值时会按「属于(IN)」处理；建议改用「属于」操作符以表达集合语义。'
+  return t('data_rule.valueHintOther')
 })
 
 /* ---- 绑定对象：选项卡 + 已选列表 ---- */
@@ -710,11 +790,12 @@ const valueHint = computed(() => {
 /** 四个绑定维度 */
 type BindKey = 'user' | 'post' | 'role' | 'dept'
 
-const BIND_LABELS: Record<BindKey, string> = {
-  user: '用户',
-  post: '岗位',
-  role: '角色',
-  dept: '部门',
+/** 四个绑定维度的展示名 → 语言包 key */
+const BIND_LABEL_KEYS: Record<BindKey, string> = {
+  user: 'data_rule.bindUserLabel',
+  post: 'data_rule.bindPostLabel',
+  role: 'data_rule.bindRoleLabel',
+  dept: 'data_rule.bindDeptLabel',
 }
 
 /** 当前选项卡 */
@@ -776,10 +857,10 @@ interface BindItem {
 
 /** 已选项按维度分组：每个维度一行，多选（部门）就是一行多个标签 */
 const selectedGroups = computed(() =>
-  (Object.keys(BIND_LABELS) as BindKey[])
+  (Object.keys(BIND_LABEL_KEYS) as BindKey[])
     .map((category) => ({
       key: category,
-      label: BIND_LABELS[category],
+      label: t(BIND_LABEL_KEYS[category]),
       items: selectedIds.value[category].map<BindItem>((id) => ({
         key: `${category}-${id}`,
         category,
@@ -793,7 +874,7 @@ const selectedGroups = computed(() =>
 /** 选项卡标题带已选数量：切到别的选项卡也知道哪些维度已选 */
 function tabLabel(key: BindKey): string {
   const count = selectedIds.value[key].length
-  return count > 0 ? `${BIND_LABELS[key]} (${count})` : BIND_LABELS[key]
+  return count > 0 ? t('data_rule.bindTabWithCount', { name: t(BIND_LABEL_KEYS[key]), count }) : t(BIND_LABEL_KEYS[key])
 }
 
 /** 当前选项卡的待添加项是否有值 */
@@ -802,11 +883,7 @@ const canAdd = computed(() => {
   return Array.isArray(value) ? value.length > 0 : Number(value) > 0
 })
 
-const addHint = computed(() =>
-  bindTab.value === 'dept'
-    ? '部门可多选：每次「添加」并入已选，重复的不会重复添加。'
-    : '单选维度：「添加」会替换该维度已有的选择。',
-)
+const addHint = computed(() => (bindTab.value === 'dept' ? t('data_rule.addHintMulti') : t('data_rule.addHintSingle')))
 
 /** 添加到已选：单选维度替换，部门并入 */
 function addBinding(): void {
@@ -919,7 +996,7 @@ async function onAddTable(): Promise<void> {
   tableSaving.value = true
   try {
     await dataScopeTableSave({ table_name: addForm.table_name, label: addForm.label })
-    ElMessage.success('已加入受控表')
+    ElMessage.success(t('data_rule.tableAdded'))
     addForm.table_name = ''
     addForm.label = ''
     await loadTables()
@@ -937,14 +1014,14 @@ async function onUpdateTable(row: DataScopeTableRow): Promise<void> {
     status: row.status,
     remark: row.remark,
   })
-  ElMessage.success('已保存')
+  ElMessage.success(t('data_rule.tableSaved'))
   await loadOptions()
 }
 
 async function onRemoveTable(row: DataScopeTableRow): Promise<void> {
   const res = await dataScopeTableDelete(row.id)
   const paused = res?.rules ?? 0
-  ElMessage.success(paused > 0 ? `已移除，该表上的 ${paused} 条规则暂停生效` : '已移除')
+  ElMessage.success(paused > 0 ? t('data_rule.tableRemovedWithRules', { count: paused }) : t('data_rule.tableRemoved'))
   await loadTables()
   await loadOptions()
 }
@@ -1010,7 +1087,7 @@ async function submitForm(): Promise<void> {
     } else {
       await dataRuleSave(payload)
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('data_rule.saveSuccess'))
     formVisible.value = false
     load()
   } finally {
@@ -1020,7 +1097,7 @@ async function submitForm(): Promise<void> {
 
 async function onDelete(id: number): Promise<void> {
   await dataRuleDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('data_rule.deleteSuccess'))
   load()
 }
 
@@ -1057,23 +1134,28 @@ function submitImport(): void {
 function onImportSuccess(response: { code?: number; message?: string; data?: DataRuleImportResult }): void {
   importing.value = false
   if (!response || response.code !== 0) {
-    ElMessage.error(response?.message || '导入失败')
+    ElMessage.error(response?.message || t('data_rule.importFailed'))
     return
   }
 
   importResult.value = response.data ?? null
   const failed = response.data?.failed.length ?? 0
   if (failed === 0) {
-    ElMessage.success(`导入完成：新增 ${response.data?.created ?? 0}，更新 ${response.data?.updated ?? 0}`)
+    ElMessage.success(
+      t('data_rule.importDone', {
+        created: response.data?.created ?? 0,
+        updated: response.data?.updated ?? 0,
+      }),
+    )
   } else {
-    ElMessage.warning(`导入完成，但有 ${failed} 行失败，详见下方列表`)
+    ElMessage.warning(t('data_rule.importPartial', { failed }))
   }
   load()
 }
 
 function onImportError(): void {
   importing.value = false
-  ElMessage.error('导入失败，请检查文件格式或网络')
+  ElMessage.error(t('data_rule.importError'))
 }
 
 loadOptions()

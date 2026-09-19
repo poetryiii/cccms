@@ -6,6 +6,8 @@
       :loading="loading"
       :total="total"
       :recycle="recycle"
+      selection
+      row-key="id"
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
@@ -15,32 +17,58 @@
       @size-change="onLimitChange"
       @restore="onRestore"
       @force-delete="onForceDelete"
+      @selection-change="onSelectionChange"
     >
       <template #search>
-        <el-form-item label="岗位名称">
-          <el-input v-model="query.name" placeholder="请输入" clearable style="width: 180px" />
+        <el-form-item :label="t('post.nameLabel')">
+          <el-input v-model="query.name" :placeholder="t('post.searchPlaceholder')" clearable style="width: 180px" />
         </el-form-item>
       </template>
 
       <template #toolbar>
-        <el-button v-auth="'cccms:post:save'" type="primary" :icon="Plus" @click="openCreate"> 新增 </el-button>
+        <el-button v-auth="'cccms:post:save'" type="primary" :icon="Plus" @click="openCreate">
+          {{ t('common.create') }}
+        </el-button>
+
+        <!-- 批量操作：下挂用户的岗位会被后端跳过并回报 -->
+        <el-dropdown :disabled="selected.length === 0" @command="onBatchCommand">
+          <el-button :disabled="selected.length === 0">
+            {{ selected.length ? t('post.batchActionWithCount', { count: selected.length }) : t('post.batchAction') }}
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="hasAuth('cccms:post:batch_status')" command="enable">
+                {{ t('post.batchEnable') }}
+              </el-dropdown-item>
+              <el-dropdown-item v-if="hasAuth('cccms:post:batch_status')" command="disable">
+                {{ t('post.batchDisable') }}
+              </el-dropdown-item>
+              <el-dropdown-item v-if="hasAuth('cccms:post:batch_delete')" command="delete" divided>
+                {{ t('post.batchDelete') }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </template>
 
       <template #toolbar-right>
-        <RecycleToggle :active="recycle" label="岗位" @toggle="toggle" />
+        <RecycleToggle :active="recycle" :label="t('post.recycleLabel')" @toggle="toggle" />
       </template>
 
       <template #status="{ row }">
         <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
-          {{ row.status === 1 ? '启用' : '禁用' }}
+          {{ row.status === 1 ? t('post.enabled') : t('post.disabled') }}
         </el-tag>
       </template>
 
       <template #action="{ row }">
-        <el-button v-auth="'cccms:post:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
-        <el-popconfirm title="确定删除该岗位？" @confirm="onDelete(row.id)">
+        <el-button v-auth="'cccms:post:update'" link type="primary" @click="openEdit(row)">
+          {{ t('common.edit') }}
+        </el-button>
+        <el-popconfirm :title="t('post.deleteConfirm')" @confirm="onDelete(row.id)">
           <template #reference>
-            <el-button v-auth="'cccms:post:delete'" link type="danger">删除</el-button>
+            <el-button v-auth="'cccms:post:delete'" link type="danger">{{ t('common.delete') }}</el-button>
           </template>
         </el-popconfirm>
       </template>
@@ -48,30 +76,30 @@
 
     <el-dialog
       v-model="formVisible"
-      :title="form.id ? '编辑岗位' : '新增岗位'"
+      :title="form.id ? t('post.editTitle') : t('post.createTitle')"
       width="480px"
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="88px">
-        <el-form-item label="岗位编码" prop="code">
-          <el-input v-model="form.code" placeholder="如 sale_manager" />
+        <el-form-item :label="t('post.codeLabel')" prop="code">
+          <el-input v-model="form.code" :placeholder="t('post.codePlaceholder')" />
         </el-form-item>
-        <el-form-item label="岗位名称" prop="name">
-          <el-input v-model="form.name" placeholder="请输入岗位名称" />
+        <el-form-item :label="t('post.nameLabel')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('post.namePlaceholder')" />
         </el-form-item>
-        <el-form-item label="排序" prop="sort">
+        <el-form-item :label="t('post.sortLabel')" prop="sort">
           <el-input-number v-model="form.sort" :min="0" />
         </el-form-item>
-        <el-form-item label="状态" prop="status">
+        <el-form-item :label="t('post.statusLabel')" prop="status">
           <el-radio-group v-model="form.status">
-            <el-radio :value="1">启用</el-radio>
-            <el-radio :value="0">禁用</el-radio>
+            <el-radio :value="1">{{ t('post.enabled') }}</el-radio>
+            <el-radio :value="0">{{ t('post.disabled') }}</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
+        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -80,15 +108,33 @@
 <script setup lang="ts">
 defineOptions({ name: 'cccms:post' })
 
-import { reactive, ref } from 'vue'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'
 import { useTable } from '@/composables/useTable'
-import { postDelete, postList, postSave, postUpdate } from '@/api/post'
+import { useUserStore } from '@/stores/user'
+import {
+  postBatchDelete,
+  postBatchStatus,
+  postDelete,
+  postList,
+  postSave,
+  postUpdate,
+  type PostBatchResult,
+} from '@/api/post'
 import type { ArtTableColumn } from '@/types/table'
+
+const { t } = useI18n({ useScope: 'global' })
+/**
+ * 批量操作菜单项用 `v-if="hasAuth(...)"` 而不是 `v-auth`：
+ * ElDropdownItem 的根节点不是单个元素（内部是 ElRovingFocusItem），
+ * 运行时指令挂不上去，Vue 会告警且权限隐藏失效。
+ */
+const { hasAuth } = useUserStore()
 
 interface Row {
   id: number
@@ -103,14 +149,15 @@ interface Query {
   name: string
 }
 
-const columns: ArtTableColumn[] = [
+// 表格列文案跟随语言切换，用 computed 包裹
+const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'code', label: '岗位编码', minWidth: 150 },
-  { prop: 'name', label: '岗位名称', minWidth: 150 },
-  { prop: 'sort', label: '排序', width: 90, align: 'center' },
-  { prop: 'status', label: '状态', width: 90, align: 'center', slot: 'status' },
-  { prop: 'action', label: '操作', width: 130, fixed: 'right', slot: 'action', lockVisible: true },
-]
+  { prop: 'code', label: t('post.codeLabel'), minWidth: 150 },
+  { prop: 'name', label: t('post.nameLabel'), minWidth: 150 },
+  { prop: 'sort', label: t('post.sortLabel'), width: 90, align: 'center' },
+  { prop: 'status', label: t('post.statusLabel'), width: 90, align: 'center', slot: 'status' },
+  { prop: 'action', label: t('table.action'), width: 130, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 // 回收站开关：必须在 useTable 之前（列表闭包在 setup 阶段就会执行一次）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('post', {
@@ -132,10 +179,11 @@ const saving = ref(false)
 const emptyForm = { id: 0, code: '', name: '', sort: 0, status: 1 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
 
-const rules: FormRules = {
-  code: [{ required: true, message: '请输入岗位编码', trigger: 'blur' }],
-  name: [{ required: true, message: '请输入岗位名称', trigger: 'blur' }],
-}
+// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
+const rules = computed<FormRules>(() => ({
+  code: [{ required: true, message: t('post.codeRequired'), trigger: 'blur' }],
+  name: [{ required: true, message: t('post.nameRequired'), trigger: 'blur' }],
+}))
 
 function openCreate(): void {
   Object.assign(form, emptyForm)
@@ -159,7 +207,7 @@ async function submitForm(): Promise<void> {
     } else {
       await postSave({ ...form })
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('post.saveSuccess'))
     formVisible.value = false
     load()
   } finally {
@@ -169,7 +217,56 @@ async function submitForm(): Promise<void> {
 
 async function onDelete(id: number): Promise<void> {
   await postDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('post.deleteSuccess'))
   load()
+}
+
+/* ---------- 批量操作 ---------- */
+
+const selected = ref<Row[]>([])
+
+function onSelectionChange(rows: Row[]): void {
+  selected.value = rows
+}
+
+/** 越权 / 下挂用户的岗位由后端跳过，这里统一回报 */
+function reportBatch(result: PostBatchResult, action: 'enable' | 'disable' | 'delete'): void {
+  const doneKey = {
+    enable: 'post.batchEnableSuccess',
+    disable: 'post.batchDisableSuccess',
+    delete: 'post.batchDeleteSuccess',
+  }[action]
+  const partialKey = {
+    enable: 'post.batchEnablePartial',
+    disable: 'post.batchDisablePartial',
+    delete: 'post.batchDeletePartial',
+  }[action]
+  if (result.skipped.length > 0) {
+    ElMessage.warning(t(partialKey, { count: result.affected, skipped: result.skipped.length }))
+  } else {
+    ElMessage.success(t(doneKey, { count: result.affected }))
+  }
+}
+
+async function onBatchCommand(command: string): Promise<void> {
+  const ids = selected.value.map((row) => row.id)
+  if (ids.length === 0) {
+    return
+  }
+  if (command === 'enable' || command === 'disable') {
+    const status = command === 'enable' ? 1 : 0
+    const result = await postBatchStatus(ids, status)
+    reportBatch(result, command)
+    load()
+    return
+  }
+  if (command === 'delete') {
+    await ElMessageBox.confirm(t('post.batchDeleteConfirm', { count: ids.length }), t('post.batchDeleteTitle'), {
+      type: 'warning',
+    })
+    const result = await postBatchDelete(ids)
+    reportBatch(result, 'delete')
+    load()
+  }
 }
 </script>

@@ -113,7 +113,28 @@
       </div>
 
       <div class="art-table-wrap">
+        <!-- 虚拟滚动模式：仅当开启 virtual 且非树形/非回收站时生效，用 el-table-v2 + el-auto-resizer -->
+        <el-auto-resizer v-if="useVirtual">
+          <template #default="{ height, width }">
+            <el-table-v2
+              v-loading="loading"
+              :columns="virtualColumns"
+              :data="data"
+              :width="width"
+              :height="height"
+              :row-key="rowKey"
+              :header-height="44"
+              :row-height="48"
+            >
+              <template #empty>
+                <el-empty :description="t('table.empty')" :image-size="80" />
+              </template>
+            </el-table-v2>
+          </template>
+        </el-auto-resizer>
+
         <el-table
+          v-else
           :key="columnKey"
           v-loading="loading"
           :data="data"
@@ -183,11 +204,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, useSlots, watch } from 'vue'
+import { computed, h, inject, ref, useSlots, watch } from 'vue'
+import type { VNode } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { ElCheckbox, ElMessage } from 'element-plus'
 import { Delete, Filter, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
 import { TABLE_FILTER_KEY } from '@/composables/useTable'
 import type { ArtTableColumn } from '@/types/table'
@@ -217,6 +239,12 @@ const props = withDefaults(
      * 操作列统一换成「还原 / 彻底删除」，页面自带的 `slot: 'action'` 列与工具栏按钮不渲染。
      */
     recycle?: boolean
+    /**
+     * 大表格虚拟滚动：切换为 `el-table-v2`，只渲染可视区域内的行。
+     * 仅对「非树形、非回收站」的普通列表生效，其余场景自动回退普通 `el-table`（行为完全不变）。
+     * 适合单页行数达到数千以上的列表；普通分页列表无需开启。
+     */
+    virtual?: boolean
   }>(),
   {
     loading: false,
@@ -229,6 +257,7 @@ const props = withDefaults(
     tree: false,
     storageKey: '',
     recycle: false,
+    virtual: false,
   },
 )
 
@@ -441,6 +470,132 @@ function columnProps(col: ArtTableColumn): Record<string, unknown> {
   }
   return out
 }
+
+/* ---- 虚拟滚动（P2-15） ---- */
+
+/** 树形 / 回收站场景不支持 el-table-v2，自动回退普通表格 */
+const useVirtual = computed(() => props.virtual && !props.tree && !props.recycle)
+
+const VIRTUAL_DEFAULT_WIDTH = 150
+
+/** 虚拟模式下被勾选的行主键集合 */
+const virtualSelectedKeys = ref<(string | number)[]>([])
+
+function virtualRowKey(row: any): string | number {
+  return row?.[props.rowKey] ?? row?.id
+}
+
+const virtualAllChecked = computed(
+  () => props.data.length > 0 && virtualSelectedKeys.value.length === props.data.length,
+)
+const virtualIndeterminate = computed(
+  () => virtualSelectedKeys.value.length > 0 && virtualSelectedKeys.value.length < props.data.length,
+)
+
+function syncVirtualSelection(): void {
+  const rows = props.data.filter((row) => virtualSelectedKeys.value.includes(virtualRowKey(row)))
+  // 复用普通模式的勾选状态与 selection-change 事件，页面无需区分实现
+  selected.value = rows
+  emit('selection-change', rows)
+}
+
+function toggleVirtualAll(checked: string | number | boolean | undefined): void {
+  virtualSelectedKeys.value = checked ? props.data.map((row) => virtualRowKey(row)) : []
+  syncVirtualSelection()
+}
+
+function toggleVirtualRow(row: any): void {
+  const key = virtualRowKey(row)
+  const idx = virtualSelectedKeys.value.indexOf(key)
+  if (idx >= 0) {
+    virtualSelectedKeys.value = virtualSelectedKeys.value.filter((k) => k !== key)
+  } else {
+    virtualSelectedKeys.value = [...virtualSelectedKeys.value, key]
+  }
+  syncVirtualSelection()
+}
+
+/** 把 ArtTable 的列契约映射成 el-table-v2 的 Column（width 必填，插槽用 cellRenderer 自绘） */
+const virtualColumns = computed<Record<string, any>[]>(() => {
+  const cols: Record<string, any>[] = []
+  if (props.selection) {
+    cols.push({
+      key: '__selection',
+      width: 46,
+      align: 'center',
+      headerCellRenderer: () =>
+        h(ElCheckbox, {
+          modelValue: virtualAllChecked.value,
+          indeterminate: virtualIndeterminate.value,
+          onChange: toggleVirtualAll,
+        }),
+      cellRenderer: ({ rowData }: { rowData: any }) =>
+        h(ElCheckbox, {
+          modelValue: virtualSelectedKeys.value.includes(virtualRowKey(rowData)),
+          onChange: () => toggleVirtualRow(rowData),
+        }),
+    })
+  }
+  for (const col of visibleColumns.value) {
+    let width = columnWidths.value[col.prop]
+    if (!width && typeof col.width === 'number') {
+      width = col.width
+    }
+    if (!width && typeof col.minWidth === 'number') {
+      width = col.minWidth
+    }
+    if (!width) {
+      width = VIRTUAL_DEFAULT_WIDTH
+    }
+    const item: Record<string, any> = {
+      key: col.prop,
+      dataKey: col.prop,
+      title: col.label,
+      width,
+    }
+    if (col.align) {
+      item.align = col.align
+    }
+    if (col.fixed === true || col.fixed === 'left') {
+      item.fixed = 'left'
+    } else if (col.fixed === 'right') {
+      item.fixed = 'right'
+    }
+    if (col.slot && slots[col.slot]) {
+      const slotFn = slots[col.slot]!
+      item.cellRenderer = ({
+        rowData,
+        rowIndex,
+        cellData,
+      }: {
+        rowData: any
+        rowIndex: number
+        cellData: unknown
+      }): VNode => h('div', slotFn({ row: rowData, index: rowIndex, value: cellData }))
+    }
+    cols.push(item)
+  }
+  return cols
+})
+
+/**
+ * 翻页 / 刷新后剔除已不在当前数据里的勾选，避免批量操作误伤看不见的行
+ * （与普通表格不开 reserve-selection 的语义保持一致）。
+ */
+watch(
+  () => props.data,
+  () => {
+    if (!useVirtual.value || virtualSelectedKeys.value.length === 0) {
+      return
+    }
+    const keys = props.data.map((row) => virtualRowKey(row))
+    const next = virtualSelectedKeys.value.filter((key) => keys.includes(key))
+    if (next.length !== virtualSelectedKeys.value.length) {
+      virtualSelectedKeys.value = next
+      syncVirtualSelection()
+    }
+  },
+)
 
 function onCurrentChange(value: number): void {
   page.value = value

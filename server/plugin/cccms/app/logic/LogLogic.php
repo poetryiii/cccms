@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\OperationLog;
+use plugin\cccms\support\ApiException;
 use plugin\cccms\support\Csv;
+use plugin\cccms\support\I18n;
 use support\Log;
 use Throwable;
 use Webman\Http\Response;
@@ -24,6 +26,9 @@ final class LogLogic
 {
     /** 导出上限：避免一次导出把内存打满 */
     private const EXPORT_LIMIT = 10000;
+
+    /** 链路视图上限：一次请求正常只有个位数记录，给足余量即可 */
+    private const TRACE_LIMIT = 200;
 
     // ------------------------------------------------------------------
     // 写入
@@ -103,6 +108,44 @@ final class LogLogic
             ['ID', '账号', '操作', '结果', '说明', '方法', '路径', '节点', 'IP', '状态码', '耗时(ms)', '链路ID', '时间'],
             $data
         );
+    }
+
+    /**
+     * 按 `trace_id` 聚合一次请求的全部日志（P2-6 链路视图）。
+     *
+     * 走同一份 `newScopedQuery()`：看不见的日志自然不出现（越权行不泄露）。
+     * 按 `id` 升序返回，即请求内的时间顺序（同一请求的多条记录 id 递增）。
+     * 未传 / 空 `trace_id` 抛 422，避免「不带条件」把整表捞出来。
+     */
+    public static function trace(string $traceId): array
+    {
+        $traceId = trim($traceId);
+        if ($traceId === '') {
+            throw new ApiException(I18n::t('log.trace_id_required'), 422);
+        }
+
+        $list = OperationLog::newScopedQuery()
+            ->where('trace_id', $traceId)
+            ->order('id', 'asc')
+            ->limit(self::TRACE_LIMIT)
+            ->select()->toArray();
+
+        $failed = 0;
+        $cost   = 0;
+        foreach ($list as $row) {
+            if ((int)($row['status'] ?? 1) !== 1) {
+                $failed++;
+            }
+            $cost += (int)($row['cost'] ?? 0);
+        }
+
+        return [
+            'trace_id' => $traceId,
+            'total'    => count($list),
+            'failed'   => $failed,
+            'cost'     => $cost,
+            'list'     => $list,
+        ];
     }
 
     /** @return \think\db\BaseQuery */

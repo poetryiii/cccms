@@ -2,7 +2,12 @@
   <div class="art-fill">
     <ArtSplitView aside-width="240px">
       <template #aside>
-        <ArtTreePanel title="角色层级" :data="treeData" :current-key="currentId" @node-click="onNodeClick" />
+        <ArtTreePanel
+          :title="t('role.treeTitle')"
+          :data="treeData"
+          :current-key="currentId"
+          @node-click="onNodeClick"
+        />
       </template>
 
       <ArtTable
@@ -22,24 +27,26 @@
         @force-delete="onForceDelete"
       >
         <template #search>
-          <el-form-item label="角色名称">
-            <el-input v-model="query.name" placeholder="请输入" clearable style="width: 180px" />
+          <el-form-item :label="t('role.name')">
+            <el-input v-model="query.name" :placeholder="t('role.pleaseInput')" clearable style="width: 180px" />
           </el-form-item>
         </template>
 
         <template #toolbar>
-          <el-button v-auth="'cccms:role:save'" type="primary" :icon="Plus" @click="openCreate"> 新增 </el-button>
+          <el-button v-auth="'cccms:role:save'" type="primary" :icon="Plus" @click="openCreate">
+            {{ t('common.create') }}
+          </el-button>
           <el-tag v-if="currentId" type="info" closable @close="clearNode">
-            仅看：{{ currentNodeName }} 及其下级
+            {{ t('role.onlyView', { name: currentNodeName }) }}
           </el-tag>
         </template>
 
         <template #toolbar-right>
-          <RecycleToggle :active="recycle" label="角色" @toggle="toggle" />
+          <RecycleToggle :active="recycle" :label="t('role.entityLabel')" @toggle="toggle" />
         </template>
 
         <template #parent="{ row }">
-          {{ row.parent_id ? roleName(row.parent_id) : '顶级角色' }}
+          {{ row.parent_id ? roleName(row.parent_id) : t('role.topRole') }}
         </template>
 
         <template #scope="{ row }">
@@ -48,15 +55,20 @@
 
         <template #status="{ row }">
           <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
-            {{ row.status === 1 ? '启用' : '禁用' }}
+            {{ row.status === 1 ? t('role.enabled') : t('role.disabled') }}
           </el-tag>
         </template>
 
         <template #action="{ row }">
-          <el-button v-auth="'cccms:role:update'" link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-popconfirm title="确定删除该角色？" @confirm="onDelete(row.id)">
+          <el-button v-auth="'cccms:role:update'" link type="primary" @click="openEdit(row)">
+            {{ t('common.edit') }}
+          </el-button>
+          <el-button v-auth="'cccms:role:copy'" link type="warning" @click="openCopy(row)">
+            {{ t('role.copy') }}
+          </el-button>
+          <el-popconfirm :title="t('role.confirmDelete')" @confirm="onDelete(row.id)">
             <template #reference>
-              <el-button v-auth="'cccms:role:delete'" link type="danger">删除</el-button>
+              <el-button v-auth="'cccms:role:delete'" link type="danger">{{ t('common.delete') }}</el-button>
             </template>
           </el-popconfirm>
         </template>
@@ -65,24 +77,24 @@
 
     <el-dialog
       v-model="formVisible"
-      :title="form.id ? '编辑角色' : '新增角色'"
+      :title="form.id ? t('role.editRole') : t('role.createRole')"
       width="640px"
       :close-on-click-modal="false"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
-        <el-form-item label="角色名称" prop="name">
-          <el-input v-model="form.name" placeholder="请输入角色名称" />
+        <el-form-item :label="t('role.name')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('role.nameRequired')" />
         </el-form-item>
-        <el-form-item label="角色标识" prop="code">
+        <el-form-item :label="t('role.code')" prop="code">
           <el-input
             v-model="form.code"
             :disabled="form.code === 'super_admin'"
-            placeholder="如 sale_manager（超管角色不可改）"
+            :placeholder="t('role.codePlaceholder')"
           />
         </el-form-item>
-        <el-form-item label="父角色" prop="parent_id">
-          <el-select v-model="form.parent_id" placeholder="顶级角色" style="width: 100%">
-            <el-option label="无（顶级）" :value="0" />
+        <el-form-item :label="t('role.parent')" prop="parent_id">
+          <el-select v-model="form.parent_id" :placeholder="t('role.topRole')" style="width: 100%">
+            <el-option :label="t('role.noneTop')" :value="0" />
             <el-option
               v-for="r in parentOptions"
               :key="r.id"
@@ -91,36 +103,36 @@
               :disabled="r.id === form.id"
             />
           </el-select>
-          <div class="form-tip">子角色自动继承父角色的权限节点，此处只需勾选本角色独有节点。</div>
+          <div class="form-tip">{{ t('role.parentTip') }}</div>
         </el-form-item>
-        <el-form-item label="数据范围" prop="data_scope">
+        <el-form-item :label="t('role.dataScope')" prop="data_scope">
           <el-select v-model="form.data_scope" style="width: 100%">
-            <el-option label="全部数据" :value="1" />
-            <el-option label="本部门及以下" :value="2" />
-            <el-option label="本部门" :value="3" />
-            <el-option label="仅本人" :value="4" />
-            <el-option label="自定义规则" :value="5" />
+            <el-option :label="t('role.scopeAll')" :value="1" />
+            <el-option :label="t('role.scopeDeptAndBelow')" :value="2" />
+            <el-option :label="t('role.scopeDept')" :value="3" />
+            <el-option :label="t('role.scopeSelf')" :value="4" />
+            <el-option :label="t('role.scopeCustom')" :value="5" />
           </el-select>
           <div class="form-tip">
-            这里是「基线」。数据权限页里绑定到本角色的行级规则会<b>叠加（AND）</b>在基线之上：
-            选「本部门及以下」再配自定义规则 = 只看本部门及以下<b>且</b>满足规则的数据。
-            「全部数据」档下自定义行级规则不生效；「自定义规则」档没有基线，一条规则都没命中就看不到任何数据。
+            {{ t('role.scopeTipPrefix') }}<b>{{ t('role.scopeTipAnd') }}</b
+            >{{ t('role.scopeTipMiddle') }}<b>{{ t('role.scopeTipAnd2') }}</b
+            >{{ t('role.scopeTipSuffix') }}
           </div>
         </el-form-item>
-        <el-form-item label="状态" prop="status">
+        <el-form-item :label="t('role.status')" prop="status">
           <el-radio-group v-model="form.status">
-            <el-radio :value="1">启用</el-radio>
-            <el-radio :value="0">禁用</el-radio>
+            <el-radio :value="1">{{ t('role.enabled') }}</el-radio>
+            <el-radio :value="0">{{ t('role.disabled') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="权限节点">
+        <el-form-item :label="t('role.permNodes')">
           <div class="node-panel">
             <div class="node-panel-tools">
               <el-button size="small" @click="toggleExpandAll">
-                {{ expandAll ? '全部折叠' : '全部展开' }}
+                {{ expandAll ? t('role.collapseAll') : t('role.expandAll') }}
               </el-button>
-              <el-button size="small" @click="checkAllNodes">全选</el-button>
-              <el-button size="small" @click="clearAllNodes">清空</el-button>
+              <el-button size="small" @click="checkAllNodes">{{ t('role.selectAll') }}</el-button>
+              <el-button size="small" @click="clearAllNodes">{{ t('role.clear') }}</el-button>
             </div>
             <el-tree
               :key="treeKey"
@@ -136,8 +148,38 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
+        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitForm">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 复制角色：只复制角色本体（含档位）与自身节点，不复制子角色 -->
+    <el-dialog v-model="copyVisible" :title="t('role.copyRole')" width="520px" :close-on-click-modal="false">
+      <el-form ref="copyRef" :model="copyForm" :rules="copyRules" label-width="110px">
+        <el-form-item :label="t('role.sourceRole')">
+          <el-input :model-value="copySource?.name" disabled />
+        </el-form-item>
+        <el-form-item :label="t('role.newRoleName')" prop="name">
+          <el-input v-model="copyForm.name" :placeholder="t('role.newRoleNameRequired')" />
+        </el-form-item>
+        <el-form-item :label="t('role.newRoleCode')" prop="code">
+          <el-input v-model="copyForm.code" :placeholder="t('role.newRoleCodePlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('role.parent')">
+          <el-select v-model="copyForm.parent_id" :placeholder="t('role.topRole')" style="width: 100%">
+            <el-option :label="t('role.noneTop')" :value="0" />
+            <el-option v-for="r in parentOptions" :key="r.id" :label="r.name" :value="r.id" />
+          </el-select>
+          <div class="form-tip">{{ t('role.copyParentTip') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('role.saveAsTemplate')">
+          <el-switch v-model="copyAsTemplate" />
+          <span class="form-tip form-tip-inline">{{ t('role.templateTip') }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="copyVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="copying" @click="submitCopy">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -147,6 +189,7 @@
 defineOptions({ name: 'cccms:role' })
 
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElTree, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import ArtSplitView from '@/components/core/ArtSplitView.vue'
@@ -155,9 +198,11 @@ import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { useTable } from '@/composables/useTable'
-import { roleDelete, roleList, roleRead, roleSave, roleTree, roleUpdate } from '@/api/role'
+import { roleCopy, roleDelete, roleList, roleRead, roleSave, roleTree, roleUpdate } from '@/api/role'
 import { menuTree } from '@/api/menu'
 import type { ArtTableColumn } from '@/types/table'
+
+const { t } = useI18n({ useScope: 'global' })
 
 interface Row {
   id: number
@@ -173,23 +218,23 @@ interface Query {
   name: string
 }
 
-const scopeTextMap: Record<number, string> = {
-  1: '全部数据',
-  2: '本部门及以下',
-  3: '本部门',
-  4: '仅本人',
-  5: '自定义',
-}
+const scopeTextMap = computed<Record<number, string>>(() => ({
+  1: t('role.scopeAll'),
+  2: t('role.scopeDeptAndBelow'),
+  3: t('role.scopeDept'),
+  4: t('role.scopeSelf'),
+  5: t('role.scopeCustomShort'),
+}))
 
-const columns: ArtTableColumn[] = [
+const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'name', label: '角色名称', minWidth: 150 },
-  { prop: 'code', label: '角色标识', minWidth: 150 },
-  { prop: 'parent_id', label: '父角色', width: 130, slot: 'parent' },
-  { prop: 'data_scope', label: '数据范围', width: 140, align: 'center', slot: 'scope' },
-  { prop: 'status', label: '状态', width: 90, align: 'center', slot: 'status' },
-  { prop: 'action', label: '操作', width: 130, fixed: 'right', slot: 'action', lockVisible: true },
-]
+  { prop: 'name', label: t('role.name'), minWidth: 150 },
+  { prop: 'code', label: t('role.code'), minWidth: 150 },
+  { prop: 'parent_id', label: t('role.parent'), width: 130, slot: 'parent' },
+  { prop: 'data_scope', label: t('role.dataScope'), width: 140, align: 'center', slot: 'scope' },
+  { prop: 'status', label: t('role.status'), width: 90, align: 'center', slot: 'status' },
+  { prop: 'action', label: t('table.action'), width: 170, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 /* ---- 左侧树：选中节点后仅列出该角色及其下级 ---- */
 /** 0 = 全部 */
@@ -210,7 +255,7 @@ const { list, loading, total, page, limit, query, load, search, reset, onPageCha
 })
 
 const roleTreeData = ref<Row[]>([])
-const treeData = computed<Row[]>(() => [{ id: 0, name: '全部角色' }, ...roleTreeData.value])
+const treeData = computed<Row[]>(() => [{ id: 0, name: t('role.allRoles') }, ...roleTreeData.value])
 const currentNodeName = computed(() =>
   currentId.value ? (flatten(roleTreeData.value).find((r) => r.id === currentId.value)?.name ?? '') : '',
 )
@@ -233,7 +278,7 @@ const expandAll = ref(false)
 const treeKey = ref(0)
 const treeRef = ref<InstanceType<typeof ElTree>>()
 
-const scopeText = (value?: number): string => scopeTextMap[value ?? 0] ?? '-'
+const scopeText = (value?: number): string => scopeTextMap.value[value ?? 0] ?? '-'
 const roleName = (id?: number): string => parentOptions.value.find((r) => r.id === id)?.name ?? '-'
 
 function flatten(tree: Row[]): Row[] {
@@ -275,10 +320,10 @@ const emptyForm = {
 }
 const form = reactive<Record<string, any>>({ ...emptyForm })
 
-const rules: FormRules = {
-  name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
-  code: [{ required: true, message: '请输入角色标识', trigger: 'blur' }],
-}
+const rules = computed<FormRules>(() => ({
+  name: [{ required: true, message: t('role.nameRequired'), trigger: 'blur' }],
+  code: [{ required: true, message: t('role.codeRequired'), trigger: 'blur' }],
+}))
 
 /** 新增时默认挂在左侧选中的角色下 */
 function openCreate(): void {
@@ -356,7 +401,7 @@ async function submitForm(): Promise<void> {
     } else {
       await roleSave(payload)
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('role.saveSuccess'))
     formVisible.value = false
     load()
     await loadOptions()
@@ -367,9 +412,57 @@ async function submitForm(): Promise<void> {
 
 async function onDelete(id: number): Promise<void> {
   await roleDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('role.deleteSuccess'))
   load()
   await loadOptions()
+}
+
+/* ---- 复制角色 ---- */
+const copyRef = ref<FormInstance>()
+const copyVisible = ref(false)
+const copying = ref(false)
+const copyAsTemplate = ref(false)
+const copySource = ref<Row | null>(null)
+const copyForm = reactive({ id: 0, name: '', code: '', parent_id: 0 })
+
+const copyRules = computed<FormRules>(() => ({
+  name: [{ required: true, message: t('role.newRoleNameRequired'), trigger: 'blur' }],
+  code: [{ required: true, message: t('role.newRoleCodeRequired'), trigger: 'blur' }],
+}))
+
+function openCopy(row: Row): void {
+  copySource.value = row
+  // 与后端 suggestCode() 的派生命名保持一致，用户可改
+  Object.assign(copyForm, {
+    id: row.id,
+    name: t('role.copyNameSuffix', { name: row.name ?? '' }),
+    code: `${row.code ?? ''}_copy`,
+    parent_id: (row.parent_id as number) ?? 0,
+  })
+  copyAsTemplate.value = false
+  copyVisible.value = true
+}
+
+async function submitCopy(): Promise<void> {
+  const valid = await copyRef.value?.validate().catch(() => false)
+  if (!valid) {
+    return
+  }
+
+  copying.value = true
+  try {
+    await roleCopy({
+      ...copyForm,
+      // 不勾「模板」时不传 status，由后端沿用源角色的状态
+      ...(copyAsTemplate.value ? { status: 0 } : {}),
+    })
+    ElMessage.success(copyAsTemplate.value ? t('role.copyTemplateSuccess') : t('role.copySuccess'))
+    copyVisible.value = false
+    load()
+    await loadOptions()
+  } finally {
+    copying.value = false
+  }
 }
 
 onMounted(loadOptions)
@@ -381,6 +474,10 @@ onMounted(loadOptions)
   font-size: 12px;
   line-height: 1.6;
   color: var(--art-muted);
+}
+
+.form-tip-inline {
+  margin: 0 0 0 10px;
 }
 
 .node-panel {

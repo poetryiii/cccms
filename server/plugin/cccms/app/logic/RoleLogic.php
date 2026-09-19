@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\Role;
 use plugin\cccms\app\model\RoleNode;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
 
 /**
@@ -16,7 +17,8 @@ use plugin\cccms\support\PermissionCache;
  * （组织架构数据，见 `app/model/Role.php`），因此作用域是空操作 ——
  * 但入口统一后，将来若要给角色加隔离，只改模型声明即可生效。
  *
- * 需要看到全量数据的判定（存在性、唯一性）一律显式 `withoutGlobalScope()`。
+ * 需要看到全量数据的判定（存在性）用 `withoutGlobalScope()`（仍受租户边界约束）；
+ * 唯一标识这类**全局索引**校验必须用 `withoutAllScopes()` 完全绕过租户作用域。
  */
 final class RoleLogic
 {
@@ -114,15 +116,120 @@ final class RoleLogic
         PermissionCache::bump();
     }
 
+    /**
+     * 复制角色（含 `data_scope` 与**自身**节点授权）。
+     *
+     * 刻意**不复制子角色**：子角色自带 `parent_id` 指向源角色，一并复制会让两棵树纠缠。
+     *
+     * `data_scope` 必须显式复制：档位不随继承传递（见 `DataScope`），漏复制会让副本
+     * 静默落到默认档「仅本人」，权限被无声收窄。
+     *
+     * 只复制**自身**节点（`sys_role_node` 里属于源角色的行），不含继承来的祖先节点 ——
+     * 继承会在副本挂到同一父角色时自然生效，写死进来反而会在源角色调整后失效。
+     *
+     * @param array<string,mixed> $override 可覆盖 name / code / parent_id / sort / status
+     */
+    public static function copy(int $sourceId, array $override = []): int
+    {
+        $source = self::assertExists($sourceId);
+
+        $parentId = array_key_exists('parent_id', $override)
+            ? (int)$override['parent_id']
+            : (int)$source['parent_id'];
+        self::assertParentValid($parentId);
+
+        $name = trim((string)($override['name'] ?? ''));
+        if ($name === '') {
+            $name = mb_substr($source['name'] . I18n::t('role.copy_suffix'), 0, 64);
+        }
+
+        $code = trim((string)($override['code'] ?? ''));
+        if ($code === '') {
+            $code = self::suggestCode((string)$source['code']);
+        }
+        self::assertUniqueCode($code, 0);
+
+        $id = (int)Role::withoutGlobalScope()->insertGetId([
+            'name'       => mb_substr($name, 0, 64),
+            'code'       => mb_substr($code, 0, 64),
+            'data_scope' => (int)$source['data_scope'],
+            'parent_id'  => $parentId,
+            'sort'       => self::intOr((int)$source['sort'], $override['sort'] ?? null),
+            // 「另存为模板」＝ 复制成禁用角色：不影响任何人的权限，待需要时再启用
+            'status'     => self::intOr((int)$source['status'], $override['status'] ?? null),
+            'remark'     => (string)$source['remark'],
+        ]);
+
+        self::assignNodes($id, RoleNode::where('role_id', $sourceId)->column('node'));
+
+        PermissionCache::bump();
+
+        return $id;
+    }
+
+    /** 覆盖值为空（null / 空串）时取源角色的值，避免前端漏传把状态改成「禁用」 */
+    private static function intOr(int $fallback, mixed $value): int
+    {
+        return ($value === null || $value === '') ? $fallback : (int)$value;
+    }
+
+    /** 由源标识派生一个未被占用的角色标识（`code_copy` / `code_copy2` …） */
+    private static function suggestCode(string $sourceCode): string
+    {
+        $base = mb_substr($sourceCode, 0, 56);
+        // 角色标识是**全局唯一索引**（uk_code），不随租户重复，因此这里必须完全绕过租户作用域；
+        // 只看本租户会派生出已被别的租户占用的 code，插入时撞唯一键。
+        $taken = Role::withoutAllScopes()->withTrashed()->column('code');
+
+        for ($i = 1; $i <= 50; $i++) {
+            $code = $base . ($i === 1 ? '_copy' : '_copy' . $i);
+            if (!in_array($code, $taken, true)) {
+                return $code;
+            }
+        }
+
+        throw new ApiException(I18n::t('role.code_generate_failed'), 422);
+    }
+
+    /**
+     * 校验父角色的合法性：存在且继承深度不超过 5 层。
+     *
+     * 深度口径与 `AuthService::effectiveRoleIds()` 的向上遍历上限一致：
+     * 从父角色走到根节点的**步数**不得超过 5，否则副本的祖先链会被截断。
+     *
+     * 复制出来的是**新角色**、没有子角色，因此不可能成环；`$depth` 上限同时兜住了
+     * 「历史数据里已存在环」的情况，不会死循环。
+     */
+    private static function assertParentValid(int $parentId): void
+    {
+        if ($parentId <= 0) {
+            return;
+        }
+
+        $parents = Role::withoutGlobalScope()->column('parent_id', 'id');
+        if (!isset($parents[$parentId])) {
+            throw new ApiException(I18n::t('role.parent_not_found'), 422);
+        }
+
+        $current = $parentId;
+        $depth   = 0;
+        while ($current > 0) {
+            if (++$depth > 5) {
+                throw new ApiException(I18n::t('role.inherit_depth_exceeded'), 422);
+            }
+            $current = (int)($parents[$current] ?? 0);
+        }
+    }
+
     public static function delete(int $id): void
     {
         $role = self::assertExists($id);
         if ($role['code'] === 'super_admin') {
-            throw new ApiException('不能删除超管角色', 422);
+            throw new ApiException(I18n::t('role.cannot_delete_super'), 422);
         }
         // 有子角色则禁止删除（避免继承链断裂）
         if (Role::withoutGlobalScope()->where('parent_id', $id)->count() > 0) {
-            throw new ApiException('存在子角色，无法删除', 422);
+            throw new ApiException(I18n::t('role.has_children'), 422);
         }
         // 软删除：进回收站；role_node / user_role 保留，恢复后授权与分配原样回来。
         // 已软删的角色在 AuthService（登录/鉴权）与 DataScope（数据范围）里都会被过滤，
@@ -188,7 +295,7 @@ final class RoleLogic
     {
         $role = Role::withoutGlobalScope()->where('id', $id)->find();
         if (!$role) {
-            throw new ApiException('角色不存在', 404);
+            throw new ApiException(I18n::t('role.not_found'), 404);
         }
 
         return $role->toArray();
@@ -197,10 +304,11 @@ final class RoleLogic
     private static function assertUniqueCode(string $code, int $excludeId): void
     {
         if ($code === '') {
-            throw new ApiException('角色标识不能为空', 422);
+            throw new ApiException(I18n::t('role.code_required'), 422);
         }
-        // 唯一索引不做软删特例：回收站里的角色仍占用标识（withTrashed 才看得到）
-        $q = Role::withoutGlobalScope()->withTrashed()->where('code', $code);
+        // 唯一索引不做软删特例：回收站里的角色仍占用标识（withTrashed 才看得到）；
+        // 且 uk_code 是全局索引，必须绕过租户作用域，否则跨租户重名会漏判。
+        $q = Role::withoutAllScopes()->withTrashed()->where('code', $code);
         if ($excludeId > 0) {
             $q->where('id', '<>', $excludeId);
         }
@@ -208,8 +316,8 @@ final class RoleLogic
         if ($exist) {
             throw new ApiException(
                 !empty($exist->delete_time)
-                    ? "角色标识 {$code} 在回收站中，请先恢复或彻底删除"
-                    : '角色标识已存在',
+                    ? I18n::t('role.code_in_trash', ['code' => $code])
+                    : I18n::t('role.code_exists'),
                 422
             );
         }

@@ -8,6 +8,7 @@ use plugin\cccms\app\logic\DataRuleLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
 
@@ -38,7 +39,7 @@ class DataRuleController extends BaseController
     #[Restrict(methods: ['POST'])]
     public function save(Request $request): Response
     {
-        return $this->ok(['id' => DataRuleLogic::create($request->post())], '创建成功');
+        return $this->ok(['id' => DataRuleLogic::create($request->post())], I18n::t('common.created'));
     }
 
     #[Permission(slug: 'cccms:data_rule:update', title: '更新数据权限')]
@@ -46,7 +47,7 @@ class DataRuleController extends BaseController
     public function update(Request $request): Response
     {
         DataRuleLogic::update((int)$request->input('id', 0), $request->post());
-        return $this->ok(null, '更新成功');
+        return $this->ok(null, I18n::t('common.updated'));
     }
 
     #[Permission(slug: 'cccms:data_rule:delete', title: '删除数据权限')]
@@ -54,7 +55,7 @@ class DataRuleController extends BaseController
     public function delete(Request $request): Response
     {
         DataRuleLogic::delete((int)$request->input('id', 0));
-        return $this->ok(null, '删除成功');
+        return $this->ok(null, I18n::t('common.deleted'));
     }
 
     /** 导出 CSV（按当前筛选，直接返回文件流而非统一信封） */
@@ -78,9 +79,9 @@ class DataRuleController extends BaseController
     {
         $file = $request->file('file');
         if ($file === null) {
-            return $this->fail('请上传 CSV 文件', 422);
+            return $this->fail(I18n::t('data_rule.csv_required'), 422);
         }
 
-        return $this->ok(DataRuleLogic::import($file), '导入完成');
+        return $this->ok(DataRuleLogic::import($file), I18n::t('common.imported'));
     }
 }

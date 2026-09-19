@@ -15,10 +15,10 @@
       @size-change="onLimitChange"
     >
       <template #search>
-        <el-form-item label="关键词">
+        <el-form-item :label="t('online.keywordLabel')">
           <el-input
             v-model="query.keyword"
-            placeholder="账号 / 昵称 / IP / 设备 / 系统 / 浏览器"
+            :placeholder="t('online.keywordPlaceholder')"
             clearable
             style="width: 280px"
           />
@@ -26,12 +26,7 @@
       </template>
 
       <template #toolbar>
-        <el-alert
-          type="info"
-          :closable="false"
-          show-icon
-          title="会话来自 Redis 索引；「强制下线」会同时作废已发出的令牌，对方下一次请求即失效。"
-        />
+        <el-alert type="info" :closable="false" show-icon :title="t('online.alert')" />
       </template>
 
       <template #username="{ row }">
@@ -40,9 +35,11 @@
       </template>
 
       <template #action="{ row }">
-        <el-button v-auth="'cccms:online:kick'" link type="danger" @click="onKick(row)"> 强制下线 </el-button>
+        <el-button v-auth="'cccms:online:kick'" link type="danger" @click="onKick(row)">
+          {{ t('online.kick') }}
+        </el-button>
         <el-button v-auth="'cccms:online:kick_user'" link type="warning" @click="onKickUser(row)">
-          该用户全部下线
+          {{ t('online.kickUser') }}
         </el-button>
       </template>
     </ArtTable>
@@ -52,28 +49,33 @@
 <script setup lang="ts">
 defineOptions({ name: 'cccms:online' })
 
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ArtTable from '@/components/core/ArtTable.vue'
 import { useTable } from '@/composables/useTable'
 import { onlineKick, onlineKickUser, onlineList, type OnlineSession } from '@/api/online'
 import type { ArtTableColumn } from '@/types/table'
 
+const { t } = useI18n({ useScope: 'global' })
+
 interface Query {
   keyword: string
 }
 
-const columns: ArtTableColumn[] = [
-  { prop: 'username', label: '用户', slot: 'username' },
-  { prop: 'device', label: '设备', width: 90 },
-  { prop: 'os', label: '系统', width: 110 },
-  { prop: 'browser', label: '浏览器', width: 100 },
+// 表格列文案跟随语言切换，用 computed 包裹
+const columns = computed<ArtTableColumn[]>(() => [
+  { prop: 'username', label: t('online.user'), slot: 'username' },
+  { prop: 'device', label: t('online.device'), width: 90 },
+  { prop: 'os', label: t('online.os'), width: 110 },
+  { prop: 'browser', label: t('online.browser'), width: 100 },
   { prop: 'ip', label: 'IP', width: 140 },
-  { prop: 'login_at', label: '登录时间', width: 170 },
-  { prop: 'last_at', label: '最后活跃', width: 170 },
-  { prop: 'expire_at', label: '会话过期', width: 170, defaultHidden: true },
+  { prop: 'login_at', label: t('online.loginAt'), width: 170 },
+  { prop: 'last_at', label: t('online.lastActive'), width: 170 },
+  { prop: 'expire_at', label: t('online.expireAt'), width: 170, defaultHidden: true },
   { prop: 'ua', label: 'User-Agent', minWidth: 240, defaultHidden: true },
-  { prop: 'action', label: '操作', width: 210, fixed: 'right', slot: 'action', lockVisible: true },
-]
+  { prop: 'action', label: t('table.action'), width: 210, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
   OnlineSession,
@@ -85,25 +87,27 @@ const { list, loading, total, page, limit, query, load, search, reset, onPageCha
 
 async function onKick(row: OnlineSession): Promise<void> {
   try {
-    await ElMessageBox.confirm(`确定让「${row.username}」的该会话立即下线？`, '强制下线', { type: 'warning' })
+    await ElMessageBox.confirm(t('online.kickConfirm', { name: row.username }), t('online.kick'), {
+      type: 'warning',
+    })
   } catch {
     return
   }
   await onlineKick(row.jti)
-  ElMessage.success('已强制下线')
+  ElMessage.success(t('online.kickSuccess'))
   load()
 }
 
 async function onKickUser(row: OnlineSession): Promise<void> {
   try {
-    await ElMessageBox.confirm(`将让「${row.username}」的所有登录会话全部失效，确定继续？`, '强制用户下线', {
+    await ElMessageBox.confirm(t('online.kickUserConfirm', { name: row.username }), t('online.kickUserTitle'), {
       type: 'warning',
     })
   } catch {
     return
   }
   const res = await onlineKickUser(row.user_id)
-  ElMessage.success(`已强制下线 ${res.sessions} 个会话`)
+  ElMessage.success(t('online.kickUserSuccess', { count: res.sessions }))
   load()
 }
 </script>

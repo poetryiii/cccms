@@ -2,13 +2,22 @@
   <div class="art-fill">
     <ArtSplitView aside-width="248px">
       <template #aside>
-        <ArtTreePanel title="附件分类" :data="treeData" :current-key="currentId" @node-click="onNodeClick">
+        <ArtTreePanel
+          :title="t('file.categoryTreeTitle')"
+          :data="treeData"
+          :current-key="currentId"
+          @node-click="onNodeClick"
+        >
           <template #header>
-            <el-tooltip content="新增顶级分类" placement="top">
+            <el-tooltip :content="t('file.addTopCategory')" placement="top">
               <el-button v-auth="'cccms:file:category_save'" text circle :icon="Plus" @click="openCategoryCreate(0)" />
             </el-tooltip>
             <!-- 只显示附件模块的分类，避免看到字典模块的分类 -->
-            <RecycleToggle :active="categoryRecycle" label="附件分类" @toggle="toggleCategoryRecycle" />
+            <RecycleToggle
+              :active="categoryRecycle"
+              :label="t('file.categoryTreeTitle')"
+              @toggle="toggleCategoryRecycle"
+            />
           </template>
 
           <template #node="{ data }">
@@ -17,13 +26,17 @@
               <span v-if="data.id > 0" class="cat-node-actions">
                 <!-- 分类回收站：节点操作换成还原 / 彻底删除 -->
                 <template v-if="categoryRecycle">
-                  <el-icon title="还原" @click.stop="onCategoryRestore(data)"><RefreshLeft /></el-icon>
-                  <el-icon title="彻底删除" @click.stop="onCategoryForceDelete(data)"><Delete /></el-icon>
+                  <el-icon :title="t('table.restore')" @click.stop="onCategoryRestore(data)"><RefreshLeft /></el-icon>
+                  <el-icon :title="t('table.forceDelete')" @click.stop="onCategoryForceDelete(data)">
+                    <Delete />
+                  </el-icon>
                 </template>
                 <template v-else>
-                  <el-icon title="新增子分类" @click.stop="openCategoryCreate(data.id)"><Plus /></el-icon>
-                  <el-icon title="重命名 / 调整" @click.stop="openCategoryEdit(data)"><Edit /></el-icon>
-                  <el-icon title="删除" @click.stop="onCategoryDelete(data)"><Delete /></el-icon>
+                  <el-icon :title="t('file.addSubCategory')" @click.stop="openCategoryCreate(data.id)"
+                    ><Plus
+                  /></el-icon>
+                  <el-icon :title="t('file.renameCategory')" @click.stop="openCategoryEdit(data)"><Edit /></el-icon>
+                  <el-icon :title="t('common.delete')" @click.stop="onCategoryDelete(data)"><Delete /></el-icon>
                 </template>
               </span>
             </span>
@@ -50,16 +63,21 @@
         @force-delete="onForceDelete"
       >
         <template #search>
-          <el-form-item label="文件名">
-            <el-input v-model="query.original_name" placeholder="请输入" clearable style="width: 190px" />
+          <el-form-item :label="t('file.nameLabel')">
+            <el-input
+              v-model="query.original_name"
+              :placeholder="t('file.searchPlaceholder')"
+              clearable
+              style="width: 190px"
+            />
           </el-form-item>
-          <el-form-item label="扩展名">
-            <el-input v-model="query.ext" placeholder="如 png" clearable style="width: 130px" />
+          <el-form-item :label="t('file.extLabel')">
+            <el-input v-model="query.ext" :placeholder="t('file.extPlaceholder')" clearable style="width: 130px" />
           </el-form-item>
         </template>
 
         <template #toolbar-right>
-          <RecycleToggle :active="recycle" label="附件" @toggle="toggle" />
+          <RecycleToggle :active="recycle" :label="t('file.recycleLabel')" @toggle="toggle" />
         </template>
 
         <template #toolbar>
@@ -73,7 +91,7 @@
             :on-success="onUploadSuccess"
             :on-error="onUploadError"
           >
-            <el-button type="primary" :icon="Upload" :loading="uploading">上传附件</el-button>
+            <el-button type="primary" :icon="Upload" :loading="uploading">{{ t('file.upload') }}</el-button>
           </el-upload>
 
           <el-button
@@ -82,11 +100,13 @@
             :disabled="selection.length === 0"
             @click="openMove"
           >
-            移动到分类{{ selection.length ? `（${selection.length}）` : '' }}
+            {{ selection.length ? t('file.moveWithCount', { count: selection.length }) : t('file.move') }}
           </el-button>
 
-          <el-tag v-if="currentId" type="info" closable @close="clearNode"> 仅看：{{ currentNodeName }} </el-tag>
-          <span v-else class="toolbar-tip">单文件上限 10MB；相同内容自动去重</span>
+          <el-tag v-if="currentId" type="info" closable @close="clearNode">
+            {{ t('file.onlyView', { name: currentNodeName }) }}
+          </el-tag>
+          <span v-else class="toolbar-tip">{{ t('file.toolbarTip') }}</span>
         </template>
 
         <!-- is_image 由后台 upload.image_ext 配置推导 -->
@@ -113,11 +133,11 @@
         <template #action="{ row }">
           <!-- PDF 走内置对话框预览，其余类型回退到新窗口打开（浏览器自行决定预览或下载） -->
           <el-button link type="primary" @click="openPreview(row)">
-            {{ row.is_pdf ? '预览' : '查看' }}
+            {{ row.is_pdf ? t('file.preview') : t('file.view') }}
           </el-button>
-          <el-popconfirm title="确定删除该附件？" @confirm="onDelete(row.id)">
+          <el-popconfirm :title="t('file.deleteConfirm')" @confirm="onDelete(row.id)">
             <template #reference>
-              <el-button v-auth="'cccms:file:delete'" link type="danger">删除</el-button>
+              <el-button v-auth="'cccms:file:delete'" link type="danger">{{ t('common.delete') }}</el-button>
             </template>
           </el-popconfirm>
         </template>
@@ -127,12 +147,12 @@
     <!-- 分类表单 -->
     <el-dialog
       v-model="categoryVisible"
-      :title="categoryForm.id ? '编辑分类' : '新增分类'"
+      :title="categoryForm.id ? t('file.editCategoryTitle') : t('file.createCategoryTitle')"
       width="460px"
       :close-on-click-modal="false"
     >
       <el-form ref="categoryFormRef" :model="categoryForm" :rules="categoryRules" label-width="92px">
-        <el-form-item label="上级分类" prop="parent_id">
+        <el-form-item :label="t('file.parentCategoryLabel')" prop="parent_id">
           <el-tree-select
             v-model="categoryForm.parent_id"
             :data="categoryOptions"
@@ -142,26 +162,26 @@
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="分类名称" prop="name">
-          <el-input v-model="categoryForm.name" placeholder="如 合同附件" />
+        <el-form-item :label="t('file.categoryNameLabel')" prop="name">
+          <el-input v-model="categoryForm.name" :placeholder="t('file.categoryNamePlaceholder')" />
         </el-form-item>
-        <el-form-item label="排序" prop="sort">
+        <el-form-item :label="t('file.sortLabel')" prop="sort">
           <el-input-number v-model="categoryForm.sort" :min="0" />
         </el-form-item>
-        <el-form-item label="备注" prop="remark">
-          <el-input v-model="categoryForm.remark" placeholder="请输入备注" />
+        <el-form-item :label="t('file.remarkLabel')" prop="remark">
+          <el-input v-model="categoryForm.remark" :placeholder="t('file.remarkPlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="categoryVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitCategory">确定</el-button>
+        <el-button @click="categoryVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitCategory">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
 
     <!-- 移动到分类 -->
-    <el-dialog v-model="moveVisible" title="移动到分类" width="420px">
+    <el-dialog v-model="moveVisible" :title="t('file.moveTitle')" width="420px">
       <el-form label-width="80px">
-        <el-form-item label="目标分类">
+        <el-form-item :label="t('file.targetCategoryLabel')">
           <el-tree-select
             v-model="moveTarget"
             :data="moveOptions"
@@ -173,8 +193,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="moveVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitMove">确定</el-button>
+        <el-button @click="moveVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="submitMove">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
 
@@ -187,10 +207,10 @@
       class="pdf-preview-dialog"
       destroy-on-close
     >
-      <iframe v-if="previewUrl" :src="previewUrl" class="pdf-frame" title="PDF 预览" />
+      <iframe v-if="previewUrl" :src="previewUrl" class="pdf-frame" :title="t('file.pdfPreview')" />
       <template #footer>
-        <el-button @click="openUrl(previewUrl)">在新窗口打开</el-button>
-        <el-button @click="previewVisible = false">关闭</el-button>
+        <el-button @click="openUrl(previewUrl)">{{ t('file.openInNewWindow') }}</el-button>
+        <el-button @click="previewVisible = false">{{ t('file.close') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -200,6 +220,7 @@
 defineOptions({ name: 'cccms:file' })
 
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRawFile } from 'element-plus'
 import { Delete, Document, Edit, FolderChecked, Plus, RefreshLeft, Upload } from '@element-plus/icons-vue'
 import ArtSplitView from '@/components/core/ArtSplitView.vue'
@@ -226,16 +247,19 @@ interface Query {
 
 const MAX_SIZE = 10 * 1024 * 1024
 
-const columns: ArtTableColumn[] = [
+const { t } = useI18n({ useScope: 'global' })
+
+// 表格列文案跟随语言切换，用 computed 包裹
+const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'preview', label: '预览', width: 76, align: 'center', slot: 'preview' },
-  { prop: 'original_name', label: '文件名', minWidth: 200 },
-  { prop: 'category_name', label: '所属分类', width: 140 },
-  { prop: 'ext', label: '类型', width: 100, align: 'center', slot: 'ext' },
-  { prop: 'size', label: '大小', width: 110, align: 'right', slot: 'size' },
-  { prop: 'create_time', label: '上传时间', width: 170 },
-  { prop: 'action', label: '操作', width: 130, fixed: 'right', slot: 'action', lockVisible: true },
-]
+  { prop: 'preview', label: t('file.preview'), width: 76, align: 'center', slot: 'preview' },
+  { prop: 'original_name', label: t('file.nameLabel'), minWidth: 200 },
+  { prop: 'category_name', label: t('file.categoryColumnLabel'), width: 140 },
+  { prop: 'ext', label: t('file.typeLabel'), width: 100, align: 'center', slot: 'ext' },
+  { prop: 'size', label: t('file.sizeLabel'), width: 110, align: 'right', slot: 'size' },
+  { prop: 'create_time', label: t('file.uploadTimeLabel'), width: 170 },
+  { prop: 'action', label: t('table.action'), width: 130, fixed: 'right', slot: 'action', lockVisible: true },
+])
 
 /* ---- 左侧分类树 ---- */
 const saving = ref(false)
@@ -246,22 +270,22 @@ const treeData = computed(() =>
   // 回收站视图里只列已删分类，不掺「全部 / 未分类」这两个虚拟节点
   categoryRecycle.value
     ? categories.value
-    : [{ id: ALL_ID, name: '全部' }, { id: NONE_ID, name: '未分类' }, ...categories.value],
+    : [{ id: ALL_ID, name: t('file.all') }, { id: NONE_ID, name: t('file.uncategorized') }, ...categories.value],
 )
 
 const currentNodeName = computed(() => {
   if (currentId.value === ALL_ID) {
-    return '全部'
+    return t('file.all')
   }
   if (currentId.value === NONE_ID) {
-    return '未分类'
+    return t('file.uncategorized')
   }
   return findCategory(categories.value, currentId.value)?.name ?? ''
 })
 
-const categoryOptions = computed(() => [{ id: 0, name: '顶级分类', children: categories.value }])
+const categoryOptions = computed(() => [{ id: 0, name: t('file.topCategory'), children: categories.value }])
 /** 移动目标：允许移出分类 */
-const moveOptions = computed(() => [{ id: 0, name: '未分类', children: categories.value }])
+const moveOptions = computed(() => [{ id: 0, name: t('file.uncategorized'), children: categories.value }])
 
 function findCategory(nodes: CategoryNode[], id: number): CategoryNode | null {
   for (const node of nodes) {
@@ -339,9 +363,10 @@ const categoryFormRef = ref<FormInstance>()
 const categoryVisible = ref(false)
 const emptyCategoryForm = { id: 0, parent_id: 0, name: '', sort: 0, remark: '' }
 const categoryForm = reactive<Record<string, any>>({ ...emptyCategoryForm })
-const categoryRules: FormRules = {
-  name: [{ required: true, message: '请输入分类名称', trigger: 'blur' }],
-}
+// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
+const categoryRules = computed<FormRules>(() => ({
+  name: [{ required: true, message: t('file.categoryNameRequired'), trigger: 'blur' }],
+}))
 
 function openCategoryCreate(parentId: number): void {
   Object.assign(categoryForm, emptyCategoryForm, { parent_id: parentId })
@@ -365,7 +390,7 @@ async function submitCategory(): Promise<void> {
     } else {
       await categorySave(MODULE, { ...categoryForm })
     }
-    ElMessage.success('保存成功')
+    ElMessage.success(t('file.saveSuccess'))
     categoryVisible.value = false
     await refresh()
   } finally {
@@ -375,12 +400,14 @@ async function submitCategory(): Promise<void> {
 
 async function onCategoryDelete(record: CategoryNode): Promise<void> {
   try {
-    await ElMessageBox.confirm(`确定删除分类「${record.name}」？`, '删除分类', { type: 'warning' })
+    await ElMessageBox.confirm(t('file.deleteCategoryConfirm', { name: record.name }), t('file.deleteCategoryTitle'), {
+      type: 'warning',
+    })
   } catch {
     return
   }
   await categoryDelete(MODULE, record.id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('file.deleteSuccess'))
   await refresh()
 }
 
@@ -393,7 +420,7 @@ const uploadData = computed(() => ({ category_id: currentId.value > 0 ? currentI
 
 function onBeforeUpload(file: UploadRawFile): boolean {
   if (file.size > MAX_SIZE) {
-    ElMessage.warning('单个文件不能超过 10MB')
+    ElMessage.warning(t('file.uploadTooLarge'))
     return false
   }
   uploading.value = true
@@ -408,17 +435,17 @@ function onUploadSuccess(response: unknown): void {
   progressDone(UPLOAD_PROGRESS)
   const body = typeof response === 'string' ? safeParse(response) : (response as { code?: number; message?: string })
   if (body && body.code === 0) {
-    ElMessage.success('上传成功')
+    ElMessage.success(t('file.uploadSuccess'))
     search()
   } else {
-    ElMessage.error(body?.message || '上传失败')
+    ElMessage.error(body?.message || t('file.uploadFailed'))
   }
 }
 
 function onUploadError(): void {
   uploading.value = false
   progressDone(UPLOAD_PROGRESS)
-  ElMessage.error('上传失败')
+  ElMessage.error(t('file.uploadFailed'))
 }
 
 function safeParse(text: string): { code?: number; message?: string } | null {
@@ -446,7 +473,7 @@ async function submitMove(): Promise<void> {
   saving.value = true
   try {
     await fileMove(ids, moveTarget.value)
-    ElMessage.success(`已移动 ${ids.length} 个附件`)
+    ElMessage.success(t('file.moveSuccess', { count: ids.length }))
     moveVisible.value = false
     // 表格未开 reserve-selection，刷新后勾选会自动清空
     load()
@@ -458,13 +485,13 @@ async function submitMove(): Promise<void> {
 /* ---- 预览 ---- */
 const previewVisible = ref(false)
 const previewUrl = ref('')
-const previewTitle = ref('预览')
+const previewTitle = ref(t('file.preview'))
 
 /** 图片由 preview 列的 el-image 内置查看器负责；PDF 用对话框内嵌，其余回退到新窗口 */
 function openPreview(row: FileRow): void {
   if (row.is_pdf) {
     previewUrl.value = row.url
-    previewTitle.value = row.original_name || 'PDF 预览'
+    previewTitle.value = row.original_name || t('file.pdfPreview')
     previewVisible.value = true
     return
   }
@@ -478,7 +505,7 @@ function openUrl(url: string): void {
 
 async function onDelete(id: number): Promise<void> {
   await fileDelete(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('file.deleteSuccess'))
   load()
 }
 

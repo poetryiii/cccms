@@ -10,6 +10,9 @@ class User extends BaseModel
 {
     protected $name = 'user';
 
+    /** 参与多租户隔离：租户内的账号自成一套（platform 租户 = 0） */
+    protected $tenantScope = true;
+
     protected $hidden = ['password'];
 
     /**

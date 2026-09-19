@@ -36,3 +36,25 @@ export function dictDataUpdate(data: Record<string, unknown>) {
 export function dictDataDelete(id: number) {
   return http.post<null>('/dict/deleteData', { id })
 }
+
+/** 批量操作结果：不可见 / 已删除的 id 会被跳过并回传 */
+export interface DictBatchResult {
+  affected: number
+  skipped: number[]
+}
+
+export function dictTypeBatchStatus(ids: number[], status: number) {
+  return http.post<DictBatchResult>('/dict/batchStatus', { ids, status })
+}
+
+export function dictTypeBatchDelete(ids: number[]) {
+  return http.post<DictBatchResult>('/dict/batchDelete', { ids })
+}
+
+export function dictDataBatchStatus(ids: number[], status: number) {
+  return http.post<DictBatchResult>('/dict/batchStatusData', { ids, status })
+}
+
+export function dictDataBatchDelete(ids: number[]) {
+  return http.post<DictBatchResult>('/dict/batchDeleteData', { ids })
+}
