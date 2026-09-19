@@ -9,48 +9,10 @@
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
-      @search="search"
-      @reset="reset"
       @page-change="onPageChange"
       @size-change="onLimitChange"
       @selection-change="onSelectionChange"
     >
-      <template #search>
-        <el-form-item :label="t('log.result')">
-          <el-select v-model="query.status" :placeholder="t('log.all')" clearable style="width: 110px">
-            <el-option :label="t('log.success')" :value="1" />
-            <el-option :label="t('log.failed')" :value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('log.username')">
-          <el-input
-            v-model="query.username"
-            :placeholder="t('log.usernamePlaceholder')"
-            clearable
-            style="width: 150px"
-          />
-        </el-form-item>
-        <el-form-item :label="t('log.actionName')">
-          <el-input
-            v-model="query.title"
-            :placeholder="t('log.actionNamePlaceholder')"
-            clearable
-            style="width: 180px"
-          />
-        </el-form-item>
-        <el-form-item :label="t('log.path')">
-          <el-input v-model="query.path" :placeholder="t('log.pathPlaceholder')" clearable style="width: 180px" />
-        </el-form-item>
-        <el-form-item :label="t('log.traceId')">
-          <el-input
-            v-model="query.trace_id"
-            :placeholder="t('log.traceIdPlaceholder')"
-            clearable
-            style="width: 220px"
-          />
-        </el-form-item>
-      </template>
-
       <template #toolbar>
         <el-button
           v-auth="'cccms:log:delete'"
@@ -229,49 +191,78 @@ interface Query {
   title: string
   path: string
   trace_id: string
-  /** 结果 1 成功 / 0 失败 */
-  status: number | ''
+  /** 结果 1 成功 / 0 失败，多选值以逗号串传递 */
+  status: string
+  /** 请求方法，多选值以逗号串传递 */
+  method: string
+  ip: string
+  /** 操作时间范围（列头日期筛选写入） */
+  start: string
+  end: string
 }
+
+/** 请求方法枚举：接口日志里出现过的几种（GET 查询 / POST 新增 / PUT 更新 / DELETE 删除） */
+const METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map((method) => ({
+  label: method,
+  value: method,
+}))
 
 /** 表头文案走 i18n：用 computed 包住，切换语言时能实时重渲染 */
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'title', label: t('table.action'), minWidth: 190, slot: 'action_name' },
-  { prop: 'username', label: t('log.username'), width: 110 },
-  { prop: 'status', label: t('log.result'), width: 90, align: 'center', slot: 'status' },
-  { prop: 'method', label: t('log.method'), width: 90, align: 'center', slot: 'method' },
-  { prop: 'path', label: t('log.path'), minWidth: 200 },
-  { prop: 'trace_id', label: t('log.traceId'), width: 200, slot: 'trace_id' },
-  { prop: 'ip', label: 'IP', width: 140, defaultHidden: true },
+  { prop: 'title', label: t('table.action'), minWidth: 190, slot: 'action_name', filter: { type: 'text' } },
+  { prop: 'username', label: t('log.username'), width: 110, filter: { type: 'text' } },
+  {
+    prop: 'status',
+    label: t('log.result'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('log.success'), value: 1 },
+        { label: t('log.failed'), value: 0 },
+      ],
+    },
+  },
+  {
+    prop: 'method',
+    label: t('log.method'),
+    width: 90,
+    align: 'center',
+    slot: 'method',
+    filter: { type: 'enum', options: METHOD_OPTIONS },
+  },
+  { prop: 'path', label: t('log.path'), minWidth: 200, filter: { type: 'text' } },
+  { prop: 'trace_id', label: t('log.traceId'), width: 240, slot: 'trace_id', filter: { type: 'text' } },
+  { prop: 'ip', label: 'IP', width: 140, filter: { type: 'text' } },
   { prop: 'status_code', label: t('log.statusCode'), width: 100, align: 'center', slot: 'status_code' },
   { prop: 'cost', label: t('log.costMs'), width: 100, align: 'right' },
-  { prop: 'create_time', label: t('log.time'), width: 170 },
-  { prop: 'action', label: t('table.action'), width: 190, fixed: 'right', slot: 'action', lockVisible: true },
+  { prop: 'create_time', label: t('log.time'), width: 170, filter: { type: 'date' } },
+  { prop: 'action', label: t('table.action'), width: 160, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
 /** 支持从报错弹窗直接跳进来：/log?trace_id=xxx */
 const route = useRoute()
 const initialTraceId = typeof route.query.trace_id === 'string' ? route.query.trace_id : ''
 
-const {
-  list,
-  loading,
-  total,
-  page,
-  limit,
-  query,
-  selection,
-  load,
-  search,
-  reset,
-  onPageChange,
-  onLimitChange,
-  onSelectionChange,
-} = useTable<LogRow, Query>({
-  api: logList,
-  initialQuery: { username: '', title: '', path: '', trace_id: initialTraceId, status: '' },
-  pageSize: 15,
-})
+const { list, loading, total, page, limit, query, selection, load, onPageChange, onLimitChange, onSelectionChange } =
+  useTable<LogRow, Query>({
+    api: logList,
+    initialQuery: {
+      username: '',
+      title: '',
+      path: '',
+      trace_id: initialTraceId,
+      status: '',
+      method: '',
+      ip: '',
+      start: '',
+      end: '',
+    },
+    pageSize: 15,
+  })
 
 /* ---- 链路视图 ---- */
 const traceVisible = ref(false)

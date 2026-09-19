@@ -13,7 +13,6 @@ export default {
   search: '查询',
   reset: '重置',
   export: '导出',
-  import: '导入',
   refresh: '刷新',
   back: '返回',
   tip: '提示',

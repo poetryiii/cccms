@@ -11,29 +11,12 @@
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
-      @search="search"
-      @reset="reset"
       @page-change="onPageChange"
       @size-change="onLimitChange"
       @restore="onRestore"
       @force-delete="onForceDelete"
       @selection-change="onSelectionChange"
     >
-      <template #search>
-        <el-form-item :label="t('user.username')">
-          <el-input v-model="query.username" :placeholder="t('user.pleaseInput')" clearable style="width: 170px" />
-        </el-form-item>
-        <el-form-item :label="t('user.nickname')">
-          <el-input v-model="query.nickname" :placeholder="t('user.pleaseInput')" clearable style="width: 170px" />
-        </el-form-item>
-        <el-form-item :label="t('user.status')">
-          <el-select v-model="query.status" :placeholder="t('user.all')" clearable style="width: 130px">
-            <el-option :label="t('user.enabled')" :value="1" />
-            <el-option :label="t('user.disabled')" :value="0" />
-          </el-select>
-        </el-form-item>
-      </template>
-
       <template #toolbar>
         <el-button v-auth="'cccms:user:save'" type="primary" :icon="Plus" @click="openCreate">
           {{ t('common.create') }}
@@ -66,12 +49,6 @@
 
       <!-- 点一下即把表格切到「已删除」，不是另开页面 -->
       <template #toolbar-right>
-        <el-button v-auth="'cccms:user:export'" :icon="Download" @click="onExport">
-          {{ t('common.export') }}
-        </el-button>
-        <el-button v-auth="'cccms:user:import'" :icon="Upload" @click="openImport">
-          {{ t('common.import') }}
-        </el-button>
         <RecycleToggle :active="recycle" :label="t('user.entityLabel')" @toggle="toggle" />
       </template>
 
@@ -178,54 +155,6 @@
       </template>
     </el-dialog>
 
-    <!-- 导入用户（CSV） -->
-    <el-dialog v-model="importVisible" :title="t('user.importUser')" width="580px">
-      <el-alert type="info" :closable="false" show-icon :title="t('user.importAlert')" style="margin-bottom: 12px" />
-
-      <div class="import-actions">
-        <el-button link type="primary" @click="onTemplate">{{ t('user.downloadTemplate') }}</el-button>
-      </div>
-
-      <el-upload
-        ref="uploadRef"
-        drag
-        :action="USER_IMPORT_URL"
-        :headers="uploadHeaders"
-        name="file"
-        accept=".csv"
-        :limit="1"
-        :auto-upload="false"
-        :on-success="onImportSuccess"
-        :on-error="onImportError"
-      >
-        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-        <div class="el-upload__text">
-          {{ t('user.uploadDrag') }}<em>{{ t('user.uploadClick') }}</em>
-        </div>
-      </el-upload>
-
-      <div v-if="importResult" class="import-result">
-        <p>
-          {{
-            t('user.importSummary', {
-              total: importResult.total,
-              created: importResult.created,
-              updated: importResult.updated,
-              failed: importResult.failed.length,
-            })
-          }}
-        </p>
-        <ul v-if="importResult.failed.length" class="import-failed">
-          <li v-for="(msg, index) in importResult.failed.slice(0, 20)" :key="index">{{ msg }}</li>
-        </ul>
-      </div>
-
-      <template #footer>
-        <el-button @click="importVisible = false">{{ t('user.close') }}</el-button>
-        <el-button type="primary" :loading="importing" @click="submitImport">{{ t('user.startImport') }}</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 批量分配角色 / 部门 / 岗位 -->
     <el-dialog v-model="assignVisible" :title="t('user.batchAssign')" width="560px">
       <el-alert
@@ -274,32 +203,27 @@ defineOptions({ name: 'cccms:user' })
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowDown, Download, Plus, Upload, UploadFilled } from '@element-plus/icons-vue'
+import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'
 import { useTable } from '@/composables/useTable'
 import { useUserStore } from '@/stores/user'
 import {
-  USER_IMPORT_URL,
   userBatchAssign,
   userBatchDelete,
   userBatchStatus,
   userDelete,
-  userExport,
   userList,
   userRead,
   userResetPassword,
   userSave,
-  userTemplate,
   userUpdate,
   type BatchResult,
-  type UserImportResult,
 } from '@/api/user'
 import { roleList } from '@/api/role'
 import { deptTree } from '@/api/dept'
 import { postList } from '@/api/post'
-import { getToken } from '@/utils/auth'
 import { passwordValidator } from '@/utils/password'
 import type { ArtTableColumn } from '@/types/table'
 
@@ -324,31 +248,45 @@ interface Row {
 interface Query {
   username: string
   nickname: string
-  status?: number
+  /** 列头枚举多选，值形如 `1,0` */
+  status: string
+  /** 最后登录时间范围（列头日期筛选写入） */
+  start: string
+  end: string
 }
 
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'username', label: t('user.username'), minWidth: 120 },
-  { prop: 'nickname', label: t('user.nickname'), minWidth: 120 },
-  { prop: 'phone', label: t('user.phone'), minWidth: 130, defaultHidden: true },
-  { prop: 'email', label: t('user.email'), minWidth: 180, defaultHidden: true },
-  { prop: 'status', label: t('user.status'), width: 90, align: 'center', slot: 'status' },
-  { prop: 'login_time', label: t('user.lastLogin'), width: 170 },
+  { prop: 'username', label: t('user.username'), minWidth: 120, filter: { type: 'text' } },
+  { prop: 'nickname', label: t('user.nickname'), minWidth: 120, filter: { type: 'text' } },
+  { prop: 'phone', label: t('user.phone'), minWidth: 130 },
+  { prop: 'email', label: t('user.email'), minWidth: 180 },
+  {
+    prop: 'status',
+    label: t('user.status'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('user.enabled'), value: 1 },
+        { label: t('user.disabled'), value: 0 },
+      ],
+    },
+  },
+  { prop: 'login_time', label: t('user.lastLogin'), width: 170, filter: { type: 'date' } },
   { prop: 'action', label: t('table.action'), width: 210, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
 // 回收站开关：必须声明在 useTable 之前 —— 列表闭包在 setup 阶段就会执行一次
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('user', {
-  reload: () => search(),
+  reload: () => load(),
 })
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  Row,
-  Query
->({
+const { list, loading, total, page, limit, load, onPageChange, onLimitChange } = useTable<Row, Query>({
   api: (params) => userList({ ...params, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { username: '', nickname: '', status: undefined },
+  initialQuery: { username: '', nickname: '', status: '', start: '', end: '' },
 })
 
 /* ---- 表单 ---- */
@@ -540,60 +478,6 @@ async function submitAssign(): Promise<void> {
   }
 }
 
-/* ---- 导出 / 导入 ---- */
-
-/** 导出当前筛选与数据范围内的用户 */
-function onExport(): void {
-  void userExport({ ...query, trashed: recycle.value ? 1 : 0 })
-}
-
-function onTemplate(): void {
-  void userTemplate()
-}
-
-const importVisible = ref(false)
-const importing = ref(false)
-const importResult = ref<UserImportResult | null>(null)
-const uploadRef = ref<{ submit: () => void; clearFiles: () => void } | null>(null)
-
-/** el-upload 直传，需自己带鉴权头（与附件上传同样的做法） */
-const uploadHeaders = computed(() => ({ Authorization: `Bearer ${getToken() ?? ''}` }))
-
-function openImport(): void {
-  importResult.value = null
-  importVisible.value = true
-  uploadRef.value?.clearFiles()
-}
-
-function submitImport(): void {
-  importing.value = true
-  uploadRef.value?.submit()
-}
-
-function onImportSuccess(response: { code?: number; message?: string; data?: UserImportResult }): void {
-  importing.value = false
-  if (!response || response.code !== 0) {
-    ElMessage.error(response?.message || t('user.importError'))
-    return
-  }
-
-  importResult.value = response.data ?? null
-  const failed = response.data?.failed.length ?? 0
-  if (failed === 0) {
-    ElMessage.success(
-      t('user.importDone', { created: response.data?.created ?? 0, updated: response.data?.updated ?? 0 }),
-    )
-  } else {
-    ElMessage.warning(t('user.importPartial', { failed }))
-  }
-  load()
-}
-
-function onImportError(): void {
-  importing.value = false
-  ElMessage.error(t('user.importFailed'))
-}
-
 /* ---- 下拉数据 ---- */
 const roleOptions = ref<Row[]>([])
 const postOptions = ref<Row[]>([])
@@ -610,26 +494,3 @@ onMounted(async () => {
   deptTreeData.value = depts as Record<string, unknown>[]
 })
 </script>
-
-<style scoped>
-.import-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
-}
-
-.import-result {
-  margin-top: 12px;
-  font-size: 13px;
-  color: var(--art-main);
-}
-
-.import-failed {
-  max-height: 180px;
-  padding-left: 18px;
-  margin: 6px 0 0;
-  overflow-y: auto;
-  font-size: 12px;
-  color: var(--art-danger);
-}
-</style>

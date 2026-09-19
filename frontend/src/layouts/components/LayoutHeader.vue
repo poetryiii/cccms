@@ -31,15 +31,6 @@
         </el-button>
       </el-tooltip>
 
-      <!-- 我的消息：未读角标 + 抽屉 -->
-      <el-tooltip :content="t('layout.notice')" placement="bottom">
-        <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0" class="header-badge">
-          <el-button text circle @click="openNoticeDrawer">
-            <el-icon :size="17"><Bell /></el-icon>
-          </el-button>
-        </el-badge>
-      </el-tooltip>
-
       <!-- 关闭多标签页时标签栏不存在，刷新入口回落到顶栏 -->
       <el-tooltip v-if="!appStore.tagsView" :content="t('layout.refreshPage')" placement="bottom">
         <el-button text circle @click="refreshPage">
@@ -60,55 +51,17 @@
         </el-button>
       </el-tooltip>
 
-      <!-- 系统同步 / 清理缓存：等价于 menu-sync + perm-scan + 清缓存，不用再登服务器执行 -->
-      <el-tooltip :content="t('layout.syncCache')" placement="bottom">
-        <el-dropdown v-auth="'cccms:config:refresh'" trigger="click" @command="onRefreshCommand">
-          <el-button text circle :loading="refreshing">
-            <el-icon :size="17"><Refresh /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="all">{{ t('layout.syncAll') }}</el-dropdown-item>
-              <el-dropdown-item command="menu" divided>{{ t('layout.syncMenu') }}</el-dropdown-item>
-              <el-dropdown-item command="perm">{{ t('layout.syncPerm') }}</el-dropdown-item>
-              <el-dropdown-item command="cache">{{ t('layout.syncCacheItem') }}</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </el-tooltip>
-
-      <!-- 租户切换（超管专属）：租户是硬边界，跨租户只能显式切换，不做「超管看全部」 -->
-      <el-dropdown v-if="userStore.superAdmin" trigger="click" @command="onTenantCommand">
-        <el-tooltip :content="t('tenant.switchTenant')" placement="bottom">
-          <el-button text class="header-tenant">
-            <el-icon :size="15"><OfficeBuilding /></el-icon>
-            <span class="header-tenant-name">{{ currentTenantName }}</span>
-            <el-icon :size="12"><ArrowDown /></el-icon>
-          </el-button>
-        </el-tooltip>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item disabled>
-              <span class="header-user-role">{{ t('tenant.currentTenant') }}：{{ currentTenantName }}</span>
-            </el-dropdown-item>
-            <el-dropdown-item
-              v-for="(item, index) in tenantChoices"
-              :key="item.id"
-              :command="item.id"
-              :disabled="item.current"
-              :divided="index === 0"
-            >
-              {{ item.name }}
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
+      <!--
+        消息未读数 / 我的消息 / 系统同步 / 租户切换都收进用户下拉：
+        未读数贴在头像上，其余作为菜单项，顶栏只留「快捷导航 / 设置 / 全屏」三个高频图标。
+      -->
       <el-dropdown trigger="click" @command="onUserCommand">
         <div class="header-user">
-          <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
-            {{ avatarText }}
-          </el-avatar>
+          <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0" class="header-user-badge">
+            <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
+              {{ avatarText }}
+            </el-avatar>
+          </el-badge>
           <span class="header-user-name">{{ userStore.nickname || t('layout.notLoggedIn') }}</span>
           <el-icon :size="12"><ArrowDown /></el-icon>
         </div>
@@ -123,11 +76,53 @@
                 }}
               </span>
             </el-dropdown-item>
-            <el-dropdown-item command="profile" divided>
+
+            <el-dropdown-item command="notice" divided>
+              <el-icon><Bell /></el-icon>
+              <span class="header-menu-label">{{ t('layout.notice') }}</span>
+              <span v-if="noticeStore.unread > 0" class="header-menu-count">
+                {{ noticeStore.unread > 99 ? '99+' : noticeStore.unread }}
+              </span>
+            </el-dropdown-item>
+            <el-dropdown-item command="profile">
               <el-icon><User /></el-icon>
               {{ t('layout.profile') }}
             </el-dropdown-item>
-            <el-dropdown-item command="logout">
+
+            <!-- 系统同步 / 清理缓存：等价于 menu-sync + perm-scan + 清缓存，不用再登服务器执行 -->
+            <template v-if="canRefresh">
+              <el-dropdown-item disabled divided class="header-menu-group">
+                {{ t('layout.refreshGroup') }}
+              </el-dropdown-item>
+              <el-dropdown-item
+                v-for="scope in refreshScopes"
+                :key="scope"
+                :command="`refresh:${scope}`"
+                :disabled="refreshing"
+              >
+                {{ refreshLabel(scope) }}
+              </el-dropdown-item>
+            </template>
+
+            <!-- 租户是硬边界，跨租户只能显式切换。仅平台超管可见，故与普通账号无关 -->
+            <template v-if="userStore.superAdmin">
+              <el-dropdown-item disabled divided class="header-menu-group">
+                {{ t('tenant.switchTenant') }}
+              </el-dropdown-item>
+              <el-dropdown-item disabled>
+                <span class="header-user-role">{{ t('tenant.currentTenant') }}：{{ currentTenantName }}</span>
+              </el-dropdown-item>
+              <el-dropdown-item
+                v-for="item in tenantChoices"
+                :key="item.id"
+                :command="`tenant:${item.id}`"
+                :disabled="item.current"
+              >
+                {{ item.name }}
+              </el-dropdown-item>
+            </template>
+
+            <el-dropdown-item command="logout" divided>
               <el-icon><SwitchButton /></el-icon>
               {{ t('layout.logout') }}
             </el-dropdown-item>
@@ -142,7 +137,7 @@
     <el-dialog
       v-model="searchVisible"
       :title="t('layout.quickNav')"
-      width="520px"
+      width="560px"
       class="header-search-dialog"
       append-to-body
     >
@@ -154,18 +149,93 @@
         :prefix-icon="Search"
         @keydown.enter="gotoFirst"
       />
-      <div class="header-search-list">
-        <el-empty v-if="searchResult.length === 0" :description="t('layout.searchEmpty')" :image-size="60" />
+
+      <!-- 收藏：置顶展示，可用箭头调整顺序（顺序存在本机，按用户 + 租户隔离） -->
+      <div class="header-search-section">
+        <div class="header-search-section-title">
+          {{ t('layout.favoriteTitle') }}
+          <span v-if="menuStore.favoriteMenus.length" class="header-search-section-count">
+            {{ menuStore.favoriteMenus.length }}
+          </span>
+        </div>
+        <el-empty
+          v-if="menuStore.favoriteMenus.length === 0"
+          :description="t('layout.favoriteEmpty')"
+          :image-size="46"
+        />
         <div
-          v-for="item in searchResult"
+          v-for="(item, index) in menuStore.favoriteMenus"
           :key="item.path"
           class="header-search-item"
           :class="{ 'is-active': item.path === activeResultPath }"
           @click="goto(item.path)"
         >
-          <ArtIcon :name="item.icon" />
+          <el-icon :size="16" class="header-search-icon"><ArtIcon :name="item.icon" /></el-icon>
           <span class="header-search-title">{{ item.title }}</span>
           <span class="header-search-path">{{ item.path }}</span>
+          <span class="header-search-actions">
+            <el-tooltip :content="t('layout.favoriteMoveUp')" placement="top">
+              <el-button
+                text
+                circle
+                size="small"
+                :disabled="index === 0"
+                @click.stop="menuStore.moveFavorite(item.path, -1)"
+              >
+                <el-icon :size="14"><Top /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip :content="t('layout.favoriteMoveDown')" placement="top">
+              <el-button
+                text
+                circle
+                size="small"
+                :disabled="index === menuStore.favoriteMenus.length - 1"
+                @click.stop="menuStore.moveFavorite(item.path, 1)"
+              >
+                <el-icon :size="14"><Bottom /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip :content="t('layout.favoriteRemove')" placement="top">
+              <el-button text circle size="small" @click.stop="menuStore.toggleFavorite(item.path)">
+                <el-icon :size="14" class="header-search-star"><StarFilled /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </span>
+        </div>
+      </div>
+
+      <!-- 全部菜单 / 搜索结果 -->
+      <div class="header-search-section">
+        <div class="header-search-section-title">
+          {{ keyword.trim() ? t('layout.searchResult') : t('layout.allMenus') }}
+        </div>
+        <div class="header-search-list">
+          <el-empty v-if="searchResult.length === 0" :description="t('layout.searchEmpty')" :image-size="60" />
+          <div
+            v-for="item in searchResult"
+            :key="item.path"
+            class="header-search-item"
+            :class="{ 'is-active': item.path === activeResultPath }"
+            @click="goto(item.path)"
+          >
+            <el-icon :size="16" class="header-search-icon"><ArtIcon :name="item.icon" /></el-icon>
+            <span class="header-search-title">{{ item.title }}</span>
+            <span class="header-search-path">{{ item.path }}</span>
+            <span class="header-search-actions">
+              <el-tooltip
+                :content="menuStore.isFavorite(item.path) ? t('layout.favoriteRemove') : t('layout.favoriteAdd')"
+                placement="top"
+              >
+                <el-button text circle size="small" @click.stop="menuStore.toggleFavorite(item.path)">
+                  <el-icon :size="14" :class="{ 'header-search-star': menuStore.isFavorite(item.path) }">
+                    <StarFilled v-if="menuStore.isFavorite(item.path)" />
+                    <Star v-else />
+                  </el-icon>
+                </el-button>
+              </el-tooltip>
+            </span>
+          </div>
         </div>
       </div>
     </el-dialog>
@@ -237,15 +307,17 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowDown,
   Bell,
+  Bottom,
   Expand,
   Fold,
   FullScreen,
-  OfficeBuilding,
-  Refresh,
   RefreshRight,
   Search,
   Setting,
+  Star,
+  StarFilled,
   SwitchButton,
+  Top,
   User,
 } from '@element-plus/icons-vue'
 import ArtSettingsDrawer from '@/components/core/ArtSettingsDrawer.vue'
@@ -253,7 +325,6 @@ import ArtIcon from '@/components/core/ArtIcon.vue'
 import { reloadMenus, resetAfterLogout } from '@/router'
 import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
 import { tenantOptions, type TenantOption } from '@/api/tenant'
-import type { MenuNode } from '@/api/types'
 import type { NoticeRow } from '@/api/notice'
 import { useAppStore } from '@/stores/app'
 import { translateTitle } from '@/locales/title'
@@ -307,34 +378,12 @@ async function toggleFullscreen(): Promise<void> {
 }
 
 /* ---- 快捷导航 ---- */
-interface FlatMenu {
-  title: string
-  path: string
-  icon: string
-}
-
 const searchVisible = ref(false)
 const keyword = ref('')
 const searchInputRef = ref<{ focus: () => void } | null>(null)
 
-/** 只取可跳转的菜单（type=2 且 path 非空），目录与按钮不参与 */
-function flattenMenus(nodes: MenuNode[]): FlatMenu[] {
-  const out: FlatMenu[] = []
-  const walk = (list: MenuNode[]): void => {
-    for (const node of list) {
-      if (node.type === 2 && node.path) {
-        out.push({ title: node.title, path: node.path, icon: node.icon })
-      }
-      if (node.children?.length) {
-        walk(node.children)
-      }
-    }
-  }
-  walk(nodes)
-  return out
-}
-
-const flatMenus = computed(() => flattenMenus(menuStore.menus))
+/** 扁平菜单由 menuStore 统一维护，工作台「常用功能」也用同一份 */
+const flatMenus = computed(() => menuStore.flatMenus)
 
 const searchResult = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -458,8 +507,14 @@ async function markAllRead(): Promise<void> {
   }
 }
 
-/* ---- 系统同步 / 清理缓存 ---- */
+/* ---- 系统同步 / 清理缓存（收进用户下拉） ---- */
 const refreshing = ref(false)
+
+/** 下拉里的刷新项：全部 / 菜单 / 按钮权限 / 缓存，与后端 RefreshScope 一一对应 */
+const refreshScopes: RefreshScope[] = ['all', 'menu', 'perm', 'cache']
+
+/** 无 `cccms:config:refresh` 的账号看不到整组入口（接口侧同样会拦截） */
+const canRefresh = computed(() => userStore.hasAuth('cccms:config:refresh'))
 
 function refreshLabel(scope: string): string {
   const labels: Record<string, string> = {
@@ -518,12 +573,32 @@ async function onRefreshCommand(command: string | number | object): Promise<void
   }
 }
 
+/**
+ * 用户下拉的统一入口。
+ *
+ * 消息 / 个人中心 / 系统刷新 / 租户切换都挂在同一个下拉里，命令用前缀区分：
+ * `refresh:` 与 `tenant:` 分别转发给各自的处理函数。
+ */
 async function onUserCommand(command: string | number | object): Promise<void> {
-  if (command === 'profile') {
+  const cmd = String(command)
+
+  if (cmd === 'notice') {
+    openNoticeDrawer()
+    return
+  }
+  if (cmd.startsWith('refresh:')) {
+    await onRefreshCommand(cmd.slice('refresh:'.length))
+    return
+  }
+  if (cmd.startsWith('tenant:')) {
+    await onTenantCommand(Number(cmd.slice('tenant:'.length)))
+    return
+  }
+  if (cmd === 'profile') {
     router.push('/profile')
     return
   }
-  if (command !== 'logout') {
+  if (cmd !== 'logout') {
     return
   }
   try {
@@ -566,12 +641,6 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   font-size: 13px;
 }
 
-.header-badge {
-  display: inline-flex;
-  align-items: center;
-  line-height: 1;
-}
-
 .header-user {
   display: flex;
   gap: 8px;
@@ -587,6 +656,13 @@ async function onUserCommand(command: string | number | object): Promise<void> {
 
 .header-user:hover {
   background: var(--art-hover-bg);
+}
+
+/* 未读数是核心提示，贴在头像上（下拉收起时也看得见） */
+.header-user-badge {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
 }
 
 .header-user-avatar {
@@ -608,24 +684,54 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   color: var(--art-muted);
 }
 
-/* ---- 租户切换 ---- */
-.header-tenant {
-  gap: 4px;
-  height: 32px;
-  font-size: 13px;
+/* ---- 用户下拉里的分组标题与计数 ---- */
+.header-menu-label {
+  flex: 1;
 }
 
-.header-tenant-name {
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.header-menu-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 0 5px;
+  margin-left: auto;
+  font-size: 11px;
+  line-height: 16px;
+  color: #fff;
+  text-align: center;
+  background: var(--art-danger);
+  border-radius: 9px;
+}
+
+.header-menu-group {
+  font-size: 12px;
+  color: var(--art-muted);
 }
 
 /* ---- 快捷导航 ---- */
+.header-search-section {
+  margin-top: 12px;
+}
+
+.header-search-section-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--art-muted);
+}
+
+.header-search-section-count {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--art-sub);
+  background: var(--art-hover-bg);
+  border-radius: 8px;
+}
+
 .header-search-list {
-  max-height: 320px;
-  margin-top: 10px;
+  max-height: 260px;
   overflow-y: auto;
 }
 
@@ -633,7 +739,7 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 8px 10px;
+  padding: 4px 6px 4px 10px;
   cursor: pointer;
   border-radius: calc(var(--art-radius) - 4px);
 }
@@ -642,15 +748,40 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   background: var(--art-hover-bg);
 }
 
+.header-search-icon {
+  flex-shrink: 0;
+  color: var(--art-muted);
+}
+
 .header-search-title {
+  overflow: hidden;
   font-size: 14px;
   color: var(--art-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-search-path {
+  flex-shrink: 0;
   margin-left: auto;
   font-size: 12px;
   color: var(--art-muted);
+}
+
+/* 收藏与排序按钮：默认低存在感，悬停或已收藏时高亮 */
+.header-search-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  opacity: 0.55;
+}
+
+.header-search-item:hover .header-search-actions {
+  opacity: 1;
+}
+
+.header-search-star {
+  color: var(--art-warning);
 }
 
 /* ---- 我的消息 ---- */

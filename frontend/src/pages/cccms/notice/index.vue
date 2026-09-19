@@ -9,39 +9,11 @@
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
-      @search="search"
-      @reset="reset"
       @page-change="onPageChange"
       @size-change="onLimitChange"
       @restore="onRestore"
       @force-delete="onForceDelete"
     >
-      <template #search>
-        <el-form-item :label="t('notice.titleLabel')">
-          <el-input v-model="query.title" :placeholder="t('notice.searchPlaceholder')" clearable style="width: 180px" />
-        </el-form-item>
-        <el-form-item :label="t('notice.typeLabel')">
-          <el-select v-model="query.type" :placeholder="t('notice.allPlaceholder')" clearable style="width: 110px">
-            <el-option :label="t('notice.typeNotification')" :value="1" />
-            <el-option :label="t('notice.typeAnnouncement')" :value="2" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('notice.statusLabel')">
-          <el-select v-model="query.status" :placeholder="t('notice.allPlaceholder')" clearable style="width: 110px">
-            <el-option :label="t('notice.published')" :value="1" />
-            <el-option :label="t('notice.draft')" :value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('notice.scopeFilterLabel')">
-          <el-select v-model="query.scope" :placeholder="t('notice.allPlaceholder')" clearable style="width: 130px">
-            <el-option :label="t('notice.scopeAll')" :value="0" />
-            <el-option :label="t('notice.scopeDept')" :value="1" />
-            <el-option :label="t('notice.scopeRole')" :value="2" />
-            <el-option :label="t('notice.scopeUser')" :value="3" />
-          </el-select>
-        </el-form-item>
-      </template>
-
       <template #toolbar>
         <el-button v-auth="'cccms:notice:save'" type="primary" :icon="Plus" @click="openCreate">
           {{ t('common.create') }}
@@ -266,23 +238,99 @@ const { t } = useI18n({ useScope: 'global' })
 
 interface Query {
   title: string
-  type: number | ''
-  status: number | ''
-  scope: number | ''
+  /** 多选值以逗号串传递 */
+  type: string
+  level: string
+  status: string
+  scope: string
+  /** 创建时间范围（列头时间筛选写入） */
+  start: string
+  end: string
+  /** 发布时间范围 */
+  publish_start: string
+  publish_end: string
+  /** 到期时间范围 */
+  expire_start: string
+  expire_end: string
 }
 
 // 表格列文案跟随语言切换，用 computed 包裹
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'title', label: t('notice.titleLabel'), minWidth: 220 },
-  { prop: 'type', label: t('notice.typeLabel'), width: 90, align: 'center', slot: 'type' },
-  { prop: 'level', label: t('notice.levelLabel'), width: 90, align: 'center', slot: 'level' },
-  { prop: 'status', label: t('notice.statusLabel'), width: 100, align: 'center', slot: 'status' },
-  { prop: 'scope', label: t('notice.scopeLabel'), width: 110, align: 'center', slot: 'scope' },
-  { prop: 'publish_at', label: t('notice.publishAtLabel'), width: 170 },
-  { prop: 'expire_at', label: t('notice.expireAtLabel'), width: 170, defaultHidden: true },
+  { prop: 'title', label: t('notice.titleLabel'), minWidth: 220, filter: { type: 'text' } },
+  {
+    prop: 'type',
+    label: t('notice.typeLabel'),
+    width: 90,
+    align: 'center',
+    slot: 'type',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('notice.typeNotification'), value: 1 },
+        { label: t('notice.typeAnnouncement'), value: 2 },
+      ],
+    },
+  },
+  {
+    prop: 'level',
+    label: t('notice.levelLabel'),
+    width: 90,
+    align: 'center',
+    slot: 'level',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('notice.levelNormal'), value: 1 },
+        { label: t('notice.levelImportant'), value: 2 },
+      ],
+    },
+  },
+  {
+    prop: 'status',
+    label: t('notice.statusLabel'),
+    width: 100,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('notice.published'), value: 1 },
+        { label: t('notice.draft'), value: 0 },
+      ],
+    },
+  },
+  {
+    prop: 'scope',
+    label: t('notice.scopeLabel'),
+    width: 110,
+    align: 'center',
+    slot: 'scope',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('notice.scopeAll'), value: 0 },
+        { label: t('notice.scopeDept'), value: 1 },
+        { label: t('notice.scopeRole'), value: 2 },
+        { label: t('notice.scopeUser'), value: 3 },
+      ],
+    },
+  },
+  // 发布时间 / 到期时间各用一组 startKey / endKey，避免和创建时间范围互相覆盖
+  {
+    prop: 'publish_at',
+    label: t('notice.publishAtLabel'),
+    width: 170,
+    filter: { type: 'date', startKey: 'publish_start', endKey: 'publish_end' },
+  },
+  {
+    prop: 'expire_at',
+    label: t('notice.expireAtLabel'),
+    width: 170,
+    filter: { type: 'date', startKey: 'expire_start', endKey: 'expire_end' },
+  },
   { prop: 'read_count', label: t('notice.readCountLabel'), width: 100, align: 'right' },
-  { prop: 'create_time', label: t('notice.createdAtLabel'), width: 170, defaultHidden: true },
+  { prop: 'create_time', label: t('notice.createdAtLabel'), width: 170, filter: { type: 'date' } },
   { prop: 'action', label: t('table.action'), width: 170, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
@@ -304,15 +352,24 @@ function scopeTagType(scope: number): 'info' | 'primary' | 'success' | 'warning'
 
 // 回收站开关：必须在 useTable 之前（列表闭包在 setup 阶段就会执行一次）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('notice', {
-  reload: () => search(),
+  reload: () => load(),
 })
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  NoticeRow,
-  Query
->({
+const { list, loading, total, page, limit, load, onPageChange, onLimitChange } = useTable<NoticeRow, Query>({
   api: (params) => noticeList({ ...params, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { title: '', type: '', status: '', scope: '' },
+  initialQuery: {
+    title: '',
+    type: '',
+    level: '',
+    status: '',
+    scope: '',
+    start: '',
+    end: '',
+    publish_start: '',
+    publish_end: '',
+    expire_start: '',
+    expire_end: '',
+  },
 })
 
 const formRef = ref<FormInstance>()

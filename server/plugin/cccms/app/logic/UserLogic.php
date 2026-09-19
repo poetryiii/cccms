@@ -12,14 +12,12 @@ use plugin\cccms\app\model\UserDept;
 use plugin\cccms\app\model\UserPost;
 use plugin\cccms\app\model\UserRole;
 use plugin\cccms\support\ApiException;
-use plugin\cccms\support\Csv;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PasswordPolicy;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\UserContext;
 use Throwable;
-use Webman\Http\Response;
-use Webman\Http\UploadFile;
 
 /**
  * 用户管理逻辑。
@@ -38,12 +36,6 @@ final class UserLogic
     /** 对外安全字段（不含 password）。 */
     private const SAFE_FIELDS = 'id,username,nickname,avatar,email,phone,status,remark,login_time,login_ip,create_time,update_time';
 
-    /** 导出上限：避免一次导出把内存打满 */
-    private const EXPORT_LIMIT = 5000;
-
-    /** 导入模板表头（也用于校验必填列）。roles/depts/posts 为名称多值列，逗号分隔。 */
-    public const IMPORT_HEADERS = ['username', 'nickname', 'email', 'phone', 'status', 'password', 'roles', 'depts', 'posts'];
-
     public static function paginate(array $params): array
     {
         // trashed=1 → 回收站视图（只看已删除），与正常列表共用同一套列。
@@ -55,8 +47,18 @@ final class UserLogic
         if (!empty($params['nickname'])) {
             $query->where('nickname', 'like', '%' . $params['nickname'] . '%');
         }
-        if (isset($params['status']) && $params['status'] !== '') {
-            $query->where('status', (int)$params['status']);
+        // 列头筛选支持多选，值形如 `1,0`
+        $statuses = FilterInput::ints($params['status'] ?? null);
+        if ($statuses !== []) {
+            $query->whereIn('status', $statuses);
+        }
+        // 最后登录时间范围（列头时间筛选，值已归一化为 Y-m-d H:i:s）
+        [$start, $end] = FilterInput::range($params['start'] ?? null, $params['end'] ?? null);
+        if ($start !== '') {
+            $query->where('login_time', '>=', $start);
+        }
+        if ($end !== '') {
+            $query->where('login_time', '<=', $end);
         }
 
         $page  = max(1, (int)($params['page'] ?? 1));
@@ -323,163 +325,6 @@ final class UserLogic
         return $ids;
     }
 
-    /** 导出当前数据范围内的用户（CSV，直接返回文件流） */
-    public static function export(array $params): Response
-    {
-        $query = !empty($params['trashed']) ? User::onlyTrashed() : User::newScopedQuery();
-        if (!empty($params['username'])) {
-            $query->where('username', 'like', '%' . $params['username'] . '%');
-        }
-        if (!empty($params['nickname'])) {
-            $query->where('nickname', 'like', '%' . $params['nickname'] . '%');
-        }
-        if (isset($params['status']) && $params['status'] !== '') {
-            $query->where('status', (int)$params['status']);
-        }
-
-        $rows = $query->field(self::SAFE_FIELDS)->order('id', 'desc')->limit(self::EXPORT_LIMIT)->select()->toArray();
-        $roleNames = self::roleNamesOf(array_map('intval', array_column($rows, 'id')));
-
-        $data = array_map(static fn (array $row): array => [
-            (string)$row['id'],
-            (string)$row['username'],
-            (string)$row['nickname'],
-            (string)$row['email'],
-            (string)$row['phone'],
-            implode('、', $roleNames[(int)$row['id']] ?? []),
-            (int)$row['status'] === 1 ? I18n::t('user.status_enabled') : I18n::t('user.status_disabled'),
-            (string)($row['create_time'] ?? ''),
-        ], $rows);
-
-        return Csv::download(I18n::t('user.export_title'), [
-            'ID',
-            I18n::t('user.col_username'),
-            I18n::t('user.col_nickname'),
-            I18n::t('user.col_email'),
-            I18n::t('user.col_phone'),
-            I18n::t('user.label_role'),
-            I18n::t('user.col_status'),
-            I18n::t('user.col_create_time'),
-        ], $data);
-    }
-
-    /** 下载导入模板 */
-    public static function template(): Response
-    {
-        return Csv::download(I18n::t('user.template_title'), array_merge(self::IMPORT_HEADERS, [I18n::t('user.col_remark')]), [
-            [
-                'zhangsan',
-                I18n::t('user.template_sample_nickname'),
-                'zhangsan@example.com',
-                '13800000000',
-                '1',
-                I18n::t('user.template_pw_hint'),
-                I18n::t('user.template_sample_role'),
-                I18n::t('user.template_sample_dept'),
-                I18n::t('user.template_sample_post'),
-                I18n::t('user.template_hint'),
-            ],
-        ]);
-    }
-
-    /**
-     * 导入用户（CSV）。
-     *
-     * 约定：
-     *   - `username` 必填；已存在则**更新**（走 update，受数据范围约束），不存在则**新增**；
-     *   - 新增必须提供 `password`（不内置弱口令默认值，避免埋雷）；
-     *   - 单行失败不影响其余行，失败原因按行号汇总返回。
-     *
-     * @return array{total:int,created:int,updated:int,failed:array<int,string>}
-     */
-    public static function import(UploadFile $file): array
-    {
-        $parsed  = Csv::parse($file);
-        $headers = $parsed['headers'];
-
-        if (!in_array('username', $headers, true)) {
-            throw new ApiException(I18n::t('user.csv_missing_username'), 422);
-        }
-
-        // 名称 → id 映射一次性预载，避免逐行查库（N+1）。
-        // 显式跳出数据权限：导入是系统配置动作，必须看全量角色/部门/岗位，
-        // 否则「看不见的角色」会被误判为不存在。
-        $roleNameMap = Role::withoutGlobalScope()->column('id', 'name');
-        $roleCodeMap = Role::withoutGlobalScope()->column('id', 'code');
-        $deptNameMap = Dept::withoutGlobalScope()->column('id', 'name');
-        $postNameMap = Post::withoutGlobalScope()->column('id', 'name');
-        $postCodeMap = Post::withoutGlobalScope()->column('id', 'code');
-
-        $created = 0;
-        $updated = 0;
-        $failed  = [];
-
-        foreach ($parsed['rows'] as $index => $row) {
-            $line     = $index + 2;   // 第 1 行是表头
-            $username = trim((string)($row['username'] ?? ''));
-
-            if ($username === '') {
-                $failed[] = I18n::t('user.import_line_prefix', ['line' => $line]) . I18n::t('user.import_username_empty');
-                continue;
-            }
-
-            try {
-                // 名称 → id；找不到即行级失败，避免静默丢掉授权
-                $roleIds = self::resolveIds((string)($row['roles'] ?? ''), $roleNameMap, $roleCodeMap, I18n::t('user.label_role'));
-                $deptIds = self::resolveIds((string)($row['depts'] ?? ''), $deptNameMap, null, I18n::t('user.label_dept'));
-                $postIds = self::resolveIds((string)($row['posts'] ?? ''), $postNameMap, $postCodeMap, I18n::t('user.label_post'));
-
-                // 唯一性判断要看全量（含回收站）：uk_username 是全局唯一索引，需完全绕过租户作用域
-                $exist = User::withoutAllScopes()->withTrashed()->where('username', $username)->find();
-
-                $data = [
-                    'nickname' => (string)($row['nickname'] ?? ''),
-                    'email'    => (string)($row['email'] ?? ''),
-                    'phone'    => (string)($row['phone'] ?? ''),
-                    'status'   => self::parseStatus((string)($row['status'] ?? '1')),
-                ];
-
-                if ($exist) {
-                    // 更新：只有填了 roles/depts/posts 才覆盖对应关联（留空 = 保持原样）
-                    if (trim((string)($row['roles'] ?? '')) !== '') {
-                        $data['role_ids'] = $roleIds;
-                    }
-                    if (trim((string)($row['depts'] ?? '')) !== '') {
-                        $data['dept_ids'] = $deptIds;
-                    }
-                    if (trim((string)($row['posts'] ?? '')) !== '') {
-                        $data['post_ids'] = $postIds;
-                    }
-                    self::update((int)$exist['id'], $data);
-                    $updated++;
-                    continue;
-                }
-
-                $password = (string)($row['password'] ?? '');
-                if ($password === '') {
-                    throw new ApiException(I18n::t('user.initial_password_required'), 422);
-                }
-                self::create($data + [
-                    'username' => $username,
-                    'password' => $password,
-                    'role_ids' => $roleIds,
-                    'dept_ids' => $deptIds,
-                    'post_ids' => $postIds,
-                ]);
-                $created++;
-            } catch (Throwable $e) {
-                $failed[] = I18n::t('user.import_line_prefix', ['line' => $line]) . $e->getMessage();
-            }
-        }
-
-        return [
-            'total'   => count($parsed['rows']),
-            'created' => $created,
-            'updated' => $updated,
-            'failed'  => $failed,
-        ];
-    }
-
     /**
      * 单条记录的数据范围校验。
      *
@@ -623,42 +468,6 @@ final class UserLogic
         }
     }
 
-    /**
-     * 把「名称（英文逗号 / 中文逗号 / 顿号 / 分号分隔）」解析成 id 列表。
-     * 先按 name 精确匹配，可选按 code 兜底；找不到即抛异常（行级失败，不静默丢授权）。
-     *
-     * @param array<string,int>      $nameMap 名称 → id
-     * @param array<string,int>|null $codeMap 编码 → id（角色 / 岗位有 code，部门没有）
-     * @return array<int,int>
-     */
-    private static function resolveIds(string $raw, array $nameMap, ?array $codeMap, string $label): array
-    {
-        $raw = trim($raw);
-        if ($raw === '') {
-            return [];
-        }
-
-        $tokens = preg_split('/[,，、;；]/u', $raw) ?: [];
-        $out    = [];
-        foreach ($tokens as $token) {
-            $token = trim($token);
-            if ($token === '') {
-                continue;
-            }
-
-            $id = $nameMap[$token] ?? null;
-            if ($id === null && $codeMap !== null) {
-                $id = $codeMap[$token] ?? null;
-            }
-            if ($id === null) {
-                throw new ApiException(I18n::t('user.token_not_found', ['label' => $label, 'token' => $token]), 422);
-            }
-            $out[] = (int)$id;
-        }
-
-        return array_values(array_unique($out));
-    }
-
     private static function assertUniqueUsername(string $username, int $excludeId): void
     {
         if ($username === '') {
@@ -697,41 +506,5 @@ final class UserLogic
         $value = $data[$key];
         unset($data[$key]);
         return is_array($value) ? array_values($value) : [];
-    }
-
-    /**
-     * 批量取「用户 => 角色名列表」，避免导出时逐行查库（N+1）。
-     *
-     * @param  array<int,int> $userIds
-     * @return array<int,array<int,string>>
-     */
-    private static function roleNamesOf(array $userIds): array
-    {
-        if ($userIds === []) {
-            return [];
-        }
-
-        $pairs   = UserRole::whereIn('user_id', $userIds)->select()->toArray();
-        $roleIds = array_values(array_unique(array_map('intval', array_column($pairs, 'role_id'))));
-        $names   = $roleIds === [] ? [] : Role::whereIn('id', $roleIds)->column('name', 'id');
-
-        $out = [];
-        foreach ($pairs as $pair) {
-            $out[(int)$pair['user_id']][] = (string)($names[(int)$pair['role_id']] ?? '');
-        }
-
-        return $out;
-    }
-
-    /** 导入时的状态取值容错：1/0、启用/禁用、是/否、true/false */
-    private static function parseStatus(string $value): int
-    {
-        $value = strtolower(trim($value));
-
-        if (in_array($value, ['0', '禁用', '否', 'false', 'no', 'off'], true)) {
-            return 0;
-        }
-
-        return 1;
     }
 }

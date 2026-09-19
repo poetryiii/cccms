@@ -19,19 +19,11 @@
         v-model:page="page"
         v-model:limit="limit"
         @refresh="load"
-        @search="search"
-        @reset="reset"
         @page-change="onPageChange"
         @size-change="onLimitChange"
         @restore="onRestore"
         @force-delete="onForceDelete"
       >
-        <template #search>
-          <el-form-item :label="t('role.name')">
-            <el-input v-model="query.name" :placeholder="t('role.pleaseInput')" clearable style="width: 180px" />
-          </el-form-item>
-        </template>
-
         <template #toolbar>
           <el-button v-auth="'cccms:role:save'" type="primary" :icon="Plus" @click="openCreate">
             {{ t('common.create') }}
@@ -216,6 +208,10 @@ interface Row {
 
 interface Query {
   name: string
+  /** 列头枚举多选，值形如 `1,0` */
+  data_scope: string
+  /** 列头枚举多选，值形如 `1,0` */
+  status: string
 }
 
 const scopeTextMap = computed<Record<number, string>>(() => ({
@@ -228,11 +224,40 @@ const scopeTextMap = computed<Record<number, string>>(() => ({
 
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'name', label: t('role.name'), minWidth: 150 },
+  { prop: 'name', label: t('role.name'), minWidth: 150, filter: { type: 'text' } },
   { prop: 'code', label: t('role.code'), minWidth: 150 },
   { prop: 'parent_id', label: t('role.parent'), width: 130, slot: 'parent' },
-  { prop: 'data_scope', label: t('role.dataScope'), width: 140, align: 'center', slot: 'scope' },
-  { prop: 'status', label: t('role.status'), width: 90, align: 'center', slot: 'status' },
+  {
+    prop: 'data_scope',
+    label: t('role.dataScope'),
+    width: 140,
+    align: 'center',
+    slot: 'scope',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('role.scopeAll'), value: 1 },
+        { label: t('role.scopeDeptAndBelow'), value: 2 },
+        { label: t('role.scopeDept'), value: 3 },
+        { label: t('role.scopeSelf'), value: 4 },
+        { label: t('role.scopeCustom'), value: 5 },
+      ],
+    },
+  },
+  {
+    prop: 'status',
+    label: t('role.status'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('role.enabled'), value: 1 },
+        { label: t('role.disabled'), value: 0 },
+      ],
+    },
+  },
   { prop: 'action', label: t('table.action'), width: 170, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
@@ -242,16 +267,13 @@ const currentId = ref(0)
 
 // 回收站开关：必须在 useTable 之前（列表闭包在 setup 阶段就会执行一次）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('role', {
-  reload: () => search(),
+  reload: () => load(),
 })
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  Row,
-  Query
->({
+const { list, loading, total, page, limit, load, search, onPageChange, onLimitChange } = useTable<Row, Query>({
   // node_id 在请求时注入，这样「重置」只清查询条件，不会意外丢掉树上的筛选
   api: (params) => roleList({ ...params, node_id: currentId.value || undefined, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { name: '' },
+  initialQuery: { name: '', data_scope: '', status: '' },
 })
 
 const roleTreeData = ref<Row[]>([])

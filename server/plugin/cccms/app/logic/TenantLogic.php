@@ -8,6 +8,7 @@ use plugin\cccms\app\model\Tenant;
 use plugin\cccms\app\model\User;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\TenantContext;
@@ -39,18 +40,30 @@ final class TenantLogic
      */
     public static function paginate(array $params): array
     {
-        $keyword = trim((string)($params['keyword'] ?? ''));
-        $status  = $params['status'] ?? '';
-
         $query = Tenant::newScopedQuery();
-        if ($keyword !== '') {
-            $query->where(static function ($q) use ($keyword): void {
-                $q->where('name', 'like', '%' . $keyword . '%')
-                    ->whereOr('code', 'like', '%' . $keyword . '%');
-            });
+
+        // 文本列头筛选：各列独立生效，多列之间是 AND
+        $texts = ['name', 'code', 'contact', 'phone'];
+        $hasText = false;
+        foreach ($texts as $field) {
+            $value = trim((string)($params[$field] ?? ''));
+            if ($value !== '') {
+                $query->where($field, 'like', '%' . $value . '%');
+                $hasText = true;
+            }
         }
-        if ($status !== '') {
-            $query->where('status', (int)$status === 1 ? 1 : 0);
+        // 列头筛选支持多选，值形如 `1,0`
+        $statuses = FilterInput::ints($params['status'] ?? null);
+        if ($statuses !== []) {
+            $query->whereIn('status', $statuses);
+        }
+        // 到期时间范围（列头时间筛选，值已归一化为 Y-m-d H:i:s）
+        [$start, $end] = FilterInput::range($params['start'] ?? null, $params['end'] ?? null);
+        if ($start !== '') {
+            $query->where('expire_at', '>=', $start);
+        }
+        if ($end !== '') {
+            $query->where('expire_at', '<=', $end);
         }
 
         $page  = max(1, (int)($params['page'] ?? 1));
@@ -65,7 +78,8 @@ final class TenantLogic
         }
         unset($row);
 
-        if ($page === 1 && $keyword === '' && $status === '') {
+        // 带筛选条件时不合成平台行，避免「筛不到却还在列表里」的错觉
+        if ($page === 1 && !$hasText && $statuses === [] && $start === '' && $end === '') {
             $total++;
             array_unshift($list, self::platformRow());
         }

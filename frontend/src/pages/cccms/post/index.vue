@@ -11,20 +11,12 @@
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
-      @search="search"
-      @reset="reset"
       @page-change="onPageChange"
       @size-change="onLimitChange"
       @restore="onRestore"
       @force-delete="onForceDelete"
       @selection-change="onSelectionChange"
     >
-      <template #search>
-        <el-form-item :label="t('post.nameLabel')">
-          <el-input v-model="query.name" :placeholder="t('post.searchPlaceholder')" clearable style="width: 180px" />
-        </el-form-item>
-      </template>
-
       <template #toolbar>
         <el-button v-auth="'cccms:post:save'" type="primary" :icon="Plus" @click="openCreate">
           {{ t('common.create') }}
@@ -147,29 +139,41 @@ interface Row {
 
 interface Query {
   name: string
+  /** 列头枚举多选，值形如 `1,0` */
+  status: string
 }
 
 // 表格列文案跟随语言切换，用 computed 包裹
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
   { prop: 'code', label: t('post.codeLabel'), minWidth: 150 },
-  { prop: 'name', label: t('post.nameLabel'), minWidth: 150 },
+  { prop: 'name', label: t('post.nameLabel'), minWidth: 150, filter: { type: 'text' } },
   { prop: 'sort', label: t('post.sortLabel'), width: 90, align: 'center' },
-  { prop: 'status', label: t('post.statusLabel'), width: 90, align: 'center', slot: 'status' },
+  {
+    prop: 'status',
+    label: t('post.statusLabel'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('post.enabled'), value: 1 },
+        { label: t('post.disabled'), value: 0 },
+      ],
+    },
+  },
   { prop: 'action', label: t('table.action'), width: 130, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
 // 回收站开关：必须在 useTable 之前（列表闭包在 setup 阶段就会执行一次）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('post', {
-  reload: () => search(),
+  reload: () => load(),
 })
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  Row,
-  Query
->({
+const { list, loading, total, page, limit, load, onPageChange, onLimitChange } = useTable<Row, Query>({
   api: (params) => postList({ ...params, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { name: '' },
+  initialQuery: { name: '', status: '' },
 })
 
 const formRef = ref<FormInstance>()

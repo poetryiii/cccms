@@ -14,6 +14,7 @@ use plugin\cccms\app\model\UserDept;
 use plugin\cccms\app\model\UserRole;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\UserContext;
 use think\db\BaseQuery;
@@ -70,17 +71,52 @@ final class NoticeLogic
         if (!empty($params['title'])) {
             $query->where('title', 'like', '%' . $params['title'] . '%');
         }
-        if (isset($params['status']) && $params['status'] !== '') {
-            $query->where('status', (int)$params['status']);
+        // 以下枚举列头均支持多选，值形如 `1,0`
+        $statuses = FilterInput::ints($params['status'] ?? null);
+        if ($statuses !== []) {
+            $query->whereIn('status', $statuses);
         }
-        if (isset($params['type']) && $params['type'] !== '') {
-            $query->where('type', (int)$params['type']);
+        $types = FilterInput::ints($params['type'] ?? null);
+        if ($types !== []) {
+            $query->whereIn('type', $types);
         }
-        if (isset($params['level']) && $params['level'] !== '') {
-            $query->where('level', (int)$params['level']);
+        $levels = FilterInput::ints($params['level'] ?? null);
+        if ($levels !== []) {
+            $query->whereIn('level', $levels);
         }
-        if (isset($params['scope']) && $params['scope'] !== '') {
-            $query->where('scope', (int)$params['scope']);
+        $scopes = FilterInput::ints($params['scope'] ?? null);
+        if ($scopes !== []) {
+            $query->whereIn('scope', $scopes);
+        }
+        // 创建时间范围（列头时间筛选，值已归一化为 Y-m-d H:i:s）
+        [$start, $end] = FilterInput::range($params['start'] ?? null, $params['end'] ?? null);
+        if ($start !== '') {
+            $query->where('create_time', '>=', $start);
+        }
+        if ($end !== '') {
+            $query->where('create_time', '<=', $end);
+        }
+        // 发布时间范围：与创建时间各用一组 startKey / endKey，互不干扰
+        [$publishStart, $publishEnd] = FilterInput::range(
+            $params['publish_start'] ?? null,
+            $params['publish_end'] ?? null
+        );
+        if ($publishStart !== '') {
+            $query->where('publish_at', '>=', $publishStart);
+        }
+        if ($publishEnd !== '') {
+            $query->where('publish_at', '<=', $publishEnd);
+        }
+        // 到期时间范围
+        [$expireStart, $expireEnd] = FilterInput::range(
+            $params['expire_start'] ?? null,
+            $params['expire_end'] ?? null
+        );
+        if ($expireStart !== '') {
+            $query->where('expire_at', '>=', $expireStart);
+        }
+        if ($expireEnd !== '') {
+            $query->where('expire_at', '<=', $expireEnd);
         }
 
         $page  = max(1, (int)($params['page'] ?? 1));

@@ -2,7 +2,7 @@
   <div class="art-fill">
     <ArtTable
       :columns="columns"
-      :data="list"
+      :data="tableData"
       :loading="loading"
       :pagination="false"
       :recycle="recycle"
@@ -144,6 +144,7 @@ import ArtIcon from '@/components/core/ArtIcon.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'
+import { useTableFilter } from '@/composables/useTable'
 import { menuDelete, menuSave, menuTree, menuUpdate } from '@/api/menu'
 import { MENU_ICON_OPTIONS } from '@/utils/icon'
 import type { MenuNode } from '@/api/types'
@@ -164,19 +165,96 @@ const typeTagMap: Record<number, 'primary' | 'success' | 'warning'> = {
 }
 
 const columns = computed<ArtTableColumn[]>(() => [
-  { prop: 'title', label: t('menu.name'), minWidth: 200 },
-  { prop: 'type', label: t('menu.typeLabel'), width: 90, align: 'center', slot: 'type' },
-  { prop: 'node', label: t('menu.node'), minWidth: 190, slot: 'node' },
+  { prop: 'title', label: t('menu.name'), minWidth: 200, filter: { type: 'text' } },
+  {
+    prop: 'type',
+    label: t('menu.typeLabel'),
+    width: 90,
+    align: 'center',
+    slot: 'type',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('menu.typeDir'), value: 1 },
+        { label: t('menu.typeMenu'), value: 2 },
+        { label: t('menu.typeButton'), value: 3 },
+      ],
+    },
+  },
+  { prop: 'node', label: t('menu.node'), minWidth: 190, slot: 'node', filter: { type: 'text' } },
   { prop: 'path', label: t('menu.path'), width: 160 },
-  { prop: 'component', label: t('menu.component'), width: 190, defaultHidden: true },
+  { prop: 'component', label: t('menu.component'), width: 190 },
   { prop: 'sort', label: t('menu.sort'), width: 80, align: 'center' },
-  { prop: 'status', label: t('menu.status'), width: 90, align: 'center', slot: 'status' },
+  {
+    prop: 'status',
+    label: t('menu.status'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('menu.shown'), value: 1 },
+        { label: t('menu.hidden'), value: 0 },
+      ],
+    },
+  },
   { prop: 'action', label: t('table.action'), width: 210, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
 const loading = ref(false)
 const list = ref<MenuNode[]>([])
 const parentOptions = ref<MenuNode[]>([])
+
+/* ---- 关键字过滤（前端过滤，不请求接口） ---- */
+interface Query {
+  title: string
+  node: string
+  /** 列头枚举多选，值形如 `1,2` */
+  type: string
+  /** 列头枚举多选，值形如 `1,0` */
+  status: string
+}
+
+const { query } = useTableFilter<Query>({ initialQuery: { title: '', node: '', type: '', status: '' } })
+
+/** 枚举多选匹配：空条件放行，否则按逗号串匹配 */
+function matchEnum(value: unknown, raw: string): boolean {
+  return raw === '' || raw.split(',').includes(String(value))
+}
+
+/**
+ * 树形过滤：命中节点整棵子树原样保留；未命中但子孙命中的节点保留自身，children 换成过滤结果。
+ */
+function filterTree(nodes: MenuNode[], match: (node: MenuNode) => boolean): MenuNode[] {
+  const out: MenuNode[] = []
+  for (const node of nodes) {
+    if (match(node)) {
+      out.push(node)
+      continue
+    }
+    const children = node.children?.length ? filterTree(node.children, match) : []
+    if (children.length) {
+      out.push({ ...node, children })
+    }
+  }
+  return out
+}
+
+const tableData = computed<MenuNode[]>(() => {
+  const title = query.title.trim().toLowerCase()
+  const node = query.node.trim().toLowerCase()
+  const type = query.type
+  const status = query.status
+  if (!title && !node && !type && !status) {
+    return list.value
+  }
+  return filterTree(list.value, (item) => {
+    const hitTitle = !title || item.title.toLowerCase().includes(title)
+    const hitNode = !node || item.node.toLowerCase().includes(node)
+    return hitTitle && hitNode && matchEnum(item.type, type) && matchEnum(item.status, status)
+  })
+})
 
 const typeText = (type: number): string => (typeTextMap[type] ? t(typeTextMap[type]) : '-')
 const typeTag = (type: number): 'primary' | 'success' | 'warning' => typeTagMap[type] ?? 'primary'

@@ -147,22 +147,8 @@ export default {
   tableRemoved: 'Removed',
   tableRemovedWithRules: 'Removed; {count} rule(s) on this table are suspended',
 
-  /* ---- Import rules ---- */
-  importTitle: 'Import data permission rules',
-  importTip:
-    'The first CSV row must be column names; name is required, rules with the same name are updated, otherwise created. Bindings are always IDs (0 = not bound), separate multiple dept_ids with |; the trailing *_name columns are for manual verification only and are ignored on import.',
-  downloadTemplate: 'Download import template',
-  uploadTextPrefix: 'Drag the CSV here, or ',
-  uploadTextClick: 'click to select',
-  importSummary: '{total} row(s): {created} created, {updated} updated, {failed} failed',
-  startImport: 'Start import',
-  close: 'Close',
-  importFailed: 'Import failed',
-  importDone: 'Import finished: {created} created, {updated} updated',
-  importPartial: 'Import finished, but {failed} row(s) failed; see the list below',
-  importError: 'Import failed, please check the file format or network',
-
   /* ---- Common messages ---- */
+  close: 'Close',
   saveSuccess: 'Saved successfully',
   deleteSuccess: 'Deleted successfully',
 }

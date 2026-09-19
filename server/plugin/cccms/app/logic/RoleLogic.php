@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\Role;
 use plugin\cccms\app\model\RoleNode;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
 
@@ -28,6 +29,15 @@ final class RoleLogic
         $query = !empty($params['trashed']) ? Role::onlyTrashed() : Role::newScopedQuery();
         if (!empty($params['name'])) {
             $query->where('name', 'like', '%' . $params['name'] . '%');
+        }
+        // 列头筛选支持多选，值形如 `1,0`
+        $statuses = FilterInput::ints($params['status'] ?? null);
+        if ($statuses !== []) {
+            $query->whereIn('status', $statuses);
+        }
+        $dataScopes = FilterInput::ints($params['data_scope'] ?? null);
+        if ($dataScopes !== []) {
+            $query->whereIn('data_scope', $dataScopes);
         }
         // 左侧角色树选中节点后，只列出该角色及其所有下级
         if (!empty($params['node_id'])) {

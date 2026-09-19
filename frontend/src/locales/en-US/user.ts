@@ -64,19 +64,4 @@ export default {
   saveSuccess: 'Saved successfully',
   deleteSuccess: 'Deleted successfully',
   resetSuccess: 'Reset successfully',
-
-  // Import
-  importUser: 'Import users',
-  importAlert:
-    'The first CSV row must contain the column names; username is required, existing users are updated, and new users must provide a password column. roles/depts/posts are matched by name and comma-separated; leave them empty on update to keep the current values.',
-  downloadTemplate: 'Download import template',
-  uploadDrag: 'Drag the CSV here, or ',
-  uploadClick: 'click to select',
-  importSummary: 'Total {total} rows: {created} created, {updated} updated, {failed} failed',
-  close: 'Close',
-  startImport: 'Start import',
-  importDone: 'Import complete: {created} created, {updated} updated',
-  importPartial: 'Import complete, but {failed} rows failed; see the list below',
-  importFailed: 'Import failed, please check the file format or network',
-  importError: 'Import failed',
 }

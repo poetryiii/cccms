@@ -72,6 +72,23 @@ return [
     'upload.storage_driver' => 'Storage driver',
     'upload.url_prefix'     => 'URL prefix',
 
+    'upload.oss_access_key_id'     => 'AccessKey ID',
+    'upload.oss_access_key_secret' => 'AccessKey Secret',
+    'upload.oss_bucket'            => 'Bucket',
+    'upload.oss_endpoint'          => 'Endpoint',
+    'upload.oss_domain'            => 'Custom domain',
+
+    'upload.cos_secret_id'  => 'SecretId',
+    'upload.cos_secret_key' => 'SecretKey',
+    'upload.cos_bucket'     => 'Bucket',
+    'upload.cos_region'     => 'Region',
+    'upload.cos_domain'     => 'Custom domain',
+
+    'upload.qiniu_access_key' => 'AccessKey',
+    'upload.qiniu_secret_key' => 'SecretKey',
+    'upload.qiniu_bucket'     => 'Bucket',
+    'upload.qiniu_domain'     => 'Access domain',
+
     'log.keep_days'      => 'Log retention days',
     'log.auto_clean'     => 'Auto clean logs',
     'log.record_read'    => 'Log read operations',

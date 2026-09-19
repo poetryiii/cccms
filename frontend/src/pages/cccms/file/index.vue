@@ -54,28 +54,12 @@
         v-model:page="page"
         v-model:limit="limit"
         @refresh="load"
-        @search="search"
-        @reset="reset"
         @page-change="onPageChange"
         @size-change="onLimitChange"
         @selection-change="onSelectionChange"
         @restore="onRestore"
         @force-delete="onForceDelete"
       >
-        <template #search>
-          <el-form-item :label="t('file.nameLabel')">
-            <el-input
-              v-model="query.original_name"
-              :placeholder="t('file.searchPlaceholder')"
-              clearable
-              style="width: 190px"
-            />
-          </el-form-item>
-          <el-form-item :label="t('file.extLabel')">
-            <el-input v-model="query.ext" :placeholder="t('file.extPlaceholder')" clearable style="width: 130px" />
-          </el-form-item>
-        </template>
-
         <template #toolbar-right>
           <RecycleToggle :active="recycle" :label="t('file.recycleLabel')" @toggle="toggle" />
         </template>
@@ -243,6 +227,9 @@ const NONE_ID = -1
 interface Query {
   original_name: string
   ext: string
+  /** 上传时间范围（列头日期筛选写入） */
+  start: string
+  end: string
 }
 
 const MAX_SIZE = 10 * 1024 * 1024
@@ -253,11 +240,11 @@ const { t } = useI18n({ useScope: 'global' })
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
   { prop: 'preview', label: t('file.preview'), width: 76, align: 'center', slot: 'preview' },
-  { prop: 'original_name', label: t('file.nameLabel'), minWidth: 200 },
+  { prop: 'original_name', label: t('file.nameLabel'), minWidth: 200, filter: { type: 'text' } },
   { prop: 'category_name', label: t('file.categoryColumnLabel'), width: 140 },
-  { prop: 'ext', label: t('file.typeLabel'), width: 100, align: 'center', slot: 'ext' },
+  { prop: 'ext', label: t('file.typeLabel'), width: 100, align: 'center', slot: 'ext', filter: { type: 'text' } },
   { prop: 'size', label: t('file.sizeLabel'), width: 110, align: 'right', slot: 'size' },
-  { prop: 'create_time', label: t('file.uploadTimeLabel'), width: 170 },
+  { prop: 'create_time', label: t('file.uploadTimeLabel'), width: 170, filter: { type: 'date' } },
   { prop: 'action', label: t('table.action'), width: 130, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
@@ -325,24 +312,11 @@ const {
   onForceDelete: onCategoryForceDelete,
 } = useRecycle('category', { reload: () => loadCategories() })
 
-const {
-  list,
-  loading,
-  total,
-  page,
-  limit,
-  query,
-  selection,
-  load,
-  search,
-  reset,
-  onPageChange,
-  onLimitChange,
-  onSelectionChange,
-} = useTable<FileRow, Query>({
-  api: (params) => fileList({ ...params, category_id: currentId.value, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { original_name: '', ext: '' },
-})
+const { list, loading, total, page, limit, selection, load, search, onPageChange, onLimitChange, onSelectionChange } =
+  useTable<FileRow, Query>({
+    api: (params) => fileList({ ...params, category_id: currentId.value, trashed: recycle.value ? 1 : 0 }),
+    initialQuery: { original_name: '', ext: '', start: '', end: '' },
+  })
 
 function onNodeClick(data: Record<string, any>): void {
   currentId.value = Number(data.id ?? ALL_ID)

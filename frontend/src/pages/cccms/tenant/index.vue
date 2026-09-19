@@ -9,22 +9,9 @@
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
-      @search="search"
-      @reset="reset"
       @page-change="onPageChange"
       @size-change="onLimitChange"
     >
-      <template #search>
-        <el-form-item :label="t('tenant.nameLabel')">
-          <el-input
-            v-model="query.keyword"
-            :placeholder="t('tenant.searchPlaceholder')"
-            clearable
-            style="width: 200px"
-          />
-        </el-form-item>
-      </template>
-
       <template #toolbar>
         <el-button v-auth="'cccms:tenant:save'" type="primary" :icon="Plus" @click="openCreate">
           {{ t('common.create') }}
@@ -131,28 +118,46 @@ import type { ArtTableColumn } from '@/types/table'
 const { t } = useI18n({ useScope: 'global' })
 
 interface Query {
-  keyword: string
+  name: string
+  code: string
+  contact: string
+  phone: string
+  /** 列头枚举多选，值形如 `1,0` */
+  status: string
+  /** 到期时间范围（列头日期筛选写入） */
+  start: string
+  end: string
 }
 
 // 表格列文案跟随语言切换，用 computed 包裹
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'name', label: t('tenant.nameLabel'), minWidth: 180, slot: 'name' },
-  { prop: 'code', label: t('tenant.codeLabel'), minWidth: 140 },
-  { prop: 'contact', label: t('tenant.contactLabel'), minWidth: 110 },
-  { prop: 'phone', label: t('tenant.phoneLabel'), minWidth: 130 },
+  { prop: 'name', label: t('tenant.nameLabel'), minWidth: 180, slot: 'name', filter: { type: 'text' } },
+  { prop: 'code', label: t('tenant.codeLabel'), minWidth: 140, filter: { type: 'text' } },
+  { prop: 'contact', label: t('tenant.contactLabel'), minWidth: 110, filter: { type: 'text' } },
+  { prop: 'phone', label: t('tenant.phoneLabel'), minWidth: 130, filter: { type: 'text' } },
   { prop: 'user_count', label: t('tenant.userCountLabel'), width: 90, align: 'center', slot: 'userCount' },
-  { prop: 'expire_at', label: t('tenant.expireLabel'), minWidth: 170, slot: 'expire' },
-  { prop: 'status', label: t('tenant.statusLabel'), width: 90, align: 'center', slot: 'status' },
+  { prop: 'expire_at', label: t('tenant.expireLabel'), minWidth: 170, slot: 'expire', filter: { type: 'date' } },
+  {
+    prop: 'status',
+    label: t('tenant.statusLabel'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('tenant.enabled'), value: 1 },
+        { label: t('tenant.disabled'), value: 0 },
+      ],
+    },
+  },
   { prop: 'action', label: t('table.action'), width: 140, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  TenantRow,
-  Query
->({
+const { list, loading, total, page, limit, load, onPageChange, onLimitChange } = useTable<TenantRow, Query>({
   api: (params) => tenantList(params),
-  initialQuery: { keyword: '' },
+  initialQuery: { name: '', code: '', contact: '', phone: '', status: '', start: '', end: '' },
 })
 
 const formRef = ref<FormInstance>()

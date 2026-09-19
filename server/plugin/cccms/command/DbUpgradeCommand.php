@@ -6,6 +6,7 @@ namespace plugin\cccms\command;
 
 use plugin\cccms\support\SqlFileRunner;
 use plugin\cccms\support\storage\StorageDriver;
+use plugin\cccms\support\PermissionCache;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -239,6 +240,37 @@ SQL,
             'JSON 对象，如 {"Authorization":"Bearer xxx"}；POST 未指定 Content-Type 时默认 application/json',
         ],
         'sms.sign_name' => ['短信签名', 'input', '', '短信', 7, '短信签名，替换参数模板里的 {sign}'],
+        // 云存储凭证改由后台「配置管理 → 上传」维护（原先只在 .env 里配，与驱动选择分裂在两处）
+        'upload.oss_access_key_id' => [
+            'AccessKey ID', 'input', '', '上传', 6, '阿里云账号的 AccessKey ID',
+        ],
+        'upload.oss_access_key_secret' => [
+            'AccessKey Secret', 'password', '', '上传', 7, 'AccessKey Secret，加密存储',
+        ],
+        'upload.oss_bucket' => ['Bucket', 'input', '', '上传', 8, 'OSS Bucket 名称'],
+        'upload.oss_endpoint' => [
+            'Endpoint', 'input', '', '上传', 9, '如 oss-cn-hangzhou.aliyuncs.com（不带 bucket 前缀）',
+        ],
+        'upload.oss_domain' => [
+            '自定义域名', 'input', '', '上传', 10, 'CDN / 自定义域名，留空则用 endpoint + bucket 拼装',
+        ],
+        'upload.cos_secret_id' => ['SecretId', 'input', '', '上传', 11, '腾讯云 API 密钥 SecretId'],
+        'upload.cos_secret_key' => ['SecretKey', 'password', '', '上传', 12, '腾讯云 API 密钥 SecretKey，加密存储'],
+        'upload.cos_bucket' => [
+            'Bucket', 'input', '', '上传', 13,
+            '控制台显示的存储桶名称（形如 name-1250000000）；访问时驱动自动拼接 -Region 后缀',
+        ],
+        'upload.cos_region' => ['Region', 'input', '', '上传', 14, '地域，如 ap-guangzhou'],
+        'upload.cos_domain' => [
+            '自定义域名', 'input', '', '上传', 15, 'CDN / 自定义域名，留空则用 bucket + region 拼装',
+        ],
+        'upload.qiniu_access_key' => ['AccessKey', 'input', '', '上传', 16, '七牛云账号的 AccessKey'],
+        'upload.qiniu_secret_key' => ['SecretKey', 'password', '', '上传', 17, '七牛云账号的 SecretKey，加密存储'],
+        'upload.qiniu_bucket' => ['Bucket', 'input', '', '上传', 18, '存储空间名称'],
+        'upload.qiniu_domain' => [
+            '访问域名', 'input', '', '上传', 19,
+            '空间绑定的测试域名或自定义域名（必填，七牛不提供默认 URL 拼装）',
+        ],
     ];
 
     /** 新增列：表名(不含前缀) => [列名 => 列定义] */
@@ -331,6 +363,18 @@ SQL,
         ],
         'crontab'   => ['idx_retry' => '`retry_left`, `retry_at`'],
         'notice'    => ['idx_scope' => '`scope`'],
+    ];
+
+    /**
+     * 已下线的权限节点：老库里由 PermScanner 同步出来的 `sys_menu` 按钮行。
+     *
+     * PermScanner::sync() 只 upsert 不删除，功能下线后这些行会留在库里，
+     * 在「角色授权」树上表现为点了也没用的僵尸按钮，所以在这里做一次性清理。
+     * 同步清掉 `sys_role_node` 的授权记录，避免角色授权集合里留下不存在的节点。
+     */
+    private const REMOVED_NODES = [
+        'cccms:user:export', 'cccms:user:import', 'cccms:user:template',
+        'cccms:data_rule:export', 'cccms:data_rule:import', 'cccms:data_rule:template',
     ];
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -476,6 +520,28 @@ SQL,
         if ($this->exists($logTable) && isset($this->columnMeta($logTable)['type'])) {
             Db::execute("ALTER TABLE `{$logTable}` DROP COLUMN `type`");
             $output->writeln("  <info>删列</info> {$logTable}.type（日志类型改用 path 区分）");
+        }
+
+        // 清理已下线功能的权限节点（幂等：库里有残留才动手）
+        $menuTable = $prefix . 'menu';
+        if ($this->exists($menuTable)) {
+            $placeholders = implode(',', array_fill(0, count(self::REMOVED_NODES), '?'));
+            $stale = Db::query(
+                "SELECT `id` FROM `{$menuTable}` WHERE `node` IN ({$placeholders})",
+                self::REMOVED_NODES
+            );
+            if ($stale !== []) {
+                $roleNodeTable = $prefix . 'role_node';
+                if ($this->exists($roleNodeTable)) {
+                    Db::execute("DELETE FROM `{$roleNodeTable}` WHERE `node` IN ({$placeholders})", self::REMOVED_NODES);
+                }
+                Db::execute("DELETE FROM `{$menuTable}` WHERE `node` IN ({$placeholders})", self::REMOVED_NODES);
+                PermissionCache::bump();
+                $output->writeln(
+                    '  <info>清理权限节点</info> 移除 ' . count($stale) . ' 个已下线节点（'
+                    . implode('/', self::REMOVED_NODES) . '）'
+                );
+            }
         }
 
         // 上传白名单移除可被浏览器内联执行的扩展名（svg / html / xml…）：

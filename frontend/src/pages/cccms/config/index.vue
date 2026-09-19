@@ -220,14 +220,32 @@ const dirtyCount = computed(() => dirtyKeys.value.length)
 
 /* ---------- 过滤与分组 ---------- */
 
+/**
+ * 云存储凭证项与存储驱动的前缀对应关系。
+ *
+ * 上传分组里的凭证项只在「存储驱动」选中对应驱动时展示：避免给 OSS 填 COS 的密钥。
+ * 只是**不展示**，值仍留在 `values` 里 —— 来回切换驱动不会丢掉之前填过的配置，
+ * 保存时按 dirty 项一并提交。
+ */
+const DRIVER_PREFIX: Record<string, string> = {
+  oss: 'upload.oss_',
+  cos: 'upload.cos_',
+  qiniu: 'upload.qiniu_',
+}
+
+function driverVisible(name: string): boolean {
+  const owner = Object.keys(DRIVER_PREFIX).find((driver) => name.startsWith(DRIVER_PREFIX[driver]))
+  return owner === undefined || owner === String(values['upload.storage_driver'] ?? '')
+}
+
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
-  if (!kw) {
-    return items.value
-  }
-  return items.value.filter((item) =>
-    [item.title, item.name, item.remark].some((text) => (text || '').toLowerCase().includes(kw)),
-  )
+  const list = kw
+    ? items.value.filter((item) =>
+        [item.title, item.name, item.remark].some((text) => (text || '').toLowerCase().includes(kw)),
+      )
+    : items.value
+  return list.filter((item) => driverVisible(item.name))
 })
 
 /** 分组展示名：优先后端翻译下发的 group_label，回退原始 group；无分组用「未分组」 */

@@ -37,9 +37,9 @@
         </el-card>
       </div>
 
-      <!-- 图表 -->
-      <el-row :gutter="14">
-        <el-col :xs="24" :lg="15">
+      <!-- 图表：拿不到日志 / 附件列表页权限时后端下发空数据，对应卡片不渲染 -->
+      <el-row v-if="hasTrend || hasPie" :gutter="14">
+        <el-col v-if="hasTrend" :xs="24" :lg="hasPie ? 15 : 24">
           <el-card shadow="never" class="chart-card">
             <template #header
               ><span>{{ t('dashboard.trendTitle') }}</span></template
@@ -47,7 +47,7 @@
             <div ref="trendRef" class="chart" />
           </el-card>
         </el-col>
-        <el-col :xs="24" :lg="9">
+        <el-col v-if="hasPie" :xs="24" :lg="hasTrend ? 9 : 24">
           <el-card shadow="never" class="chart-card">
             <template #header
               ><span>{{ t('dashboard.pieTitle') }}</span></template
@@ -56,6 +56,33 @@
           </el-card>
         </el-col>
       </el-row>
+
+      <!-- 我的收藏：与顶栏快捷导航共用同一份收藏（store 层同步），可拖拽排序。
+           数据源是当前账号可见菜单，天然不含无权限的入口。 -->
+      <el-card shadow="never" class="chart-card shortcut-card">
+        <template #header
+          ><span>{{ t('dashboard.favoriteTitle') }}</span></template
+        >
+        <el-empty v-if="shortcuts.length === 0" :description="t('dashboard.favoriteEmpty')" :image-size="70" />
+        <div v-else class="shortcuts">
+          <div
+            v-for="(item, index) in shortcuts"
+            :key="item.path"
+            class="shortcut"
+            :class="{ 'is-dragging': dragIndex === index }"
+            draggable="true"
+            @dragstart="onDragStart(index, $event)"
+            @dragover.prevent="onDragOver(index)"
+            @dragend="onDragEnd"
+            @drop.prevent="onDragEnd"
+            @click="goto(item.path)"
+          >
+            <el-icon :size="18" class="shortcut-icon"><ArtIcon :name="item.icon" /></el-icon>
+            <span class="shortcut-title">{{ item.title }}</span>
+            <el-icon :size="13" class="shortcut-handle"><Rank /></el-icon>
+          </div>
+        </div>
+      </el-card>
     </div>
   </div>
 </template>
@@ -65,12 +92,15 @@ defineOptions({ name: 'dashboard' })
 
 import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
+import { Rank } from '@element-plus/icons-vue'
 import * as echarts from 'echarts/core'
 import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import { dashboardStats, type DashboardStats } from '@/api/dashboard'
+import { useMenuStore } from '@/stores/menu'
 import { useSettingStore } from '@/stores/setting'
 import { useUserStore } from '@/stores/user'
 
@@ -78,6 +108,8 @@ echarts.use([LineChart, PieChart, GridComponent, TooltipComponent, LegendCompone
 
 const { t, locale } = useI18n({ useScope: 'global' })
 
+const router = useRouter()
+const menuStore = useMenuStore()
 const userStore = useUserStore()
 const setting = useSettingStore()
 
@@ -115,13 +147,26 @@ const todayText = computed(() => {
   return t('dashboard.dateText', { date, week: t(`dashboard.weekday${now.getDay()}`) })
 })
 
-const cards = computed(() => {
+interface StatCard {
+  key: string
+  label: string
+  /** 后端没下发该键时为 undefined —— 表示无权限，整张卡片不渲染 */
+  value: number | undefined
+  icon: string
+  color: string
+  bg: string
+}
+
+const cards = computed<StatCard[]>(() => {
   const c = stats.value?.counts
-  return [
+
+  // 全部卡片统一按「后端是否下发该键」过滤：没下发 = 当前账号没有该模块的权限节点
+  // （超管 hasPermission() 直通，因此永远拿全）；参与数据权限的表已按当前用户范围收窄。
+  const all: StatCard[] = [
     {
       key: 'user',
       label: t('dashboard.statUser'),
-      value: c?.user ?? 0,
+      value: c?.user,
       icon: 'icon-user',
       color: '#2b6cff',
       bg: 'rgb(43 108 255 / 12%)',
@@ -129,7 +174,7 @@ const cards = computed(() => {
     {
       key: 'role',
       label: t('dashboard.statRole'),
-      value: c?.role ?? 0,
+      value: c?.role,
       icon: 'icon-safe',
       color: '#722ed1',
       bg: 'rgb(114 46 209 / 12%)',
@@ -137,7 +182,7 @@ const cards = computed(() => {
     {
       key: 'dept',
       label: t('dashboard.statDept'),
-      value: c?.dept ?? 0,
+      value: c?.dept,
       icon: 'icon-tree',
       color: '#13c2c2',
       bg: 'rgb(19 194 194 / 12%)',
@@ -145,7 +190,7 @@ const cards = computed(() => {
     {
       key: 'post',
       label: t('dashboard.statPost'),
-      value: c?.post ?? 0,
+      value: c?.post,
       icon: 'icon-badge',
       color: '#fa8c16',
       bg: 'rgb(250 140 22 / 14%)',
@@ -153,7 +198,7 @@ const cards = computed(() => {
     {
       key: 'file',
       label: t('dashboard.statFile'),
-      value: c?.file ?? 0,
+      value: c?.file,
       icon: 'icon-upload',
       color: '#21c26b',
       bg: 'rgb(33 194 107 / 12%)',
@@ -161,13 +206,97 @@ const cards = computed(() => {
     {
       key: 'today_log',
       label: t('dashboard.statTodayLog'),
-      value: c?.today_log ?? 0,
+      value: c?.today_log,
       icon: 'icon-file',
       color: '#f4524d',
       bg: 'rgb(244 82 77 / 12%)',
     },
+    {
+      key: 'online',
+      label: t('dashboard.statOnline'),
+      value: c?.online,
+      icon: 'icon-monitor',
+      color: '#13c2c2',
+      bg: 'rgb(19 194 194 / 12%)',
+    },
+    {
+      key: 'notice_unread',
+      label: t('dashboard.statNoticeUnread'),
+      value: c?.notice_unread,
+      icon: 'icon-tickets',
+      color: '#f4524d',
+      bg: 'rgb(244 82 77 / 12%)',
+    },
+    {
+      key: 'dict',
+      label: t('dashboard.statDict'),
+      value: c?.dict,
+      icon: 'icon-book',
+      color: '#722ed1',
+      bg: 'rgb(114 46 209 / 12%)',
+    },
+    {
+      key: 'crontab',
+      label: t('dashboard.statCrontab'),
+      value: c?.crontab,
+      icon: 'icon-clock',
+      color: '#fa8c16',
+      bg: 'rgb(250 140 22 / 14%)',
+    },
+    {
+      key: 'data_rule',
+      label: t('dashboard.statDataRule'),
+      value: c?.data_rule,
+      icon: 'icon-key',
+      color: '#2b6cff',
+      bg: 'rgb(43 108 255 / 12%)',
+    },
+    {
+      key: 'tenant',
+      label: t('dashboard.statTenant'),
+      value: c?.tenant,
+      icon: 'icon-management',
+      color: '#21c26b',
+      bg: 'rgb(33 194 107 / 12%)',
+    },
   ]
+
+  return all.filter((item) => item.value !== undefined)
 })
+
+/** 图表是否渲染：后端按权限下发，拿不到日志 / 附件列表页权限时给的是空数据 */
+const hasTrend = computed(() => (stats.value?.log_trend.dates.length ?? 0) > 0)
+const hasPie = computed(() => stats.value?.counts.file !== undefined)
+
+/** 我的收藏：与顶栏快捷导航共用 store 里的同一份收藏，展示顺序即收藏顺序 */
+const shortcuts = computed(() => menuStore.favoriteMenus)
+
+/** 拖拽排序：dragover 时实时换位，落点所见即所得（原生拖拽，不引第三方库） */
+const dragIndex = ref(-1)
+
+function onDragStart(index: number, event: DragEvent): void {
+  dragIndex.value = index
+  event.dataTransfer?.setData('text/plain', String(index))
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+  }
+}
+
+function onDragOver(index: number): void {
+  if (dragIndex.value < 0 || dragIndex.value === index) {
+    return
+  }
+  menuStore.reorderFavorite(dragIndex.value, index)
+  dragIndex.value = index
+}
+
+function onDragEnd(): void {
+  dragIndex.value = -1
+}
+
+function goto(path: string): void {
+  void router.push(path)
+}
 
 function cssVar(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -380,9 +509,75 @@ onBeforeUnmount(() => {
   height: 288px;
 }
 
+/* ---- 常用功能 ---- */
+.shortcut-card {
+  margin-top: 14px;
+}
+
+.shortcuts {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shortcut {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  cursor: pointer;
+  border: 1px solid var(--art-card-border);
+  border-radius: calc(var(--art-radius) - 2px);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.shortcut:hover {
+  background: var(--art-hover-bg);
+  border-color: var(--art-primary);
+}
+
+.shortcut-icon {
+  flex-shrink: 0;
+  color: var(--art-primary);
+}
+
+.shortcut-title {
+  flex: 1;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--art-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 拖拽把手：默认隐藏，悬停才显示，避免宫格看起来太杂 */
+.shortcut-handle {
+  flex-shrink: 0;
+  color: var(--art-muted);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.shortcut:hover .shortcut-handle {
+  opacity: 1;
+}
+
+.shortcut.is-dragging {
+  background: var(--art-hover-bg);
+  border-color: var(--art-primary);
+  opacity: 0.7;
+}
+
 @media (max-width: 1400px) {
   .cards {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .shortcuts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -393,6 +588,10 @@ onBeforeUnmount(() => {
 
   .chart {
     height: 240px;
+  }
+
+  .shortcuts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

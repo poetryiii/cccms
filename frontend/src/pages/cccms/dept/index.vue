@@ -116,6 +116,7 @@ import ArtSplitView from '@/components/core/ArtSplitView.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'
+import { useTableFilter } from '@/composables/useTable'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { deptDelete, deptSave, deptTree, deptUpdate } from '@/api/dept'
 import type { ArtTableColumn } from '@/types/table'
@@ -136,12 +137,25 @@ interface Row {
 
 // 表格列文案跟随语言切换，用 computed 包裹
 const columns = computed<ArtTableColumn[]>(() => [
-  { prop: 'name', label: t('dept.nameLabel'), minWidth: 200 },
-  { prop: 'leader', label: t('dept.leaderLabel'), width: 140 },
+  { prop: 'name', label: t('dept.nameLabel'), minWidth: 200, filter: { type: 'text' } },
+  { prop: 'leader', label: t('dept.leaderLabel'), width: 140, filter: { type: 'text' } },
   { prop: 'phone', label: t('dept.phoneLabel'), width: 160 },
-  { prop: 'email', label: t('dept.emailLabel'), minWidth: 180, defaultHidden: true },
+  { prop: 'email', label: t('dept.emailLabel'), minWidth: 180 },
   { prop: 'sort', label: t('dept.sortLabel'), width: 80, align: 'center' },
-  { prop: 'status', label: t('dept.statusLabel'), width: 90, align: 'center', slot: 'status' },
+  {
+    prop: 'status',
+    label: t('dept.statusLabel'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('dept.enabled'), value: 1 },
+        { label: t('dept.disabled'), value: 0 },
+      ],
+    },
+  },
   { prop: 'action', label: t('table.action'), width: 230, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
@@ -175,14 +189,59 @@ function findNode(nodes: Row[], id: number): Row | null {
 
 const currentNodeName = computed(() => (currentId.value ? (findNode(list.value, currentId.value)?.name ?? '') : ''))
 
-/** 右侧表格：选中节点时只显示该节点及其子树 */
+/* ---- 关键字过滤（前端过滤，不请求接口） ---- */
+interface Query {
+  name: string
+  leader: string
+  /** 列头枚举多选，值形如 `1,0` */
+  status: string
+}
+
+const { query } = useTableFilter<Query>({ initialQuery: { name: '', leader: '', status: '' } })
+
+/** 枚举多选匹配：空条件放行，否则按逗号串匹配 */
+function matchEnum(value: unknown, raw: string): boolean {
+  return raw === '' || raw.split(',').includes(String(value))
+}
+
+/**
+ * 树形过滤：命中节点整棵子树原样保留；未命中但子孙命中的节点保留自身，children 换成过滤结果。
+ */
+function filterTree(nodes: Row[], match: (node: Row) => boolean): Row[] {
+  const out: Row[] = []
+  for (const node of nodes) {
+    if (match(node)) {
+      out.push(node)
+      continue
+    }
+    const children = node.children?.length ? filterTree(node.children, match) : []
+    if (children.length) {
+      out.push({ ...node, children })
+    }
+  }
+  return out
+}
+
+/** 右侧表格：先按左侧选中节点收窄，再按关键字过滤 */
 const tableData = computed<Row[]>(() => {
   // 回收站里是平铺的已删部门，不再按左侧选的部门过滤，否则会看不到一部分
-  if (recycle.value || !currentId.value) {
-    return list.value
+  let scoped = list.value
+  if (!recycle.value && currentId.value) {
+    const node = findNode(list.value, currentId.value)
+    scoped = node ? [node] : []
   }
-  const node = findNode(list.value, currentId.value)
-  return node ? [node] : []
+
+  const name = query.name.trim().toLowerCase()
+  const leader = query.leader.trim().toLowerCase()
+  const status = query.status
+  if (!name && !leader && !status) {
+    return scoped
+  }
+  return filterTree(scoped, (item) => {
+    const hitName = !name || (item.name ?? '').toLowerCase().includes(name)
+    const hitLeader = !leader || (item.leader ?? '').toLowerCase().includes(leader)
+    return hitName && hitLeader && matchEnum(item.status, status)
+  })
 })
 
 function onNodeClick(data: Record<string, any>): void {

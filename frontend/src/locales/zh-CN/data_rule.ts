@@ -141,22 +141,8 @@ export default {
   tableRemoved: '已移除',
   tableRemovedWithRules: '已移除，该表上的 {count} 条规则暂停生效',
 
-  /* ---- 导入规则 ---- */
-  importTitle: '导入数据权限规则',
-  importTip:
-    'CSV 首行必须是列名；name 必填，同名规则会被更新，否则新增。绑定一律填 ID（0 = 不绑定），dept_ids 多个用 | 分隔；末尾的 *_name 列仅供人工校对，导入时忽略。',
-  downloadTemplate: '下载导入模板',
-  uploadTextPrefix: '将 CSV 拖到此处，或',
-  uploadTextClick: '点击选择',
-  importSummary: '共 {total} 行：新增 {created}，更新 {updated}，失败 {failed}',
-  startImport: '开始导入',
-  close: '关闭',
-  importFailed: '导入失败',
-  importDone: '导入完成：新增 {created}，更新 {updated}',
-  importPartial: '导入完成，但有 {failed} 行失败，详见下方列表',
-  importError: '导入失败，请检查文件格式或网络',
-
   /* ---- 通用提示 ---- */
+  close: '关闭',
   saveSuccess: '保存成功',
   deleteSuccess: '删除成功',
 }

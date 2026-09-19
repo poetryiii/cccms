@@ -64,19 +64,4 @@ export default {
   saveSuccess: '保存成功',
   deleteSuccess: '删除成功',
   resetSuccess: '重置成功',
-
-  // 导入
-  importUser: '导入用户',
-  importAlert:
-    'CSV 首行必须是列名；username 必填，已存在的用户会被更新，新用户必须提供 password 列。roles/depts/posts 按名称匹配、逗号分隔，更新时留空则不改动。',
-  downloadTemplate: '下载导入模板',
-  uploadDrag: '将 CSV 拖到此处，或',
-  uploadClick: '点击选择',
-  importSummary: '共 {total} 行：新增 {created}，更新 {updated}，失败 {failed}',
-  close: '关闭',
-  startImport: '开始导入',
-  importDone: '导入完成：新增 {created}，更新 {updated}',
-  importPartial: '导入完成，但有 {failed} 行失败，详见下方列表',
-  importFailed: '导入失败，请检查文件格式或网络',
-  importError: '导入失败',
 }

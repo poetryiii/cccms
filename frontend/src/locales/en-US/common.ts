@@ -13,7 +13,6 @@ export default {
   search: 'Search',
   reset: 'Reset',
   export: 'Export',
-  import: 'Import',
   refresh: 'Refresh',
   back: 'Back',
   tip: 'Tip',

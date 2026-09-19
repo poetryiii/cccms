@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\OperationLog;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\Csv;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use support\Log;
 use Throwable;
@@ -156,11 +157,16 @@ final class LogLogic
         if (!empty($params['username'])) {
             $query->where('username', 'like', '%' . $params['username'] . '%');
         }
-        if (!empty($params['method'])) {
-            $query->where('method', $params['method']);
+        // 请求方法：列头多选，值形如 `GET,POST`
+        $methods = FilterInput::values($params['method'] ?? null);
+        if ($methods !== []) {
+            $query->whereIn('method', $methods);
         }
         if (!empty($params['path'])) {
             $query->where('path', 'like', '%' . $params['path'] . '%');
+        }
+        if (!empty($params['ip'])) {
+            $query->where('ip', 'like', '%' . trim((string)$params['ip']) . '%');
         }
         // 语义化筛选：按权限节点或操作名找（比记 path 直观）
         if (!empty($params['node'])) {
@@ -169,19 +175,22 @@ final class LogLogic
         if (!empty($params['title'])) {
             $query->where('title', 'like', '%' . $params['title'] . '%');
         }
-        // 结果：1 成功 / 0 失败
-        if (isset($params['status']) && $params['status'] !== '') {
-            $query->where('status', (int)$params['status']);
+        // 结果：1 成功 / 0 失败（列头多选，值形如 `1,0`）
+        $statuses = FilterInput::ints($params['status'] ?? null);
+        if ($statuses !== []) {
+            $query->whereIn('status', $statuses);
         }
         // 链路 ID：拿到一次请求的报错 trace 后可直接检索
         if (!empty($params['trace_id'])) {
             $query->where('trace_id', trim((string)$params['trace_id']));
         }
-        if (!empty($params['start'])) {
-            $query->where('create_time', '>=', $params['start'] . ' 00:00:00');
+        // 操作时间范围（列头时间筛选，值已归一化为 Y-m-d H:i:s）
+        [$start, $end] = FilterInput::range($params['start'] ?? null, $params['end'] ?? null);
+        if ($start !== '') {
+            $query->where('create_time', '>=', $start);
         }
-        if (!empty($params['end'])) {
-            $query->where('create_time', '<=', $params['end'] . ' 23:59:59');
+        if ($end !== '') {
+            $query->where('create_time', '<=', $end);
         }
 
         return $query;

@@ -56,20 +56,12 @@
         v-model:page="page"
         v-model:limit="limit"
         @refresh="load"
-        @search="search"
-        @reset="reset"
         @page-change="onPageChange"
         @size-change="onLimitChange"
         @restore="onRestore"
         @force-delete="onForceDelete"
         @selection-change="onSelectionChange"
       >
-        <template #search>
-          <el-form-item :label="t('dict.name')">
-            <el-input v-model="query.name" :placeholder="t('dict.inputPlaceholder')" clearable style="width: 180px" />
-          </el-form-item>
-        </template>
-
         <template #toolbar>
           <el-button v-auth="'cccms:dict:save'" type="primary" :icon="Plus" @click="openTypeCreate">
             {{ t('dict.createType') }}
@@ -353,12 +345,13 @@ interface Row {
 
 interface Query {
   name: string
+  type: string
 }
 
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 76 },
-  { prop: 'name', label: t('dict.name'), minWidth: 150 },
-  { prop: 'type', label: t('dict.typeName'), minWidth: 150 },
+  { prop: 'name', label: t('dict.name'), minWidth: 150, filter: { type: 'text' } },
+  { prop: 'type', label: t('dict.typeName'), minWidth: 150, filter: { type: 'text' } },
   { prop: 'category_name', label: t('dict.category'), width: 140 },
   { prop: 'remark', label: t('dict.remark'), minWidth: 160 },
   { prop: 'action', label: t('table.action'), width: 230, fixed: 'right', slot: 'action', lockVisible: true },
@@ -431,13 +424,10 @@ const {
   onForceDelete: onDataForceDelete,
 } = useRecycle('dict_data', { reload: () => loadData() })
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  Row,
-  Query
->({
-  // category_id 在请求时注入：避免「重置」把树上的筛选一起清掉
+const { list, loading, total, page, limit, load, search, onPageChange, onLimitChange } = useTable<Row, Query>({
+  // category_id 在请求时注入：避免列头筛选把树上的筛选一起清掉
   api: (params) => dictTypeList({ ...params, category_id: currentId.value, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { name: '' },
+  initialQuery: { name: '', type: '' },
 })
 
 function onNodeClick(data: Record<string, any>): void {

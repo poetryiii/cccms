@@ -22,6 +22,10 @@ final class DictLogic
         if (!empty($params['name'])) {
             $query->where('name', 'like', '%' . $params['name'] . '%');
         }
+        // 标识列头筛选
+        if (!empty($params['type'])) {
+            $query->where('type', 'like', '%' . $params['type'] . '%');
+        }
         // 分类筛选：-1 未分类，>0 该分类及其下级（见 CategoryLogic::scopeIds）
         $categoryIds = CategoryLogic::scopeIds($params['category_id'] ?? null);
         if ($categoryIds !== null) {

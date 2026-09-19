@@ -10,6 +10,7 @@ use plugin\cccms\support\ApiException;
 use plugin\cccms\support\CronMatcher;
 use plugin\cccms\support\CrontabRunner;
 use plugin\cccms\support\CrontabTask;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -43,10 +44,27 @@ final class CrontabLogic
             $query->where('name', 'like', '%' . $params['name'] . '%');
         }
         if (!empty($params['group_name'])) {
-            $query->where('group_name', $params['group_name']);
+            $query->where('group_name', 'like', '%' . $params['group_name'] . '%');
         }
-        if (isset($params['status']) && $params['status'] !== '') {
-            $query->where('status', (int)$params['status']);
+        // 列头筛选支持多选，值形如 `1,0`
+        $statuses = FilterInput::ints($params['status'] ?? null);
+        if ($statuses !== []) {
+            $query->whereIn('status', $statuses);
+        }
+        // 最近执行 / 下次执行时间范围（列头时间筛选，值已归一化为 Y-m-d H:i:s）
+        [$start, $end] = FilterInput::range($params['start'] ?? null, $params['end'] ?? null);
+        if ($start !== '') {
+            $query->where('last_run_time', '>=', $start);
+        }
+        if ($end !== '') {
+            $query->where('last_run_time', '<=', $end);
+        }
+        [$nextStart, $nextEnd] = FilterInput::range($params['next_start'] ?? null, $params['next_end'] ?? null);
+        if ($nextStart !== '') {
+            $query->where('next_run_time', '>=', $nextStart);
+        }
+        if ($nextEnd !== '') {
+            $query->where('next_run_time', '<=', $nextEnd);
         }
 
         $page  = max(1, (int)($params['page'] ?? 1));

@@ -31,6 +31,9 @@ export const useWorktabStore = defineStore('worktab', () => {
   /** 临时移出缓存的组件名（用于「刷新当前页」） */
   const excluded = ref<string[]>([])
 
+  /** 各标签的刷新序号：自增后作为组件 key，强制渲染器卸载旧实例并挂载新实例 */
+  const stamps = ref<Record<string, number>>({})
+
   /**
    * keep-alive 的 include 名单 = 已打开标签的组件名。
    * 关闭标签即从名单移除，实例才会真正销毁。
@@ -115,30 +118,46 @@ export const useWorktabStore = defineStore('worktab', () => {
   }
 
   /**
-   * 刷新指定页面：先把组件名移出 include（keep-alive 会销毁缓存实例），
-   * 稍后再放回，组件重新挂载即达到「刷新」效果。
+   * 刷新指定页面。
+   *
+   * keep-alive 的 include 只决定「能否复用缓存」：把组件名移出 include 时，
+   * KeepAlive 只是删掉缓存并清掉当前 vnode 的 keep-alive 标记，正在显示的实例并不会被销毁。
+   * 因此必须再让组件 key 变一次，渲染器才会真正卸载旧实例、挂载新实例（即刷新）。
+   *
+   * 三步顺序不能颠倒：
+   * 1. 移出 include —— 清掉 keep-alive 标记，否则下一步卸载会被当成 deactivate，旧实例变成游离的僵尸；
+   * 2. 自增序号 —— key 变化触发真正的卸载 + 重新挂载；
+   * 3. 放回 include —— 让新实例重新进入缓存。
    */
-  function refresh(path: string): void {
+  async function refresh(path: string): Promise<void> {
     const tab = tabs.value[findIndex(path)]
     if (!tab || excluded.value.includes(tab.name)) {
       return
     }
     excluded.value = [...excluded.value, tab.name]
+    // 等这一轮渲染（含 KeepAlive 的 post 冲刷）把标记与缓存清理完，再改 key
+    await nextTick()
+    stamps.value = { ...stamps.value, [path]: (stamps.value[path] ?? 0) + 1 }
     window.setTimeout(() => {
       excluded.value = excluded.value.filter((n) => n !== tab.name)
     }, REFRESH_DELAY)
   }
 
+  /** 组件的 key：路径 + 刷新序号。刷新时序号自增即可让页面重新挂载 */
+  function keyOf(path: string): string {
+    return `${path}#${stamps.value[path] ?? 0}`
+  }
+
   /** 刷新当前激活标签 */
   async function refreshActive(): Promise<void> {
-    refresh(active.value)
-    await nextTick()
+    await refresh(active.value)
   }
 
   function reset(): void {
     tabs.value = [createHomeTab()]
     active.value = HOME_PATH
     excluded.value = []
+    stamps.value = {}
   }
 
   return {
@@ -153,6 +172,7 @@ export const useWorktabStore = defineStore('worktab', () => {
     closeRight,
     closeAll,
     togglePin,
+    keyOf,
     refresh,
     refreshActive,
     reset,

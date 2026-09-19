@@ -10,14 +10,11 @@ use plugin\cccms\app\model\Post;
 use plugin\cccms\app\model\Role;
 use plugin\cccms\app\model\User;
 use plugin\cccms\support\ApiException;
-use plugin\cccms\support\Csv;
 use plugin\cccms\support\RuleConflict;
 use plugin\cccms\support\DataScope;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use think\facade\Db;
-use Throwable;
-use Webman\Http\Response;
-use Webman\Http\UploadFile;
 
 /**
  * 数据权限规则逻辑（sys_data_rule）。
@@ -51,21 +48,6 @@ final class DataRuleLogic
         'table_name', 'field', 'action', 'operator', 'value', 'value_type', 'remark',
     ];
 
-    /** 导出上限：避免一次导出把内存打满 */
-    private const EXPORT_LIMIT = 5000;
-
-    /**
-     * 导出 / 模板表头。
-     *
-     * 前 13 列与 `sys_data_rule` 字段一一对应（导入也只读这些列）；
-     * 末尾 4 列是绑定对象名称，**仅供人工校对**，导入时忽略 —— 名称可能重名，一律以 id 为准。
-     */
-    private const EXPORT_HEADERS = [
-        'name', 'user_id', 'post_id', 'dept_ids', 'role_id', 'bind_mode',
-        'table_name', 'field', 'action', 'operator', 'value', 'value_type', 'remark',
-        'user_name', 'post_name', 'dept_names', 'role_name',
-    ];
-
     /** 界面需要的动作与操作符候选（与后端校验同一份来源） */
     public static function allowedActions(): array
     {
@@ -93,11 +75,14 @@ final class DataRuleLogic
         if (!empty($params['field'])) {
             $query->where('field', 'like', '%' . $params['field'] . '%');
         }
-        if (!empty($params['table_name'])) {
-            $query->where('table_name', $params['table_name']);
+        // 列头筛选支持多选，值形如 `sys_user,cccms:user`
+        $tables = FilterInput::values($params['table_name'] ?? null);
+        if ($tables !== []) {
+            $query->whereIn('table_name', $tables);
         }
-        if (!empty($params['action'])) {
-            $query->where('action', $params['action']);
+        $actions = FilterInput::values($params['action'] ?? null);
+        if ($actions !== []) {
+            $query->whereIn('action', $actions);
         }
 
         $page  = max(1, (int)($params['page'] ?? 1));
@@ -154,231 +139,6 @@ final class DataRuleLogic
     {
         self::assertExists($id);
         DataRule::where('id', $id)->delete();
-    }
-
-    /** 导出当前筛选下的规则（CSV，直接返回文件流） */
-    public static function export(array $params): Response
-    {
-        // 筛选条件与 paginate 保持一致，导出的就是「眼前这一屏」的范围
-        $query = !empty($params['trashed']) ? DataRule::onlyTrashed() : DataRule::newScopedQuery();
-        if (!empty($params['name'])) {
-            $query->where('name', 'like', '%' . $params['name'] . '%');
-        }
-        if (!empty($params['field'])) {
-            $query->where('field', 'like', '%' . $params['field'] . '%');
-        }
-        if (!empty($params['table_name'])) {
-            $query->where('table_name', $params['table_name']);
-        }
-        if (!empty($params['action'])) {
-            $query->where('action', $params['action']);
-        }
-
-        $rows = $query->order('id', 'asc')->limit(self::EXPORT_LIMIT)->select()->toArray();
-
-        // 绑定 id → 名称映射一次预载，避免逐行查库（N+1）。
-        // 必须看全量，否则范围外的绑定对象会导出成空名字（同 decorate() 的理由）。
-        $userNames = User::withoutGlobalScope()->column('username', 'id');
-        $postNames = Post::withoutGlobalScope()->column('name', 'id');
-        $roleNames = Role::withoutGlobalScope()->column('name', 'id');
-        $deptNames = Dept::withoutGlobalScope()->column('name', 'id');
-
-        $data = array_map(static function (array $row) use ($userNames, $postNames, $roleNames, $deptNames): array {
-            // dept_ids 是 JSON 列，模型已解码成数组；多值统一用 `|` 拼接（见 parseDeptIds 注释）
-            $deptIds = is_array($row['dept_ids'] ?? null) ? array_map('intval', $row['dept_ids']) : [];
-
-            return [
-                (string)$row['name'],
-                (string)$row['user_id'],
-                (string)$row['post_id'],
-                implode('|', $deptIds),
-                (string)$row['role_id'],
-                (string)$row['bind_mode'],
-                (string)$row['table_name'],
-                (string)$row['field'],
-                (string)$row['action'],
-                (string)$row['operator'],
-                (string)$row['value'],
-                (string)$row['value_type'],
-                (string)($row['remark'] ?? ''),
-                (string)($userNames[(int)$row['user_id']] ?? ''),
-                (string)($postNames[(int)$row['post_id']] ?? ''),
-                // 部门名与 dept_ids 同序，人工校对时能一一对应
-                implode('|', array_values(array_filter(array_map(
-                    static fn ($id): string => (string)($deptNames[(int)$id] ?? ''),
-                    $deptIds
-                )))),
-                (string)($roleNames[(int)$row['role_id']] ?? ''),
-            ];
-        }, $rows);
-
-        return Csv::download('数据权限规则', self::EXPORT_HEADERS, $data);
-    }
-
-    /** 下载导入模板 */
-    public static function template(): Response
-    {
-        return Csv::download('数据权限规则导入模板', array_merge(self::EXPORT_HEADERS, ['说明']), [
-            [
-                '客服只看未关闭工单', '0', '0', '', '0', 'or', 'ticket', 'status', 'row', '=', '0', 'static',
-                '示例：只对工单表生效，status 等于 0',
-                '', '', '', '',
-                'user_id / post_id / role_id 填绑定对象 ID（0 = 不绑定）；dept_ids 多个用 | 分隔；'
-                . 'bind_mode 取 or/and；action 取 row/hidden/readonly/mask/encrypt；value_type 取 static/dynamic。'
-                . '末尾 *_name 列仅供人工校对，导入时忽略；同名规则会被更新，否则新增。',
-            ],
-        ]);
-    }
-
-    /**
-     * 导入数据权限规则（CSV）。
-     *
-     * 约定：
-     *   - `name` 必填，作为天然业务键：同名规则**更新**，否则**新增**；
-     *   - `dept_ids` 多值用 `|` 分隔（CSV 里逗号是分隔符，避免嵌套转义歧义）；
-     *   - 末尾 `*_name` 辅助列仅供人工校对，导入时忽略，绑定一律以 id 为准；
-     *   - 校验（受控表 / 字段存在性 / 动作与操作符枚举）全部复用 create / update，不另写一套；
-     *   - 单行失败不影响其余行，失败原因按行号汇总返回。
-     *
-     * @return array{total:int,created:int,updated:int,failed:array<int,string>}
-     */
-    public static function import(UploadFile $file): array
-    {
-        $parsed  = Csv::parse($file);
-        $headers = $parsed['headers'];
-
-        if (!in_array('name', $headers, true)) {
-            throw new ApiException(I18n::t('data_rule.csv_missing_name_column'), 422);
-        }
-
-        // 绑定对象存在性校验必须看**全量**，显式跳出数据权限：导入是系统配置动作，
-        // 否则「看不见的用户 / 岗位 / 角色 / 部门」会被误判为不存在（同 UserLogic::import()）。
-        $userMap = array_flip(array_map('intval', User::withoutGlobalScope()->column('id')));
-        $postMap = array_flip(array_map('intval', Post::withoutGlobalScope()->column('id')));
-        $roleMap = array_flip(array_map('intval', Role::withoutGlobalScope()->column('id')));
-        $deptMap = array_flip(array_map('intval', Dept::withoutGlobalScope()->column('id')));
-
-        $created = 0;
-        $updated = 0;
-        $failed  = [];
-
-        foreach ($parsed['rows'] as $index => $row) {
-            $line = $index + 2;   // 第 1 行是表头
-            $name = trim((string)($row['name'] ?? ''));
-
-            if ($name === '') {
-                $failed[] = I18n::t('data_rule.row_name_required', ['line' => $line]);
-                continue;
-            }
-
-            try {
-                $boundDeptIds = self::parseDeptIds((string)($row['dept_ids'] ?? ''));
-                self::assertBindingsExist(
-                    (int)($row['user_id'] ?? 0),
-                    (int)($row['post_id'] ?? 0),
-                    (int)($row['role_id'] ?? 0),
-                    $boundDeptIds,
-                    $userMap,
-                    $postMap,
-                    $roleMap,
-                    $deptMap
-                );
-
-                $data = [
-                    'name'       => $name,
-                    'user_id'    => max(0, (int)($row['user_id'] ?? 0)),
-                    'post_id'    => max(0, (int)($row['post_id'] ?? 0)),
-                    'dept_ids'   => $boundDeptIds,
-                    'role_id'    => max(0, (int)($row['role_id'] ?? 0)),
-                    'bind_mode'  => trim((string)($row['bind_mode'] ?? '')) ?: 'or',
-                    'table_name' => trim((string)($row['table_name'] ?? '')),
-                    'field'      => trim((string)($row['field'] ?? '')),
-                    'action'     => trim((string)($row['action'] ?? '')) ?: 'row',
-                    'operator'   => trim((string)($row['operator'] ?? '')) ?: '=',
-                    'value'      => (string)($row['value'] ?? ''),
-                    'value_type' => trim((string)($row['value_type'] ?? '')) ?: 'static',
-                    'remark'     => (string)($row['remark'] ?? ''),
-                ];
-
-                // 以规则名为天然键判断新增 / 更新（只看未删除的规则；回收站里的同名规则按新增处理）
-                $exist = DataRule::withoutGlobalScope()->where('name', $name)->find();
-                if ($exist) {
-                    self::update((int)$exist['id'], $data);
-                    $updated++;
-                } else {
-                    self::create($data);
-                    $created++;
-                }
-            } catch (Throwable $e) {
-                $failed[] = I18n::t('data_rule.row_failed', ['line' => $line, 'message' => $e->getMessage()]);
-            }
-        }
-
-        return [
-            'total'   => count($parsed['rows']),
-            'created' => $created,
-            'updated' => $updated,
-            'failed'  => $failed,
-        ];
-    }
-
-    /**
-     * 解析 `dept_ids` 多值列（`|` 分隔）。
-     *
-     * 用 `|` 而不是逗号：CSV 以逗号分列，逗号会破坏列对齐或需要嵌套转义。
-     *
-     * @return array<int,int>
-     */
-    private static function parseDeptIds(string $raw): array
-    {
-        $raw = trim($raw);
-        if ($raw === '') {
-            return [];
-        }
-
-        $out = [];
-        foreach (explode('|', $raw) as $token) {
-            $id = (int)trim($token);
-            if ($id > 0) {
-                $out[] = $id;
-            }
-        }
-
-        return array_values(array_unique($out));
-    }
-
-    /**
-     * 绑定 id 必须真实存在，不存在即整行失败。
-     *
-     * 刻意不静默丢弃：否则规则会「看起来配了绑定、实际谁都不命中」，比报错更难排查。
-     *
-     * @param array<int,int> $deptIds
-     * @param array<int,int> $userMap 全量 id 集合（array_flip 后的 id => 下标）
-     */
-    private static function assertBindingsExist(
-        int $userId,
-        int $postId,
-        int $roleId,
-        array $deptIds,
-        array $userMap,
-        array $postMap,
-        array $roleMap,
-        array $deptMap
-    ): void {
-        if ($userId > 0 && !isset($userMap[$userId])) {
-            throw new ApiException(I18n::t('data_rule.bound_user_not_found', ['id' => $userId]), 422);
-        }
-        if ($postId > 0 && !isset($postMap[$postId])) {
-            throw new ApiException(I18n::t('data_rule.bound_post_not_found', ['id' => $postId]), 422);
-        }
-        if ($roleId > 0 && !isset($roleMap[$roleId])) {
-            throw new ApiException(I18n::t('data_rule.bound_role_not_found', ['id' => $roleId]), 422);
-        }
-        foreach ($deptIds as $id) {
-            if (!isset($deptMap[$id])) {
-                throw new ApiException(I18n::t('data_rule.bound_dept_not_found', ['id' => $id]), 422);
-            }
-        }
     }
 
     /**

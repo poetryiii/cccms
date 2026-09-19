@@ -24,6 +24,20 @@
     </el-scrollbar>
 
     <div class="tagbar-extra">
+      <!-- 收藏当前标签页：与顶栏快捷导航共用同一份收藏（store 层同步） -->
+      <el-tooltip
+        v-if="canFavorite"
+        :content="activeFavorite ? t('layout.tagbar.favoriteRemove') : t('layout.tagbar.favoriteAdd')"
+        placement="bottom"
+      >
+        <el-button text circle size="small" :class="{ 'is-favorite': activeFavorite }" @click="toggleFavoriteActive">
+          <el-icon :size="15">
+            <StarFilled v-if="activeFavorite" />
+            <Star v-else />
+          </el-icon>
+        </el-button>
+      </el-tooltip>
+
       <el-tooltip :content="t('layout.refreshPage')" placement="bottom">
         <el-button text circle size="small" @click="refreshActive">
           <el-icon :size="15"><RefreshRight /></el-icon>
@@ -65,15 +79,25 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Close, More, RefreshRight } from '@element-plus/icons-vue'
+import { Close, More, RefreshRight, Star, StarFilled } from '@element-plus/icons-vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import { translateTitle } from '@/locales/title'
+import { useMenuStore } from '@/stores/menu'
 import { HOME_PATH, useWorktabStore } from '@/stores/worktab'
 
 const { t } = useI18n({ useScope: 'global' })
 
 const router = useRouter()
 const worktab = useWorktabStore()
+const menuStore = useMenuStore()
+
+/** 当前标签页是否可收藏：不在菜单里的页面（如个人中心）没有菜单项，无从收藏 */
+const canFavorite = computed(() => menuStore.flatMenus.some((item) => item.path === worktab.active))
+const activeFavorite = computed(() => menuStore.isFavorite(worktab.active))
+
+function toggleFavoriteActive(): void {
+  menuStore.toggleFavorite(worktab.active)
+}
 
 const contextVisible = ref(false)
 const contextPos = reactive({ x: 0, y: 0 })
@@ -96,7 +120,7 @@ function close(path: string): void {
   }
 }
 
-/** 刷新当前标签页（把组件临时移出 keep-alive include，重新挂载即等于刷新） */
+/** 刷新当前标签页（移出 keep-alive include + 变更组件 key，让页面重新挂载） */
 function refreshActive(): void {
   void worktab.refreshActive()
 }
@@ -124,7 +148,7 @@ function onDropdownCommand(command: string | number | object): void {
 function apply(command: string, path: string): void {
   switch (command) {
     case 'refresh':
-      worktab.refresh(path)
+      void worktab.refresh(path)
       break
     case 'pin':
       worktab.togglePin(path)
@@ -235,6 +259,12 @@ onBeforeUnmount(() => document.removeEventListener('click', hideContextMenu))
   gap: 2px;
   align-items: center;
   padding-left: 6px;
+}
+
+/* 已收藏：金色实心星 + 悬停底色，与未收藏（灰色轮廓星）一眼可辨 */
+.tagbar-extra .is-favorite {
+  color: var(--art-warning);
+  background: var(--art-hover-bg);
 }
 
 .tagbar-context {

@@ -1,14 +1,72 @@
 <template>
   <div class="art-table">
-    <!-- 搜索栏：提供 #search 插槽时才渲染 -->
-    <el-card v-if="hasSearch" class="art-table-search" shadow="never">
-      <el-form :inline="true" @submit.prevent>
-        <slot name="search" />
-        <el-form-item>
-          <el-button type="primary" :icon="Search" @click="emit('search')">{{ t('table.query') }}</el-button>
-          <el-button :icon="RefreshLeft" @click="emit('reset')">{{ t('table.reset') }}</el-button>
+    <!--
+      搜索区：与表格卡片同级，单独一张卡放在表格上方。
+      搜索项按列的 filter 配置自动生成，和列头筛选共用同一份 query，
+      两边天然联动（列头改了，这里的值跟着变；这里查询了，列头图标也会高亮）。
+      条件多时折叠，只显示前几项，点「展开」看全部。
+    -->
+    <el-card v-if="searchColumns.length" class="art-table-search" shadow="never">
+      <el-form class="art-table-search-form" :inline="true" @submit.prevent>
+        <el-form-item
+          v-for="(col, index) in searchColumns"
+          v-show="searchExpanded || index < SEARCH_COLLAPSE_LIMIT"
+          :key="col.prop"
+          :label="col.label"
+          class="art-table-search-item"
+        >
+          <!-- 枚举：多选下拉（与列头弹层同一套取值，多值按逗号拼接） -->
+          <el-select
+            v-if="col.filter?.type === 'enum'"
+            v-model="searchEnum[col.prop]"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            :placeholder="t('table.filterAll')"
+          >
+            <el-option
+              v-for="opt in col.filter?.options ?? []"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+          <!-- 日期：范围选择（带时分秒，起止分别写入 startKey / endKey） -->
+          <el-date-picker
+            v-else-if="col.filter?.type === 'date'"
+            v-model="searchDate[col.prop]"
+            v-bind="datePickerProps"
+          />
+          <!-- 文本：模糊查询 -->
+          <el-input
+            v-else
+            v-model="searchText[col.prop]"
+            clearable
+            :placeholder="col.filter?.placeholder || t('table.filterTextPlaceholder')"
+            @keyup.enter="submitSearch"
+          />
         </el-form-item>
       </el-form>
+      <div class="art-table-search-actions">
+        <el-button type="primary" :icon="Search" @click="submitSearch">
+          {{ t('common.search') }}
+        </el-button>
+        <el-button :icon="RefreshLeft" @click="resetSearch">{{ t('table.reset') }}</el-button>
+        <!-- 搜索条件超过折叠阈值时才给展开入口 -->
+        <el-button
+          v-if="searchColumns.length > SEARCH_COLLAPSE_LIMIT"
+          link
+          type="primary"
+          @click="searchExpanded = !searchExpanded"
+        >
+          {{ searchExpanded ? t('table.searchCollapse') : t('table.searchExpand') }}
+          <el-icon class="art-table-search-arrow">
+            <ArrowUp v-if="searchExpanded" />
+            <ArrowDown v-else />
+          </el-icon>
+        </el-button>
+      </div>
     </el-card>
 
     <el-card class="art-table-main" shadow="never">
@@ -156,6 +214,88 @@
           <el-table-column v-if="selection" type="selection" width="46" />
 
           <el-table-column v-for="col in visibleColumns" :key="col.prop" v-bind="columnProps(col)">
+            <!--
+              列头筛选：统一用 #header 覆盖列头，渲染「标题 + 漏斗图标」，图标固定靠右。
+              枚举列弹层里是复选下拉框，文本列是模糊查询输入框；真正的过滤都在后端做。
+            -->
+            <template v-if="col.filter" #header>
+              <span class="art-table-head">
+                <span class="art-table-head-label" :style="{ textAlign: headAlignOf(col) }">{{ col.label }}</span>
+                <!--
+                  日期范围的日历面板是双月并排 + 时间列，弹层要放宽才放得下，
+                  其余类型（枚举 / 文本）保持窄面板。
+                -->
+                <el-popover
+                  :width="col.filter?.type === 'date' ? 760 : 230"
+                  trigger="click"
+                  placement="bottom-start"
+                  @show="syncFilterDraft(col)"
+                >
+                  <template #reference>
+                    <el-icon
+                      class="art-table-head-filter"
+                      :class="{ 'is-active': isFilterActive(col) }"
+                      :title="t('table.columnFilter')"
+                      @click.stop
+                    >
+                      <Filter />
+                    </el-icon>
+                  </template>
+                  <template #default="{ hide }">
+                    <div class="art-table-head-panel">
+                      <!--
+                        枚举：复选下拉框。这里必须 teleported=false ——
+                        下拉面板默认挂到 body，会被 el-popover 的「点击外部即关闭」判成外部点击，
+                        勾第一个选项弹层就没了；留在弹层内部才能连续多选。
+                      -->
+                      <el-select
+                        v-if="col.filter?.type === 'enum'"
+                        v-model="enumDraft[col.prop]"
+                        size="small"
+                        multiple
+                        collapse-tags
+                        collapse-tags-tooltip
+                        clearable
+                        :teleported="false"
+                        :placeholder="t('table.filterAll')"
+                      >
+                        <el-option
+                          v-for="opt in col.filter?.options ?? []"
+                          :key="opt.value"
+                          :label="opt.label"
+                          :value="opt.value"
+                        />
+                      </el-select>
+                      <!-- 日期：范围选择（起止写 start/end 两个字段） -->
+                      <div v-else-if="col.filter?.type === 'date'" class="art-table-date-picker">
+                        <!--
+                          同样必须 teleported=false：日历面板默认挂到 body，
+                          点面板会被 el-popover 判成「点击外部」而直接关掉弹层。
+                        -->
+                        <el-date-picker v-model="dateDraft[col.prop]" v-bind="datePickerProps" :teleported="false" />
+                      </div>
+                      <!-- 文本：模糊查询输入框 -->
+                      <el-input
+                        v-else
+                        v-model="textDraft[col.prop]"
+                        size="small"
+                        clearable
+                        :placeholder="col.filter?.placeholder || t('table.filterTextPlaceholder')"
+                        @keyup.enter="applyFilter(col, hide)"
+                      />
+                      <!-- 规范：重置在左、筛选在右，均为按钮形式（筛选为主题色 primary） -->
+                      <div class="art-table-head-actions">
+                        <el-button size="small" @click="resetFilter(col, hide)">{{ t('table.reset') }}</el-button>
+                        <el-button size="small" type="primary" @click="applyFilter(col, hide)">
+                          {{ t('table.filterConfirm') }}
+                        </el-button>
+                      </div>
+                    </div>
+                  </template>
+                </el-popover>
+              </span>
+            </template>
+
             <template v-if="col.slot" #default="scope">
               <slot
                 :name="col.slot"
@@ -204,13 +344,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, inject, ref, useSlots, watch } from 'vue'
+import { computed, h, inject, reactive, ref, useSlots, watch } from 'vue'
 import type { VNode } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { ElCheckbox, ElMessage } from 'element-plus'
-import { Delete, Filter, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, Delete, Filter, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
 import { TABLE_FILTER_KEY } from '@/composables/useTable'
 import type { ArtTableColumn } from '@/types/table'
 
@@ -263,8 +403,6 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   refresh: []
-  search: []
-  reset: []
   'page-change': [value: number]
   'size-change': [value: number]
   'sort-change': [value: { prop: string; order: string | null }]
@@ -323,20 +461,284 @@ function clearFilterSaved(): void {
   ElMessage.success(t('table.clearedMemory'))
 }
 
-const hasSearch = computed(() => !!slots.search)
-
 const isNarrow = useMediaQuery('(max-width: 768px)')
 const pagerLayout = computed(() => (isNarrow.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'))
 
+/* ---- 列头筛选 ---- */
+/**
+ * 筛选值统一存在页面 useTable 的 query 里（`writeFilter` 会落库到筛选方案并触发重新查询），
+ * 所以这里只做「读取 → 渲染」与「交互 → 写回」，不自己持有筛选状态。
+ * 草稿（`textDraft` / `enumDraft`）只在弹层内有效，点「筛选」才写回。
+ */
+const textDraft = reactive<Record<string, string>>({})
+const enumDraft = reactive<Record<string, (string | number)[]>>({})
+/** 日期范围草稿：`[开始, 结束]`，未选时为 null */
+const dateDraft = reactive<Record<string, [string, string] | null>>({})
+
+/* ---- 日期范围选择器的公共配置（顶部搜索区与列头弹层共用） ---- */
+
+/**
+ * 常用时间范围快捷项：今天 / 昨天 / 最近 3·7·30 天 / 本月 / 上月。
+ * 返回 Date 数组，由 el-date-picker 按 `value-format` 统一格式化。
+ */
+const dateShortcuts = computed(() => {
+  const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0)
+  const endOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59)
+  const shiftDays = (d: Date, days: number): Date => {
+    const next = new Date(d)
+    next.setDate(next.getDate() + days)
+    return next
+  }
+  const now = new Date()
+
+  return [
+    { text: t('table.timeToday'), value: (): [Date, Date] => [startOfDay(now), endOfDay(now)] },
+    {
+      text: t('table.timeYesterday'),
+      value: (): [Date, Date] => {
+        const day = shiftDays(now, -1)
+        return [startOfDay(day), endOfDay(day)]
+      },
+    },
+    { text: t('table.timeLast3Days'), value: (): [Date, Date] => [startOfDay(shiftDays(now, -2)), endOfDay(now)] },
+    { text: t('table.timeLast7Days'), value: (): [Date, Date] => [startOfDay(shiftDays(now, -6)), endOfDay(now)] },
+    { text: t('table.timeLast30Days'), value: (): [Date, Date] => [startOfDay(shiftDays(now, -29)), endOfDay(now)] },
+    {
+      text: t('table.timeThisMonth'),
+      value: (): [Date, Date] => [new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0), endOfDay(now)],
+    },
+    {
+      text: t('table.timeLastMonth'),
+      value: (): [Date, Date] => [
+        new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0),
+        // 上月最后一天：下月第 0 天即本月 1 号前一天
+        new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
+      ],
+    },
+  ]
+})
+
+/**
+ * 时间范围筛选统一带时分秒（`YYYY-MM-DD HH:mm:ss`），后端按字符串直接比较，
+ * 因此「按天筛选」由快捷项补足 00:00:00 ~ 23:59:59，手动选择也默认落在当天边界。
+ */
+const datePickerProps = computed(() => ({
+  type: 'datetimerange' as const,
+  rangeSeparator: '~',
+  startPlaceholder: t('table.filterStart'),
+  endPlaceholder: t('table.filterEnd'),
+  valueFormat: 'YYYY-MM-DD HH:mm:ss',
+  defaultTime: [new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)] as [Date, Date],
+  shortcuts: dateShortcuts.value,
+  clearable: true,
+}))
+
+/** 列筛选写入 query 的字段名：默认与列 prop 同名 */
+function filterKeyOf(col: ArtTableColumn): string {
+  return col.filter?.queryKey ?? col.prop
+}
+
+/** 日期范围的起止字段名（时间列筛选固定写 start / end） */
+function startKeyOf(col: ArtTableColumn): string {
+  return col.filter?.startKey ?? 'start'
+}
+
+function endKeyOf(col: ArtTableColumn): string {
+  return col.filter?.endKey ?? 'end'
+}
+
+/** 读取某个 query 字段并统一成字符串 */
+function queryValueOf(key: string): string {
+  const raw = tableFilter?.readFilter(key)
+  return raw === undefined || raw === null ? '' : String(raw)
+}
+
+/** 当前筛选值（统一成字符串，枚举多值按逗号拼接） */
+function filterValueOf(col: ArtTableColumn): string {
+  return queryValueOf(filterKeyOf(col))
+}
+
+/** 日期范围当前值：两端都空时返回 null，交给 el-date-picker 显示占位 */
+function dateRangeOf(col: ArtTableColumn): [string, string] | null {
+  const start = queryValueOf(startKeyOf(col))
+  const end = queryValueOf(endKeyOf(col))
+  return start === '' && end === '' ? null : [start, end]
+}
+
+function isFilterActive(col: ArtTableColumn): boolean {
+  if (col.filter?.type === 'date') {
+    return dateRangeOf(col) !== null
+  }
+  return filterValueOf(col) !== ''
+}
+
+/** 表头对齐：跟随列的 align，保证「标题居中 / 靠右」时漏斗图标依然贴右 */
+function headAlignOf(col: ArtTableColumn): 'left' | 'center' | 'right' {
+  return col.align ?? 'left'
+}
+
+/** 打开弹层时把草稿对齐到当前条件，避免显示上一次的输入 */
+function syncFilterDraft(col: ArtTableColumn): void {
+  if (col.filter?.type === 'enum') {
+    enumDraft[col.prop] = enumFilteredValue(col)
+  } else if (col.filter?.type === 'date') {
+    dateDraft[col.prop] = dateRangeOf(col)
+  } else {
+    textDraft[col.prop] = filterValueOf(col)
+  }
+}
+
+/** 提交本列筛选并收起弹层：枚举多值按逗号拼接，文本去空格，日期范围批量写起止字段 */
+function applyFilter(col: ArtTableColumn, close: () => void): void {
+  if (col.filter?.type === 'enum') {
+    const list = enumDraft[col.prop] ?? []
+    tableFilter?.writeFilter(filterKeyOf(col), list.length ? list.join(',') : '')
+  } else if (col.filter?.type === 'date') {
+    const range = dateDraft[col.prop]
+    tableFilter?.writeFilters({
+      [startKeyOf(col)]: range?.[0] ?? '',
+      [endKeyOf(col)]: range?.[1] ?? '',
+    })
+  } else {
+    tableFilter?.writeFilter(filterKeyOf(col), (textDraft[col.prop] ?? '').trim())
+  }
+  close()
+}
+
+/** 重置本列筛选（清空该列的查询条件）并收起弹层 */
+function resetFilter(col: ArtTableColumn, close: () => void): void {
+  if (col.filter?.type === 'enum') {
+    enumDraft[col.prop] = []
+  } else if (col.filter?.type === 'date') {
+    dateDraft[col.prop] = null
+  } else {
+    textDraft[col.prop] = ''
+  }
+  // 日期范围涉及两个字段：统一走批量写入，避免触发两次重新查询
+  if (col.filter?.type === 'date') {
+    tableFilter?.writeFilters({ [startKeyOf(col)]: '', [endKeyOf(col)]: '' })
+  } else {
+    tableFilter?.writeFilter(filterKeyOf(col), '')
+  }
+  close()
+}
+
+/** 枚举多选：把逗号拼接的值还原成选项里的原始值，否则勾选态对不上（数字 vs 字符串） */
+function enumFilteredValue(col: ArtTableColumn): (string | number)[] {
+  const raw = filterValueOf(col)
+  if (!raw) {
+    return []
+  }
+  const options = col.filter?.options ?? []
+  return raw.split(',').map((part) => options.find((o) => String(o.value) === part)?.value ?? part)
+}
+
+/** 预置草稿，避免 el-select 拿到 undefined（列变化时补建，不覆盖已有输入） */
+function ensureFilterDrafts(): void {
+  for (const col of ownColumns.value) {
+    if (col.filter?.type === 'enum') {
+      enumDraft[col.prop] ??= enumFilteredValue(col)
+    } else if (col.filter?.type === 'date') {
+      dateDraft[col.prop] ??= dateRangeOf(col)
+    } else if (col.filter) {
+      textDraft[col.prop] ??= filterValueOf(col)
+    }
+  }
+}
+
+/**
+ * 页面声明的列：回收站模式下「操作」列（约定 `slot='action'`）由表格统一接管，故剔除。
+ * 列设置面板与筛选草稿预置用的也是它 —— 否则会留下一个「勾了也不显示」的僵尸项。
+ */
+const ownColumns = computed(() => (props.recycle ? props.columns.filter((c) => c.slot !== 'action') : props.columns))
+
+// 列声明后立刻预置筛选草稿（声明顺序上必须在 ownColumns 之后）
+watch(ownColumns, ensureFilterDrafts, { immediate: true })
+
+/* ---- 顶部搜索区（按列的 filter 配置自动生成） ---- */
+/** 折叠时保留的搜索项数量；超出部分点「展开」才显示 */
+const SEARCH_COLLAPSE_LIMIT = 3
+
+const searchExpanded = ref(false)
+
+/** 参与顶部搜索的列：声明了 filter 的列即搜索项，列变了搜索项跟着变 */
+const searchColumns = computed(() => ownColumns.value.filter((col) => col.filter))
+
+/**
+ * 顶部搜索草稿：与列头筛选的草稿分开存，输入过程中不触发请求，
+ * 点「查询」才把全部字段一次性写回 query（只重新查询一次）。
+ */
+const searchText = reactive<Record<string, string>>({})
+const searchEnum = reactive<Record<string, (string | number)[]>>({})
+/** 日期范围草稿：`[开始, 结束]`，未选时为 null */
+const searchDate = reactive<Record<string, [string, string] | null>>({})
+
+/** 当前筛选条件的指纹：query 或列声明变化时重新对齐草稿 */
+const searchSignature = computed(() =>
+  searchColumns.value
+    .map((col) =>
+      col.filter?.type === 'date'
+        ? `${queryValueOf(startKeyOf(col))}~${queryValueOf(endKeyOf(col))}`
+        : filterValueOf(col),
+    )
+    .join('|'),
+)
+
+/** 把草稿对齐到当前 query —— 列头筛选、筛选方案、查询/重置后都会走这里 */
+function syncSearchDraft(): void {
+  for (const col of searchColumns.value) {
+    if (col.filter?.type === 'enum') {
+      searchEnum[col.prop] = enumFilteredValue(col)
+    } else if (col.filter?.type === 'date') {
+      searchDate[col.prop] = dateRangeOf(col)
+    } else {
+      searchText[col.prop] = filterValueOf(col)
+    }
+  }
+}
+
+// 声明顺序上必须在 searchColumns / query 之后
+watch(searchSignature, syncSearchDraft, { immediate: true })
+
+/** 提交顶部搜索：所有筛选字段一次性写回 query */
+function submitSearch(): void {
+  const fields: Record<string, unknown> = {}
+  for (const col of searchColumns.value) {
+    if (col.filter?.type === 'enum') {
+      const list = searchEnum[col.prop] ?? []
+      fields[filterKeyOf(col)] = list.length ? list.join(',') : ''
+    } else if (col.filter?.type === 'date') {
+      const range = searchDate[col.prop]
+      fields[startKeyOf(col)] = range?.[0] ?? ''
+      fields[endKeyOf(col)] = range?.[1] ?? ''
+    } else {
+      fields[filterKeyOf(col)] = (searchText[col.prop] ?? '').trim()
+    }
+  }
+  tableFilter?.writeFilters(fields)
+}
+
+/** 重置顶部搜索：清空全部筛选字段（列头筛选的勾选与高亮同步清掉） */
+function resetSearch(): void {
+  const fields: Record<string, unknown> = {}
+  for (const col of searchColumns.value) {
+    if (col.filter?.type === 'date') {
+      fields[startKeyOf(col)] = ''
+      fields[endKeyOf(col)] = ''
+    } else {
+      fields[filterKeyOf(col)] = ''
+    }
+  }
+  tableFilter?.writeFilters(fields)
+  syncSearchDraft()
+}
+
 /* ---- 列显隐（按页面持久化） ---- */
-const HIDDEN_PREFIX = 'cccms_table_hidden:'
+// 前缀带版本号：旧版本存过「默认隐藏某列」的记录，换前缀可让老缓存一次性失效
+const HIDDEN_PREFIX = 'cccms_table_hidden:v2:'
 
 function storageId(): string {
   return props.storageKey || route.path
-}
-
-function defaultHidden(): string[] {
-  return props.columns.filter((c) => c.defaultHidden).map((c) => c.prop)
 }
 
 function loadHidden(): string[] {
@@ -348,7 +750,7 @@ function loadHidden(): string[] {
   } catch {
     // 忽略解析异常，回落到默认值
   }
-  return defaultHidden()
+  return []
 }
 
 function persistHidden(): void {
@@ -375,7 +777,7 @@ function toggleColumn(prop: string, visible: boolean): void {
 }
 
 function resetColumns(): void {
-  hiddenColumns.value = defaultHidden()
+  hiddenColumns.value = []
   persistHidden()
   // 列宽也一并恢复默认，否则「重置」只重置了一半
   columnWidths.value = {}
@@ -425,12 +827,6 @@ function onHeaderDragend(newWidth: number, _oldWidth: number, column: { property
   persistWidths()
 }
 
-/**
- * 页面声明的列：回收站模式下「操作」列（约定 `slot='action'`）由表格统一接管，故剔除。
- * 列设置面板用的也是它 —— 否则会留下一个「勾了也不显示」的僵尸项。
- */
-const ownColumns = computed(() => (props.recycle ? props.columns.filter((c) => c.slot !== 'action') : props.columns))
-
 const visibleColumns = computed(() =>
   ownColumns.value.filter((c) => c.lockVisible || !hiddenColumns.value.includes(c.prop)),
 )
@@ -468,6 +864,7 @@ function columnProps(col: ArtTableColumn): Record<string, unknown> {
   if (col.sortable !== undefined) {
     out.sortable = col.sortable
   }
+  // 列筛选（枚举 / 文本）统一由 #header 插槽自绘，不使用 el-table 原生 filters
   return out
 }
 
@@ -628,19 +1025,6 @@ function onSortChange(payload: { prop: string | null; order: string | null }): v
   min-height: 0;
 }
 
-.art-table-search {
-  flex-shrink: 0;
-  margin-bottom: 12px;
-}
-
-.art-table-search :deep(.el-card__body) {
-  padding: 16px 16px 0;
-}
-
-.art-table-search :deep(.el-form-item) {
-  margin-bottom: 16px;
-}
-
 .art-table-main {
   display: flex;
   flex: 1;
@@ -682,6 +1066,60 @@ function onSortChange(payload: { prop: string | null; order: string | null }): v
 .art-table-wrap {
   flex: 1;
   min-height: 0;
+}
+
+/* ---- 搜索卡片（表格上方独立一张卡，折叠项用 v-show 隐藏，展开后换行铺开） ---- */
+.art-table-search {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+
+.art-table-search :deep(.el-card__body) {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  /* 下方留少一点：表单项自身有 margin-bottom，合计约 12px */
+  padding: 14px 16px 6px;
+}
+
+.art-table-search-form {
+  flex: 1;
+  min-width: 0;
+}
+
+/* el-form inline 的默认间距偏松，收紧一点 */
+.art-table-search-form :deep(.el-form-item) {
+  margin-right: 12px;
+  margin-bottom: 8px;
+}
+
+.art-table-search-form :deep(.el-form-item__label) {
+  font-size: 13px;
+  color: var(--art-sub);
+}
+
+.art-table-search-form :deep(.el-input),
+.art-table-search-form :deep(.el-select),
+.art-table-search-form :deep(.el-date-editor) {
+  width: 190px;
+}
+
+/* 日期范围要放下「起 ~ 止」两个日期，比普通输入框宽一点 */
+.art-table-search-form :deep(.el-range-editor) {
+  width: 400px;
+}
+
+.art-table-search-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+  /* 与第一个搜索项的控制区垂直居中对齐 */
+  padding-top: 1px;
+}
+
+.art-table-search-arrow {
+  margin-left: 2px;
 }
 
 .art-table-pager {
@@ -763,5 +1201,57 @@ function onSortChange(payload: { prop: string | null; order: string | null }): v
 .art-table-filter-save {
   display: flex;
   gap: 6px;
+}
+
+/* ---- 列头筛选（枚举复选下拉 / 文本输入，统一弹层） ---- */
+.art-table-head {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 撑满剩余宽度：标题按列对齐方式排布，漏斗图标被顶到列头最右侧 */
+.art-table-head-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.art-table-head-filter {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--art-muted);
+  cursor: pointer;
+}
+
+.art-table-head-filter:hover {
+  color: var(--el-color-primary);
+}
+
+/* 有筛选条件时高亮，和 el-table 原生筛选图标的高亮语义保持一致 */
+.art-table-head-filter.is-active {
+  color: var(--el-color-primary);
+}
+
+.art-table-head-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 日期范围：撑满弹层宽度（日历面板挂在这里，teleported=false） */
+.art-table-date-picker :deep(.el-date-editor) {
+  width: 100%;
+}
+
+/* 规范：重置在左、筛选在右，均为按钮形式（筛选为主题色 primary） */
+.art-table-head-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>

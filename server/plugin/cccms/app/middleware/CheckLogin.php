@@ -60,8 +60,17 @@ class CheckLogin implements MiddlewareInterface
             // 挂上当前会话 ID：登出（精确作废）与「在线用户」（禁止踢自己）都要用
             $request->jti = (string)($claims['jti'] ?? '');
 
-            // 刷新在线会话的活跃时间（60 秒节流；未登记 / Redis 不可用时静默跳过）
-            OnlineSession::touch((string)($claims['jti'] ?? ''));
+            // 刷新在线会话的活跃时间（60 秒节流）；会话缺失时按令牌声明自愈登记
+            // （令牌在本功能上线前签发 / 登记时 Redis 抖动 / 服务重启后仍持有效令牌，
+            //   这些会话不会出现在在线列表，也不该因为「登录是唯一登记入口」而永远缺席）
+            OnlineSession::touch(
+                (string)($claims['jti'] ?? ''),
+                $user,
+                (string)($request->getRealIp() ?: ''),
+                (string)$request->header('user-agent', ''),
+                (int)($claims['iat'] ?? 0),
+                (int)($claims['exp'] ?? 0),
+            );
 
             // 维护模式：把「此前签发的令牌全部失效」这条分界线推上去（幂等，只需一次）。
             // 服务端发 401 而不是 503，是为了让前端走既有的 401 逻辑：

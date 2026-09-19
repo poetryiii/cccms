@@ -57,31 +57,4 @@ class DataRuleController extends BaseController
         DataRuleLogic::delete((int)$request->input('id', 0));
         return $this->ok(null, I18n::t('common.deleted'));
     }
-
-    /** 导出 CSV（按当前筛选，直接返回文件流而非统一信封） */
-    #[Permission(slug: 'cccms:data_rule:export', title: '导出数据权限规则')]
-    public function export(Request $request): Response
-    {
-        return DataRuleLogic::export($request->get());
-    }
-
-    /** 下载导入模板 */
-    #[Permission(slug: 'cccms:data_rule:template', title: '下载数据权限规则导入模板')]
-    public function template(Request $request): Response
-    {
-        return DataRuleLogic::template();
-    }
-
-    /** 导入 CSV */
-    #[Permission(slug: 'cccms:data_rule:import', title: '导入数据权限规则')]
-    #[Restrict(methods: ['POST'])]
-    public function import(Request $request): Response
-    {
-        $file = $request->file('file');
-        if ($file === null) {
-            return $this->fail(I18n::t('data_rule.csv_required'), 422);
-        }
-
-        return $this->ok(DataRuleLogic::import($file), I18n::t('common.imported'));
-    }
 }

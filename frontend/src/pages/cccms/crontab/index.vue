@@ -9,33 +9,11 @@
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
-      @search="search"
-      @reset="reset"
       @page-change="onPageChange"
       @size-change="onLimitChange"
       @restore="onRestore"
       @force-delete="onForceDelete"
     >
-      <template #search>
-        <el-form-item :label="t('crontab.nameLabel')">
-          <el-input v-model="query.name" :placeholder="t('crontab.searchPlaceholder')" clearable style="width: 180px" />
-        </el-form-item>
-        <el-form-item :label="t('crontab.groupLabel')">
-          <el-input
-            v-model="query.group_name"
-            :placeholder="t('crontab.groupPlaceholder')"
-            clearable
-            style="width: 140px"
-          />
-        </el-form-item>
-        <el-form-item :label="t('crontab.statusLabel')">
-          <el-select v-model="query.status" :placeholder="t('crontab.allPlaceholder')" clearable style="width: 130px">
-            <el-option :label="t('crontab.enabled')" :value="1" />
-            <el-option :label="t('crontab.disabled')" :value="0" />
-          </el-select>
-        </el-form-item>
-      </template>
-
       <template #toolbar>
         <el-button v-auth="'cccms:crontab:save'" type="primary" :icon="Plus" @click="openCreate">
           {{ t('crontab.create') }}
@@ -206,7 +184,14 @@ import type { ArtTableColumn } from '@/types/table'
 interface Query {
   name: string
   group_name: string
-  status?: number
+  /** 多选值以逗号串传递 */
+  status: string
+  /** 最近执行时间范围（列头日期筛选写入） */
+  start: string
+  end: string
+  /** 下次执行时间范围（列头日期筛选写入） */
+  next_start: string
+  next_end: string
 }
 
 const { t } = useI18n({ useScope: 'global' })
@@ -214,27 +199,42 @@ const { t } = useI18n({ useScope: 'global' })
 // 表格列文案跟随语言切换，用 computed 包裹
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 70 },
-  { prop: 'name', label: t('crontab.nameLabel'), minWidth: 170 },
-  { prop: 'group_name', label: t('crontab.groupLabel'), width: 110 },
+  { prop: 'name', label: t('crontab.nameLabel'), minWidth: 170, filter: { type: 'text' } },
+  { prop: 'group_name', label: t('crontab.groupLabel'), width: 110, filter: { type: 'text' } },
   { prop: 'expression', label: t('crontab.expressionColumnLabel'), width: 160, align: 'center', slot: 'expression' },
-  { prop: 'target', label: t('crontab.targetColumnLabel'), minWidth: 210, defaultHidden: true },
-  { prop: 'status', label: t('crontab.statusLabel'), width: 90, align: 'center', slot: 'status' },
-  { prop: 'last_run_time', label: t('crontab.lastRunLabel'), width: 170 },
-  { prop: 'next_run_time', label: t('crontab.nextRunLabel'), width: 170, defaultHidden: true },
+  { prop: 'target', label: t('crontab.targetColumnLabel'), minWidth: 210 },
+  {
+    prop: 'status',
+    label: t('crontab.statusLabel'),
+    width: 90,
+    align: 'center',
+    slot: 'status',
+    filter: {
+      type: 'enum',
+      options: [
+        { label: t('crontab.enabled'), value: 1 },
+        { label: t('crontab.disabled'), value: 0 },
+      ],
+    },
+  },
+  { prop: 'last_run_time', label: t('crontab.lastRunLabel'), width: 170, filter: { type: 'date' } },
+  {
+    prop: 'next_run_time',
+    label: t('crontab.nextRunLabel'),
+    width: 170,
+    filter: { type: 'date', startKey: 'next_start', endKey: 'next_end' },
+  },
   { prop: 'action', label: t('table.action'), width: 260, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
 // 回收站开关：必须在 useTable 之前（列表闭包在 setup 阶段就会执行一次）
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('crontab', {
-  reload: () => search(),
+  reload: () => load(),
 })
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  CrontabRow,
-  Query
->({
+const { list, loading, total, page, limit, load, onPageChange, onLimitChange } = useTable<CrontabRow, Query>({
   api: (params) => crontabList({ ...params, trashed: recycle.value ? 1 : 0 }),
-  initialQuery: { name: '', group_name: '', status: undefined },
+  initialQuery: { name: '', group_name: '', status: '', start: '', end: '', next_start: '', next_end: '' },
 })
 
 const targets = ref<TaskTarget[]>([])

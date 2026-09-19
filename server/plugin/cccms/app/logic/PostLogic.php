@@ -6,6 +6,7 @@ namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\Post;
 use plugin\cccms\app\model\UserPost;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 
 /**
@@ -22,6 +23,11 @@ final class PostLogic
         $query = !empty($params['trashed']) ? Post::onlyTrashed() : Post::newScopedQuery();
         if (!empty($params['name'])) {
             $query->where('name', 'like', '%' . $params['name'] . '%');
+        }
+        // 列头筛选支持多选，值形如 `1,0`
+        $statuses = FilterInput::ints($params['status'] ?? null);
+        if ($statuses !== []) {
+            $query->whereIn('status', $statuses);
         }
         $page  = max(1, (int)($params['page'] ?? 1));
         $limit = max(1, (int)($params['limit'] ?? 15));

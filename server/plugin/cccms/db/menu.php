@@ -49,15 +49,15 @@ return [
         'component' => '',
         'sort'      => 2,
         'children'  => [
-            ['slug' => 'cccms:user', 'title' => '用户管理', 'type' => 2, 'path' => '/cccms/user', 'component' => 'cccms/user/index', 'icon' => 'icon-user',  'sort' => 1],
-            ['slug' => 'cccms:role', 'title' => '角色管理', 'type' => 2, 'path' => '/cccms/role', 'component' => 'cccms/role/index', 'icon' => 'icon-safe',  'sort' => 2],
-            ['slug' => 'cccms:dept', 'title' => '部门管理', 'type' => 2, 'path' => '/cccms/dept', 'component' => 'cccms/dept/index', 'icon' => 'icon-tree',  'sort' => 3],
-            ['slug' => 'cccms:post', 'title' => '岗位管理', 'type' => 2, 'path' => '/cccms/post', 'component' => 'cccms/post/index', 'icon' => 'icon-badge', 'sort' => 4],
-            ['slug' => 'cccms:data_rule', 'title' => '数据权限', 'type' => 2, 'path' => '/cccms/data_rule', 'component' => 'cccms/data_rule/index', 'icon' => 'icon-key', 'sort' => 5],
-            ['slug' => 'cccms:menu', 'title' => '菜单管理', 'type' => 2, 'path' => '/cccms/menu', 'component' => 'cccms/menu/index', 'icon' => 'icon-menu',  'sort' => 6],
             // 租户管理是**平台级**动作：接口仅对「处于平台租户的超管」开放
             // （见 TenantLogic::assertPlatformAdmin），授权时不要下发给租户内角色
-            ['slug' => 'cccms:tenant', 'title' => '租户管理', 'type' => 2, 'path' => '/cccms/tenant', 'component' => 'cccms/tenant/index', 'icon' => 'icon-management',  'sort' => 7],
+            ['slug' => 'cccms:tenant', 'title' => '租户管理', 'type' => 2, 'path' => '/cccms/tenant', 'component' => 'cccms/tenant/index', 'icon' => 'icon-management',  'sort' => 1],
+            ['slug' => 'cccms:user', 'title' => '用户管理', 'type' => 2, 'path' => '/cccms/user', 'component' => 'cccms/user/index', 'icon' => 'icon-user',  'sort' => 2],
+            ['slug' => 'cccms:role', 'title' => '角色管理', 'type' => 2, 'path' => '/cccms/role', 'component' => 'cccms/role/index', 'icon' => 'icon-safe',  'sort' => 3],
+            ['slug' => 'cccms:dept', 'title' => '部门管理', 'type' => 2, 'path' => '/cccms/dept', 'component' => 'cccms/dept/index', 'icon' => 'icon-tree',  'sort' => 4],
+            ['slug' => 'cccms:post', 'title' => '岗位管理', 'type' => 2, 'path' => '/cccms/post', 'component' => 'cccms/post/index', 'icon' => 'icon-badge', 'sort' => 5],
+            ['slug' => 'cccms:data_rule', 'title' => '数据权限', 'type' => 2, 'path' => '/cccms/data_rule', 'component' => 'cccms/data_rule/index', 'icon' => 'icon-key', 'sort' => 6],
+            ['slug' => 'cccms:menu', 'title' => '菜单管理', 'type' => 2, 'path' => '/cccms/menu', 'component' => 'cccms/menu/index', 'icon' => 'icon-menu',  'sort' => 7],
         ],
     ],
 
@@ -73,17 +73,15 @@ return [
         'component' => '',
         'sort'      => 3,
         'children'  => [
-            ['slug' => 'cccms:config',    'title' => '配置管理', 'type' => 2, 'path' => '/cccms/config',    'component' => 'cccms/config/index',    'icon' => 'icon-tool',   'sort' => 1],
-            ['slug' => 'cccms:dict',      'title' => '字典管理', 'type' => 2, 'path' => '/cccms/dict',      'component' => 'cccms/dict/index',      'icon' => 'icon-book',   'sort' => 2],
+            ['slug' => 'cccms:notice',    'title' => '通知公告', 'type' => 2, 'path' => '/cccms/notice',    'component' => 'cccms/notice/index',    'icon' => 'icon-tickets',  'sort' => 1],
+            ['slug' => 'cccms:config',    'title' => '配置管理', 'type' => 2, 'path' => '/cccms/config',    'component' => 'cccms/config/index',    'icon' => 'icon-tool',   'sort' => 2],
             ['slug' => 'cccms:file',      'title' => '附件管理', 'type' => 2, 'path' => '/cccms/file',      'component' => 'cccms/file/index',      'icon' => 'icon-upload', 'sort' => 3],
-            ['slug' => 'cccms:crontab',   'title' => '定时任务', 'type' => 2, 'path' => '/cccms/crontab',   'component' => 'cccms/crontab/index',   'icon' => 'icon-clock',  'sort' => 4],
-            ['slug' => 'cccms:generator', 'title' => '代码生成', 'type' => 2, 'path' => '/cccms/generator', 'component' => 'cccms/generator/index', 'icon' => 'icon-code',   'sort' => 5],
-            ['slug' => 'cccms:log',       'title' => '操作日志', 'type' => 2, 'path' => '/cccms/log',       'component' => 'cccms/log/index',       'icon' => 'icon-file',   'sort' => 6],
-            // 登录日志已并入操作日志（sys_log），此占位用于删除历史节点；各环境同步后即可移除
-            ['slug' => 'cccms:login_log', 'remove' => true],
-            ['slug' => 'cccms:online',    'title' => '在线用户', 'type' => 2, 'path' => '/cccms/online',    'component' => 'cccms/online/index',    'icon' => 'icon-monitor',  'sort' => 8],
-            ['slug' => 'cccms:notice',    'title' => '通知公告', 'type' => 2, 'path' => '/cccms/notice',    'component' => 'cccms/notice/index',    'icon' => 'icon-tickets',  'sort' => 9],
-            ['slug' => 'cccms:upgrade',   'title' => '自动升级', 'type' => 2, 'path' => '/cccms/upgrade',   'component' => 'cccms/upgrade/index',   'icon' => 'icon-refresh',  'sort' => 10],
+            ['slug' => 'cccms:dict',      'title' => '字典管理', 'type' => 2, 'path' => '/cccms/dict',      'component' => 'cccms/dict/index',      'icon' => 'icon-book',   'sort' => 4],
+            ['slug' => 'cccms:online',    'title' => '在线用户', 'type' => 2, 'path' => '/cccms/online',    'component' => 'cccms/online/index',    'icon' => 'icon-monitor',  'sort' => 5],
+            ['slug' => 'cccms:crontab',   'title' => '定时任务', 'type' => 2, 'path' => '/cccms/crontab',   'component' => 'cccms/crontab/index',   'icon' => 'icon-clock',  'sort' => 6],
+            ['slug' => 'cccms:generator', 'title' => '代码生成', 'type' => 2, 'path' => '/cccms/generator', 'component' => 'cccms/generator/index', 'icon' => 'icon-code',   'sort' => 7],
+            ['slug' => 'cccms:upgrade',   'title' => '在线升级', 'type' => 2, 'path' => '/cccms/upgrade',   'component' => 'cccms/upgrade/index',   'icon' => 'icon-refresh',  'sort' => 8],
+            ['slug' => 'cccms:log',       'title' => '操作日志', 'type' => 2, 'path' => '/cccms/log',       'component' => 'cccms/log/index',       'icon' => 'icon-file',   'sort' => 9],
         ],
     ],
 ];

@@ -15,14 +15,14 @@ const FILTER_SCHEME_PREFIX = 'cccms_table_filter_scheme:'
 export interface TableFilterSnapshot {
   /** 查询条件（普通对象，JSON 可序列化） */
   query: Record<string, unknown>
-  /** 每页条数 */
-  limit: number
+  /** 每页条数（无分页的树表不存该字段） */
+  limit?: number
 }
 
 /**
  * 表格「筛选方案」控制器。
  *
- * `useTable` 在页面 setup 里把它 `provide` 出去，`ArtTable` 通过 `inject` 拿到，
+ * `useTable` / `useTableFilter` 在页面 setup 里把它 `provide` 出去，`ArtTable` 通过 `inject` 拿到，
  * 所以列表页**无需任何接线**即可在工具栏出现「筛选方案」入口。
  */
 export interface TableFilterController {
@@ -40,9 +40,15 @@ export interface TableFilterController {
   applyScheme: (name: string) => void
   /** 删除命名方案 */
   removeScheme: (name: string) => void
+  /** 列头筛选：读取某字段当前值 */
+  readFilter: (key: string) => unknown
+  /** 列头筛选：写入某字段并重新查询 */
+  writeFilter: (key: string, value: unknown) => void
+  /** 列头筛选：批量写入多个字段（如日期范围），只触发一次重新查询 */
+  writeFilters: (fields: Record<string, unknown>) => void
 }
 
-/** ArtTable 通过它拿到所属页面 useTable 的筛选方案控制器 */
+/** ArtTable 通过它拿到所属页面的筛选方案控制器 */
 export const TABLE_FILTER_KEY: InjectionKey<TableFilterController> = Symbol('cccms-table-filter')
 
 function readJson<T>(key: string): T | null {
@@ -93,6 +99,121 @@ function resolveFilterKey(): string {
   }
 }
 
+interface FilterStoreOptions {
+  /** 从快照回填每页条数（无分页的树表不传） */
+  restoreLimit?: (limit: number) => void
+  /** 生成快照时读取当前每页条数（无分页的树表不传） */
+  readLimit?: () => number
+  /** 条件变化后的回调：服务端分页场景回到第 1 页并重新请求；纯前端过滤场景无需传 */
+  onChange?: () => void
+}
+
+/**
+ * 筛选方案的读写内核，`useTable`（服务端分页）与 `useTableFilter`（纯前端过滤）共用：
+ * 自动记忆当前条件 + 命名方案的增删查改，并把控制器交给 ArtTable 渲染入口。
+ */
+function createFilterStore<Q extends object>(initialQuery: Q, options: FilterStoreOptions = {}) {
+  const query = reactive({ ...initialQuery }) as Q
+  const filterKey = resolveFilterKey()
+  const savedKey = FILTER_PREFIX + filterKey
+  const schemeKey = FILTER_SCHEME_PREFIX + filterKey
+
+  /**
+   * 只回填页面声明过的字段（`initialQuery` 的 key 即白名单），
+   * 避免旧版本存下、现已被页面删除的字段被重新发给接口；
+   * 页面未声明 initialQuery 时退化为「原样回填」。
+   */
+  function normalizeQuery(raw: unknown): Record<string, unknown> {
+    if (!raw || typeof raw !== 'object') {
+      return {}
+    }
+    const source = raw as Record<string, unknown>
+    const known = Object.keys(initialQuery)
+    if (known.length === 0) {
+      return { ...source }
+    }
+    const out: Record<string, unknown> = {}
+    for (const key of known) {
+      if (key in source) {
+        out[key] = source[key]
+      }
+    }
+    return out
+  }
+
+  function snapshot(): TableFilterSnapshot {
+    const limit = options.readLimit?.()
+    return limit ? { query: toQueryRecord(query), limit } : { query: toQueryRecord(query) }
+  }
+
+  function applySnapshot(snap: TableFilterSnapshot): void {
+    Object.assign(query, normalizeQuery(snap.query))
+    if (typeof snap.limit === 'number' && snap.limit > 0) {
+      options.restoreLimit?.(snap.limit)
+    }
+  }
+
+  // 进页面先回填上次的条件；此时 watch 尚未注册，不会回写
+  const stored = readJson<TableFilterSnapshot>(savedKey)
+  if (stored) {
+    applySnapshot(stored)
+  }
+
+  function readSchemes(): Record<string, TableFilterSnapshot> {
+    return readJson<Record<string, TableFilterSnapshot>>(schemeKey) ?? {}
+  }
+
+  function persist(): void {
+    writeJson(savedKey, snapshot())
+  }
+
+  function clearSaved(): void {
+    try {
+      localStorage.removeItem(savedKey)
+    } catch {
+      // localStorage 不可用时忽略
+    }
+  }
+
+  function saveScheme(name: string): void {
+    const schemes = readSchemes()
+    schemes[name] = snapshot()
+    writeJson(schemeKey, schemes)
+  }
+
+  function removeScheme(name: string): void {
+    const schemes = readSchemes()
+    if (!(name in schemes)) {
+      return
+    }
+    delete schemes[name]
+    writeJson(schemeKey, schemes)
+  }
+
+  function controller(applyScheme: (name: string) => void): TableFilterController {
+    return {
+      key: filterKey,
+      hasSaved: () => readJson<TableFilterSnapshot>(savedKey) !== null,
+      clearSaved,
+      listSchemes: () => Object.keys(readSchemes()),
+      saveScheme,
+      applyScheme,
+      removeScheme,
+      readFilter: (key: string) => (query as Record<string, unknown>)[key],
+      writeFilter: (key: string, value: unknown) => {
+        ;(query as Record<string, unknown>)[key] = value
+        options.onChange?.()
+      },
+      writeFilters: (fields: Record<string, unknown>) => {
+        Object.assign(query, fields)
+        options.onChange?.()
+      },
+    }
+  }
+
+  return { query, applySnapshot, readSchemes, persist, controller }
+}
+
 export interface UseTableOptions<T, Q extends object> {
   /**
    * 列表请求：会带上 query / page / limit。
@@ -133,108 +254,37 @@ export function useTable<T = Record<string, unknown>, Q extends object = Record<
   const selection = ref([]) as Ref<T[]>
 
   const initialQuery = { ...(options.initialQuery ?? ({} as Q)) } as Q
-  const query = reactive({ ...initialQuery }) as Q
 
   /* ---- 筛选方案：自动记忆 + 命名方案（页面零配置） ---- */
-  const filterKey = resolveFilterKey()
-  const savedKey = FILTER_PREFIX + filterKey
-  const schemeKey = FILTER_SCHEME_PREFIX + filterKey
-
-  /**
-   * 只回填页面声明过的字段（`initialQuery` 的 key 即白名单），
-   * 避免旧版本存下、现已被页面删除的字段被重新发给接口；
-   * 页面未声明 initialQuery 时退化为「原样回填」。
-   */
-  function normalizeQuery(raw: unknown): Record<string, unknown> {
-    if (!raw || typeof raw !== 'object') {
-      return {}
-    }
-    const source = raw as Record<string, unknown>
-    const known = Object.keys(initialQuery)
-    if (known.length === 0) {
-      return { ...source }
-    }
-    const out: Record<string, unknown> = {}
-    for (const key of known) {
-      if (key in source) {
-        out[key] = source[key]
-      }
-    }
-    return out
-  }
-
-  function snapshot(): TableFilterSnapshot {
-    return { query: toQueryRecord(query), limit: limit.value }
-  }
-
-  function applySnapshot(snap: TableFilterSnapshot): void {
-    Object.assign(query, normalizeQuery(snap.query))
-    if (typeof snap.limit === 'number' && snap.limit > 0) {
-      limit.value = snap.limit
-    }
-  }
-
-  // 进页面先回填上次的条件（含 limit，不含 page）；此时 watch 尚未注册，不会回写
-  const stored = readJson<TableFilterSnapshot>(savedKey)
-  if (stored) {
-    applySnapshot(stored)
-  }
-
-  function readSchemes(): Record<string, TableFilterSnapshot> {
-    return readJson<Record<string, TableFilterSnapshot>>(schemeKey) ?? {}
-  }
-
-  function persistCurrent(): void {
-    writeJson(savedKey, snapshot())
-  }
-
-  function clearSaved(): void {
-    try {
-      localStorage.removeItem(savedKey)
-    } catch {
-      // localStorage 不可用时忽略
-    }
-  }
-
-  function saveScheme(name: string): void {
-    const schemes = readSchemes()
-    schemes[name] = snapshot()
-    writeJson(schemeKey, schemes)
-  }
-
-  function removeScheme(name: string): void {
-    const schemes = readSchemes()
-    if (!(name in schemes)) {
-      return
-    }
-    delete schemes[name]
-    writeJson(schemeKey, schemes)
-  }
+  const store = createFilterStore(initialQuery, {
+    restoreLimit: (value) => {
+      limit.value = value
+    },
+    readLimit: () => limit.value,
+    // 列头筛选改的是查询条件，和「查询」按钮一样要回到第 1 页重新请求
+    onChange: () => {
+      page.value = 1
+      void load()
+    },
+  })
+  const query = store.query
 
   function applyScheme(name: string): void {
-    const snap = readSchemes()[name]
+    const snap = store.readSchemes()[name]
     if (!snap) {
       return
     }
-    applySnapshot(snap)
+    store.applySnapshot(snap)
     page.value = 1
     void load()
   }
 
   // 条件或每页条数一变就自动记忆（页码不存）
-  watch(query, persistCurrent, { deep: true })
-  watch(limit, persistCurrent)
+  watch(query, store.persist, { deep: true })
+  watch(limit, store.persist)
 
   if (getCurrentInstance()) {
-    provide(TABLE_FILTER_KEY, {
-      key: filterKey,
-      hasSaved: () => readJson<TableFilterSnapshot>(savedKey) !== null,
-      clearSaved,
-      listSchemes: () => Object.keys(readSchemes()),
-      saveScheme,
-      applyScheme,
-      removeScheme,
-    })
+    provide(TABLE_FILTER_KEY, store.controller(applyScheme))
   }
 
   async function load(): Promise<void> {
@@ -305,4 +355,37 @@ export function useTable<T = Record<string, unknown>, Q extends object = Record<
     onLimitChange,
     onSelectionChange,
   }
+}
+
+/**
+ * 纯前端筛选页面的「筛选方案」支持：树表这类一次性拉全量、靠 computed 过滤的场景。
+ *
+ * 只负责条件对象与持久化，不涉及分页与请求 —— 过滤结果由页面自己的 computed 响应。
+ * 用法：
+ *   const { query, reset } = useTableFilter<Query>({ initialQuery: { name: '', leader: '' } })
+ */
+export function useTableFilter<Q extends object = Record<string, unknown>>(options: { initialQuery?: Q } = {}) {
+  const initialQuery = { ...(options.initialQuery ?? ({} as Q)) } as Q
+  const store = createFilterStore(initialQuery)
+
+  watch(store.query, store.persist, { deep: true })
+
+  /** 载入命名方案：纯前端过滤无需重新请求，computed 会自动重算 */
+  function applyScheme(name: string): void {
+    const snap = store.readSchemes()[name]
+    if (snap) {
+      store.applySnapshot(snap)
+    }
+  }
+
+  if (getCurrentInstance()) {
+    provide(TABLE_FILTER_KEY, store.controller(applyScheme))
+  }
+
+  /** 重置查询条件（无需重新请求，computed 会自动重算） */
+  function reset(): void {
+    Object.assign(store.query, initialQuery)
+  }
+
+  return { query: store.query, reset }
 }

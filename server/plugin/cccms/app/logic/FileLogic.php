@@ -8,6 +8,7 @@ use plugin\cccms\app\model\Category;
 use plugin\cccms\app\model\File;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FileStorage;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use Webman\Http\UploadFile;
 
@@ -30,12 +31,20 @@ final class FileLogic
             $query->where('original_name', 'like', '%' . $params['original_name'] . '%');
         }
         if (!empty($params['ext'])) {
-            $query->where('ext', strtolower((string)$params['ext']));
+            $query->where('ext', 'like', '%' . strtolower((string)$params['ext']) . '%');
         }
         // 分类筛选：-1 未分类，>0 该分类及其下级（见 CategoryLogic::scopeIds）
         $categoryIds = CategoryLogic::scopeIds($params['category_id'] ?? null);
         if ($categoryIds !== null) {
             $query->whereIn('category_id', $categoryIds);
+        }
+        // 上传时间范围（列头时间筛选，值已归一化为 Y-m-d H:i:s）
+        [$start, $end] = FilterInput::range($params['start'] ?? null, $params['end'] ?? null);
+        if ($start !== '') {
+            $query->where('create_time', '>=', $start);
+        }
+        if ($end !== '') {
+            $query->where('create_time', '<=', $end);
         }
 
         $page  = max(1, (int)($params['page'] ?? 1));

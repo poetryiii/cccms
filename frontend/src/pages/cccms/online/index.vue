@@ -9,22 +9,9 @@
       v-model:page="page"
       v-model:limit="limit"
       @refresh="load"
-      @search="search"
-      @reset="reset"
       @page-change="onPageChange"
       @size-change="onLimitChange"
     >
-      <template #search>
-        <el-form-item :label="t('online.keywordLabel')">
-          <el-input
-            v-model="query.keyword"
-            :placeholder="t('online.keywordPlaceholder')"
-            clearable
-            style="width: 280px"
-          />
-        </el-form-item>
-      </template>
-
       <template #toolbar>
         <el-alert type="info" :closable="false" show-icon :title="t('online.alert')" />
       </template>
@@ -60,29 +47,61 @@ import type { ArtTableColumn } from '@/types/table'
 const { t } = useI18n({ useScope: 'global' })
 
 interface Query {
-  keyword: string
+  username: string
+  ip: string
+  /** 登录时间范围 */
+  login_start: string
+  login_end: string
+  /** 最后活跃时间范围 */
+  active_start: string
+  active_end: string
+  /** 过期时间范围 */
+  expire_start: string
+  expire_end: string
 }
 
 // 表格列文案跟随语言切换，用 computed 包裹
 const columns = computed<ArtTableColumn[]>(() => [
-  { prop: 'username', label: t('online.user'), slot: 'username' },
+  { prop: 'username', label: t('online.user'), slot: 'username', filter: { type: 'text' } },
   { prop: 'device', label: t('online.device'), width: 90 },
   { prop: 'os', label: t('online.os'), width: 110 },
   { prop: 'browser', label: t('online.browser'), width: 100 },
-  { prop: 'ip', label: 'IP', width: 140 },
-  { prop: 'login_at', label: t('online.loginAt'), width: 170 },
-  { prop: 'last_at', label: t('online.lastActive'), width: 170 },
-  { prop: 'expire_at', label: t('online.expireAt'), width: 170, defaultHidden: true },
-  { prop: 'ua', label: 'User-Agent', minWidth: 240, defaultHidden: true },
+  { prop: 'ip', label: 'IP', width: 140, filter: { type: 'text' } },
+  // 三列时间各用一组 startKey / endKey，互不覆盖
+  {
+    prop: 'login_at',
+    label: t('online.loginAt'),
+    width: 170,
+    filter: { type: 'date', startKey: 'login_start', endKey: 'login_end' },
+  },
+  {
+    prop: 'last_at',
+    label: t('online.lastActive'),
+    width: 170,
+    filter: { type: 'date', startKey: 'active_start', endKey: 'active_end' },
+  },
+  {
+    prop: 'expire_at',
+    label: t('online.expireAt'),
+    width: 170,
+    filter: { type: 'date', startKey: 'expire_start', endKey: 'expire_end' },
+  },
+  { prop: 'ua', label: 'User-Agent', minWidth: 240 },
   { prop: 'action', label: t('table.action'), width: 210, fixed: 'right', slot: 'action', lockVisible: true },
 ])
 
-const { list, loading, total, page, limit, query, load, search, reset, onPageChange, onLimitChange } = useTable<
-  OnlineSession,
-  Query
->({
+const { list, loading, total, page, limit, load, onPageChange, onLimitChange } = useTable<OnlineSession, Query>({
   api: onlineList,
-  initialQuery: { keyword: '' },
+  initialQuery: {
+    username: '',
+    ip: '',
+    login_start: '',
+    login_end: '',
+    active_start: '',
+    active_end: '',
+    expire_start: '',
+    expire_end: '',
+  },
 })
 
 async function onKick(row: OnlineSession): Promise<void> {

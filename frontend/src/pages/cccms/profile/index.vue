@@ -37,6 +37,48 @@
             }}</el-descriptions-item>
           </el-descriptions>
         </el-card>
+
+        <!-- 登录设备（自助查看 / 注销自己的会话） -->
+        <el-card shadow="never" class="profile-card">
+          <template #header>
+            <div class="profile-card-head">
+              <span class="profile-card-title">{{ t('profile.devices') }}</span>
+              <el-button link type="primary" :loading="sessionsLoading" @click="loadSessions">
+                {{ t('common.refresh') }}
+              </el-button>
+            </div>
+          </template>
+
+          <el-table v-loading="sessionsLoading" :data="sessions" row-key="jti" size="small">
+            <el-table-column :label="t('profile.device')" width="150">
+              <template #default="{ row }">
+                <el-space>
+                  {{ row.device || '—' }}
+                  <el-tag v-if="row.current" type="success" size="small" effect="light">
+                    {{ t('profile.currentDevice') }}
+                  </el-tag>
+                </el-space>
+              </template>
+            </el-table-column>
+            <el-table-column prop="os" :label="t('profile.os')" width="120" />
+            <el-table-column prop="browser" :label="t('profile.browser')" width="110" />
+            <el-table-column prop="ip" label="IP" width="150" />
+            <el-table-column prop="login_at" :label="t('profile.loginTime')" width="170" />
+            <el-table-column prop="last_at" :label="t('profile.lastActive')" width="170" />
+            <el-table-column :label="t('table.action')" width="100">
+              <template #default="{ row }">
+                <el-button link type="danger" :disabled="row.current" @click="onRevoke(row)">
+                  {{ t('profile.revoke') }}
+                </el-button>
+              </template>
+            </el-table-column>
+            <template #empty>{{ t('profile.noOtherDevices') }}</template>
+          </el-table>
+
+          <div class="profile-tip profile-session-tip">
+            {{ t('profile.revokeTip') }}
+          </div>
+        </el-card>
       </el-col>
 
       <el-col :xs="24" :md="14">
@@ -97,46 +139,6 @@
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 登录设备（自助查看 / 注销自己的会话） -->
-    <el-card shadow="never" class="profile-card">
-      <template #header>
-        <div class="profile-card-head">
-          <span class="profile-card-title">{{ t('profile.devices') }}</span>
-          <el-button link type="primary" :loading="sessionsLoading" @click="loadSessions">
-            {{ t('common.refresh') }}
-          </el-button>
-        </div>
-      </template>
-
-      <el-table v-loading="sessionsLoading" :data="sessions" row-key="jti" size="small">
-        <el-table-column :label="t('profile.device')" width="100">
-          <template #default="{ row }">
-            {{ row.device || '—' }}
-            <el-tag v-if="row.current" type="success" size="small" effect="light">
-              {{ t('profile.currentDevice') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="os" :label="t('profile.os')" width="120" />
-        <el-table-column prop="browser" :label="t('profile.browser')" width="110" />
-        <el-table-column prop="ip" label="IP" width="150" />
-        <el-table-column prop="login_at" :label="t('profile.loginTime')" width="170" />
-        <el-table-column prop="last_at" :label="t('profile.lastActive')" width="170" />
-        <el-table-column :label="t('table.action')" width="100">
-          <template #default="{ row }">
-            <el-button link type="danger" :disabled="row.current" @click="onRevoke(row)">
-              {{ t('profile.revoke') }}
-            </el-button>
-          </template>
-        </el-table-column>
-        <template #empty>{{ t('profile.noOtherDevices') }}</template>
-      </el-table>
-
-      <div class="profile-tip profile-session-tip">
-        {{ t('profile.revokeTip') }}
-      </div>
-    </el-card>
   </div>
 </template>
 

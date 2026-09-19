@@ -62,10 +62,6 @@ Route::post('/user/batchStatus', [UserController::class, 'batchStatus']);
 Route::post('/user/batchDelete', [UserController::class, 'batchDelete']);
 Route::post('/user/batchAssign', [UserController::class, 'batchAssign']);
 Route::post('/user/resetPassword', [UserController::class, 'resetPassword']);
-// 导入 / 导出（CSV）：导出直接返回文件流，不走统一信封
-Route::get('/user/export', [UserController::class, 'export']);
-Route::get('/user/template', [UserController::class, 'template']);
-Route::post('/user/import', [UserController::class, 'import']);
 
 // ---- 角色 ----
 Route::get('/role', [RoleController::class, 'index']);
@@ -135,10 +131,6 @@ Route::get('/data_rule/users', [DataRuleController::class, 'users']);
 Route::post('/data_rule/save', [DataRuleController::class, 'save']);
 Route::post('/data_rule/update', [DataRuleController::class, 'update']);
 Route::post('/data_rule/delete', [DataRuleController::class, 'delete']);
-// 导入 / 导出（CSV）：导出直接返回文件流，不走统一信封
-Route::get('/data_rule/export', [DataRuleController::class, 'export']);
-Route::get('/data_rule/template', [DataRuleController::class, 'template']);
-Route::post('/data_rule/import', [DataRuleController::class, 'import']);
 // 受控表（哪些表可以配数据权限）
 Route::get('/data_rule/table', [DataScopeTableController::class, 'index']);
 Route::post('/data_rule/table/save', [DataScopeTableController::class, 'save']);

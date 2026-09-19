@@ -68,6 +68,23 @@ return [
     'upload.storage_driver' => '存储驱动',
     'upload.url_prefix'     => '访问前缀',
 
+    'upload.oss_access_key_id'     => 'AccessKey ID',
+    'upload.oss_access_key_secret' => 'AccessKey Secret',
+    'upload.oss_bucket'            => 'Bucket',
+    'upload.oss_endpoint'          => 'Endpoint',
+    'upload.oss_domain'            => '自定义域名',
+
+    'upload.cos_secret_id'  => 'SecretId',
+    'upload.cos_secret_key' => 'SecretKey',
+    'upload.cos_bucket'     => 'Bucket',
+    'upload.cos_region'     => 'Region',
+    'upload.cos_domain'     => '自定义域名',
+
+    'upload.qiniu_access_key' => 'AccessKey',
+    'upload.qiniu_secret_key' => 'SecretKey',
+    'upload.qiniu_bucket'     => 'Bucket',
+    'upload.qiniu_domain'     => '访问域名',
+
     'log.keep_days'      => '日志保留天数',
     'log.auto_clean'     => '自动清理日志',
     'log.record_read'    => '记录查询操作',

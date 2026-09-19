@@ -19,7 +19,10 @@ use Throwable;
  * 设计取舍：
  *   - **不维护「用户 → jti」集合**：在线人数本身有限，扫描索引比多维护一份易失配的集合更可靠；
  *   - `touch()` 有 60 秒节流：活跃时间没必要每请求刷新，避免把 Redis 写放大成每请求一次写；
- *   - 索引 ZSet **不设 TTL**（它会比单条会话活得久），过期成员由 `prune()` 惰性清理；
+ *   - 索引 ZSet **不设 TTL**（它会比单条会话活得久），过期成员由列表查询顺手清理，`prune()` 全量收敛；
+ *   - **`touch()` 兼作自愈入口**：登录不是唯一的登记时机 —— 令牌在本功能上线前签发、
+ *     登记时 Redis 抖了一下、或服务重启后仍持有效令牌的用户，若只认「登录登记」就永远
+ *     不会出现在在线列表（`rotate()` 也刻意不补建）。一个通过鉴权的请求本身就证明会话有效；
  *   - Redis 不可用时全部方法静默降级 —— 在线列表属于可观测能力，不该因为缓存故障影响业务。
  *
  * 列表查询分两条路径（**量级扩展**）：
@@ -39,6 +42,21 @@ final class OnlineSession
     /** 分段扫描批大小：有关键字过滤 / 清理 / 下线时按这个粒度拉取，避免一次性拉全量 */
     private const SCAN_BATCH = 200;
 
+    /** 支持列头筛选的文本字段（会话 Hash 里可直接做包含匹配） */
+    private const FILTER_FIELDS = ['username', 'ip'];
+
+    /**
+     * 支持列头筛选的时间字段：入参前缀 => 会话 Hash 里的时间戳字段。
+     *
+     * 入参形如 `login_start` / `login_end`，比较前统一归一成 Unix 时间戳
+     * （Hash 里存的是时间戳，展示时才格式化成字符串）。
+     */
+    private const RANGE_FIELDS = [
+        'login'  => 'login_at',
+        'active' => 'last_at',
+        'expire' => 'exp',
+    ];
+
     /**
      * 登录成功后登记会话。
      */
@@ -55,45 +73,58 @@ final class OnlineSession
         }
 
         $now = time();
-        $ttl = TokenService::ttl();
 
-        try {
-            $key = self::SESSION_PREFIX . $jti;
-            Redis::hMSet($key, [
-                'user_id'  => (string)$userId,
-                'username' => $username,
-                'nickname' => $nickname,
-                'jti'      => $jti,
-                'ip'       => $ip,
-                'ua'       => mb_substr($ua, 0, 255),
-                'login_at' => (string)$now,
-                'last_at'  => (string)$now,
-                // 令牌过期时间：强下线黑名单据此精确计算 TTL，不再按整个有效期兜底
-                'exp'      => (string)($now + $ttl),
-            ]);
-            Redis::expire($key, $ttl);
-            Redis::zAdd(self::INDEX_KEY, $now, $jti);
-        } catch (Throwable) {
-            // 降级：不登记
-        }
+        self::writeRow($jti, $userId, $username, $nickname, $ip, $ua, $now, $now + TokenService::ttl());
     }
 
     /**
-     * 刷新活跃时间（带 60 秒节流）。
+     * 刷新活跃时间（带 60 秒节流）；会话不存在时**按令牌声明自愈登记**。
      *
-     * 会话不存在时直接返回：可能已过期或被清理，不重新创建。
-     * 注意只刷新活跃时间与 Hash 存活期，**不**延长令牌过期时间（`exp` 是签发时固定的）。
+     * 为什么需要自愈：登记只发生在登录那一刻，令牌一旦在「登记时 Redis 抖动 / 服务重启 /
+     * 本功能上线前签发」的情况下继续被使用，这条会话就永远进不了在线列表，而且
+     * `rotate()` 也刻意不补建（见其注释）—— 用户明明在线，列表却是空的。
+     * 一个通过鉴权的请求本身就证明会话有效，用令牌的 `iat` / `exp` 回填最贴近事实：
+     * 展示的登录时间是真实签发时间，而不是「首次被发现的时刻」。
+     *
+     * 会话已存在时行为不变：只刷新活跃时间与 Hash 存活期，**不**延长令牌过期时间
+     * （`exp` 是签发时固定的）。
+     *
+     * @param UserContext|null $user 当前登录用户；为 null 时不做自愈（保持旧调用方语义）
+     * @param int              $issuedAt  令牌签发时间（`iat`），自愈时作为登录时间
+     * @param int              $expiresAt 令牌过期时间（`exp`），自愈时作为会话过期时间
      */
-    public static function touch(string $jti): void
-    {
+    public static function touch(
+        string $jti,
+        ?UserContext $user = null,
+        string $ip = '',
+        string $ua = '',
+        int $issuedAt = 0,
+        int $expiresAt = 0,
+    ): void {
         if ($jti === '') {
             return;
         }
 
         try {
-            $key = self::SESSION_PREFIX . $jti;
+            $key  = self::SESSION_PREFIX . $jti;
             $last = Redis::hGet($key, 'last_at');
+
             if ($last === false || $last === null) {
+                // 会话缺失：自愈回填（写入是幂等的，并发请求重复写同一行无害）
+                if ($user !== null && $user->id > 0) {
+                    $now = time();
+                    self::writeRow(
+                        $jti,
+                        $user->id,
+                        $user->username,
+                        $user->nickname,
+                        $ip,
+                        $ua,
+                        $issuedAt > 0 ? $issuedAt : $now,
+                        $expiresAt > 0 ? $expiresAt : $now + TokenService::ttl(),
+                    );
+                }
+
                 return;
             }
 
@@ -274,18 +305,74 @@ final class OnlineSession
     /**
      * 分页查询在线会话（按最后活跃时间倒序）。
      *
+     * 列头筛选按字段独立生效（username / ip 包含匹配，登录 / 活跃 / 过期时间落在区间内），
+     * 多列之间是 AND。无筛选时走 Redis 服务端分页；有筛选时只能分段扫描 + 应用层过滤
+     * ——字段在 Hash 里，无法用 ZSet 建索引。
+     *
+     * @param array<string,string> $filters
      * @return array{total:int,list:array<int,array<string,mixed>>}
      */
-    public static function paginate(string $keyword = '', int $page = 1, int $limit = 15): array
+    public static function paginate(array $filters = [], int $page = 1, int $limit = 15): array
     {
         $page  = max(1, $page);
         $limit = max(1, $limit);
 
-        if (trim($keyword) === '') {
+        $filters = self::normalizeFilters($filters);
+        if ($filters['text'] === [] && $filters['ranges'] === []) {
             return self::paginatePlain($page, $limit);
         }
 
-        return self::paginateFiltered(trim($keyword), $page, $limit);
+        return self::paginateFiltered($filters, $page, $limit);
+    }
+
+    /**
+     * 归一化列头筛选：文本字段去掉空值，时间字段归一成 Unix 时间戳区间。
+     *
+     * @param array<string,mixed> $filters
+     * @return array{text:array<string,string>,ranges:array<string,array{0:int,1:int}>}
+     */
+    private static function normalizeFilters(array $filters): array
+    {
+        $text = [];
+        foreach (self::FILTER_FIELDS as $field) {
+            $value = trim((string)($filters[$field] ?? ''));
+            if ($value !== '') {
+                $text[$field] = $value;
+            }
+        }
+
+        $ranges = [];
+        foreach (self::RANGE_FIELDS as $prefix => $hashKey) {
+            $from = self::timestamp($filters[$prefix . '_start'] ?? null, false);
+            $to   = self::timestamp($filters[$prefix . '_end'] ?? null, true);
+            if ($from > 0 || $to > 0) {
+                $ranges[$hashKey] = [$from, $to];
+            }
+        }
+
+        return ['text' => $text, 'ranges' => $ranges];
+    }
+
+    /**
+     * 时间范围入参 → Unix 时间戳；空值 / 解析失败返回 0（表示该侧不限制）。
+     *
+     * 前端下发 `Y-m-d H:i:s`（选择器统一带时分秒），这里兼容纯日期写法：
+     * 只给到日期时，起始补 00:00:00、结束补 23:59:59，保证按天筛选覆盖当天全天。
+     */
+    private static function timestamp(mixed $raw, bool $isEnd): int
+    {
+        $value = trim((string)($raw ?? ''));
+        if ($value === '') {
+            return 0;
+        }
+
+        if (preg_match('/\d{1,2}:\d{2}/', $value) !== 1) {
+            $value .= $isEnd ? ' 23:59:59' : ' 00:00:00';
+        }
+
+        $parsed = strtotime($value);
+
+        return $parsed === false ? 0 : $parsed;
     }
 
     /** 在线会话总数（近似：含少量待清理的过期索引，由 `prune()` 定期收敛） */
@@ -351,7 +438,7 @@ final class OnlineSession
     // 私有
     // ------------------------------------------------------------------
 
-    /** 无关键字：Redis 服务端分页。 */
+    /** 无关键字：Redis 服务端分页。命中本页的过期成员顺手从索引摘掉。 */
     private static function paginatePlain(int $page, int $limit): array
     {
         $offset = ($page - 1) * $limit;
@@ -363,20 +450,29 @@ final class OnlineSession
             return ['total' => 0, 'list' => []];
         }
 
-        return ['total' => $total, 'list' => self::hydrate(is_array($members) ? $members : [])];
+        if (!is_array($members) || $members === []) {
+            return ['total' => $total, 'list' => []];
+        }
+
+        [$list, $orphans] = self::hydrate($members);
+        // 摘掉本页读到的僵尸成员，并从总数里扣掉，避免「共 N 条」比列表实际行数多
+        $total = max(0, $total - self::dropOrphans($orphans));
+
+        return ['total' => $total, 'list' => $list];
     }
 
-    /** 有关键字：分段扫描 + 应用层过滤（字段在 Hash 里，无法用 ZSet 建索引）。 */
-    private static function paginateFiltered(string $keyword, int $page, int $limit): array
+    /** 有筛选：分段扫描 + 应用层过滤（字段在 Hash 里，无法用 ZSet 建索引），顺手清僵尸索引。 */
+    private static function paginateFiltered(array $filters, int $page, int $limit): array
     {
         $offset  = ($page - 1) * $limit;
         $matched = [];
 
-        self::scanAll(static function (string $jti, array $row) use ($keyword, &$matched): void {
-            if (self::match($row, $keyword)) {
+        $orphans = self::scanAll(static function (string $jti, array $row) use ($filters, &$matched): void {
+            if (self::match($row, $filters)) {
                 $matched[] = self::decorate($jti, $row);
             }
         });
+        self::dropOrphans($orphans);
 
         $total = count($matched);
 
@@ -386,60 +482,139 @@ final class OnlineSession
     /**
      * 分段遍历全部索引成员（按活跃倒序），对每条**存在**的会话回调。
      *
-     * 读到已过期的会话（Hash 已消失）时只跳过、不删除 —— 遍历过程中删除成员
-     * 会改变 ZSet 的 offset，导致漏扫；清理交给独立的 `prune()`。
+     * 读到已过期的会话（Hash 已消失）时只记录、不删除 —— 遍历过程中删除成员
+     * 会改变 ZSet 的 offset，导致漏扫；清理由调用方拿返回值统一执行。
      *
      * @param callable(string,array<string,mixed>):void $visitor
+     * @return array<int,string> 本次发现的僵尸 jti（明细已过期，索引待摘）
      */
-    private static function scanAll(callable $visitor): void
+    private static function scanAll(callable $visitor): array
     {
-        $start = 0;
+        $start   = 0;
+        $orphans = [];
 
         while (true) {
             try {
                 $members = Redis::zRevRange(self::INDEX_KEY, $start, $start + self::SCAN_BATCH - 1);
             } catch (Throwable) {
-                return;
+                return $orphans;
             }
 
             if (!is_array($members) || $members === []) {
-                return;
+                return $orphans;
             }
 
             foreach ($members as $jti) {
                 $jti = (string)$jti;
                 $row = self::rawRow($jti);
+
+                // 读取失败（null）无法判断是否过期：跳过且**不**清理
                 if ($row === null) {
                     continue;
                 }
+                if ($row === []) {
+                    $orphans[] = $jti;
+                    continue;
+                }
+
                 $visitor($jti, $row);
             }
 
             if (count($members) < self::SCAN_BATCH) {
-                return;
+                return $orphans;
             }
             $start += self::SCAN_BATCH;
         }
     }
 
-    /** 一批 jti → 已格式化列表（跳过已过期的僵尸会话）。 */
+    /**
+     * 一批 jti → [已格式化列表, 僵尸 jti]。
+     *
+     * @return array{0:array<int,array<string,mixed>>,1:array<int,string>}
+     */
     private static function hydrate(array $jtis): array
     {
-        $list = [];
+        $list    = [];
+        $orphans = [];
+
         foreach ($jtis as $jti) {
             $jti = (string)$jti;
             $row = self::rawRow($jti);
+
+            // 读取失败（null）：当页跳过但**不**清理，避免 Redis 抖动时误删活跃成员
             if ($row === null) {
                 continue;
             }
+
+            // 明细已过期（空 Hash）：索引里是僵尸成员，交给调用方顺手摘掉
+            if ($row === []) {
+                $orphans[] = $jti;
+                continue;
+            }
+
             $list[] = self::decorate($jti, $row);
         }
 
-        return $list;
+        return [$list, $orphans];
     }
 
     /**
-     * 读取单条会话明细；会话已过期（Hash 消失）返回 null。
+     * 写入一条会话明细，并把 jti 挂到活跃索引上。
+     *
+     * 登录登记（`register`）与自愈回填（`touch`）共用：两者只是 `login_at` / `exp` 的来源不同
+     * —— 前者取「此刻」，后者取令牌声明里的 `iat` / `exp`。
+     *
+     * @param int $loginAt   会话签发时间
+     * @param int $expiresAt 令牌过期时间
+     */
+    private static function writeRow(
+        string $jti,
+        int $userId,
+        string $username,
+        string $nickname,
+        string $ip,
+        string $ua,
+        int $loginAt,
+        int $expiresAt,
+    ): void {
+        if ($jti === '' || $userId <= 0) {
+            return;
+        }
+
+        $now = time();
+        // 令牌已过期就没有登记的意义：写进去也会立刻被 TTL 清掉
+        if ($expiresAt <= $now) {
+            return;
+        }
+
+        try {
+            $key = self::SESSION_PREFIX . $jti;
+            Redis::hMSet($key, [
+                'user_id'  => (string)$userId,
+                'username' => $username,
+                'nickname' => $nickname,
+                'jti'      => $jti,
+                'ip'       => $ip,
+                'ua'       => mb_substr($ua, 0, 255),
+                'login_at' => (string)$loginAt,
+                'last_at'  => (string)$now,
+                // 令牌过期时间：强下线黑名单据此精确计算 TTL，不再按整个有效期兜底
+                'exp'      => (string)$expiresAt,
+            ]);
+            // Hash 存活期跟着令牌剩余有效期走，不让会话明细比令牌活得久
+            Redis::expire($key, $expiresAt - $now);
+            Redis::zAdd(self::INDEX_KEY, $now, $jti);
+        } catch (Throwable) {
+            // 降级：不登记
+        }
+    }
+
+    /**
+     * 读取单条会话明细。
+     *
+     * 区分两种「读不到」，调用方据此决定能否清理索引：
+     *   - `null` —— Redis 异常，无法判断，**不可**当作过期；
+     *   - `[]`   —— 明细键已消失（TTL 到期），索引里是僵尸成员。
      *
      * @return array<string,mixed>|null
      */
@@ -451,11 +626,28 @@ final class OnlineSession
             return null;
         }
 
-        if (!is_array($row) || $row === []) {
-            return null;
+        return is_array($row) ? $row : [];
+    }
+
+    /**
+     * 从活跃索引里摘掉僵尸成员。
+     *
+     * @param array<int,string> $jtis
+     * @return int 实际摘掉的条数
+     */
+    private static function dropOrphans(array $jtis): int
+    {
+        $removed = 0;
+
+        foreach ($jtis as $jti) {
+            try {
+                $removed += (int)Redis::zRem(self::INDEX_KEY, $jti);
+            } catch (Throwable) {
+                // 忽略单条失败
+            }
         }
 
-        return $row;
+        return $removed;
     }
 
     /** @param array<string,mixed> $row */
@@ -481,23 +673,38 @@ final class OnlineSession
         ];
     }
 
-    /** @param array<string,mixed> $row */
-    private static function match(array $row, string $keyword): bool
+    /**
+     * 列头筛选匹配：文本字段包含匹配、时间字段落在区间内，字段之间是 AND。
+     *
+     * 时间比较用的是 Hash 里的原始时间戳字段（`login_at` / `last_at` / `exp`），
+     * 不是 `decorate()` 格式化后的字符串。
+     *
+     * @param array<string,mixed> $row
+     * @param array{text:array<string,string>,ranges:array<string,array{0:int,1:int}>} $filters
+     */
+    private static function match(array $row, array $filters): bool
     {
-        if (
-            str_contains((string)($row['username'] ?? ''), $keyword)
-            || str_contains((string)($row['nickname'] ?? ''), $keyword)
-            || str_contains((string)($row['ip'] ?? ''), $keyword)
-        ) {
-            return true;
+        foreach ($filters['text'] as $field => $keyword) {
+            if (!str_contains((string)($row[$field] ?? ''), $keyword)) {
+                return false;
+            }
         }
 
-        // 终端信息由 UA 派生，Redis 里没有独立字段，只能在这里逐个比对
-        $client = self::parseUa((string)($row['ua'] ?? ''));
+        foreach ($filters['ranges'] as $field => [$from, $to]) {
+            $value = (int)($row[$field] ?? 0);
+            // 该会话没有这个时间点（如未设置过期时间）：不满足范围条件
+            if ($value <= 0) {
+                return false;
+            }
+            if ($from > 0 && $value < $from) {
+                return false;
+            }
+            if ($to > 0 && $value > $to) {
+                return false;
+            }
+        }
 
-        return str_contains($client['device'], $keyword)
-            || str_contains($client['os'], $keyword)
-            || str_contains($client['browser'], $keyword);
+        return true;
     }
 
     /**

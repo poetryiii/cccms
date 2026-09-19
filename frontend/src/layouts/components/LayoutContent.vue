@@ -4,7 +4,7 @@
       <router-view v-slot="{ Component, route }">
         <transition name="fade-slide" mode="out-in" appear>
           <keep-alive :include="worktab.cached" :max="15">
-            <component :is="Component" :key="route.path" />
+            <component :is="Component" :key="worktab.keyOf(route.path)" />
           </keep-alive>
         </transition>
       </router-view>
@@ -16,6 +16,9 @@
 /**
  * 内容区：keep-alive 的 include 取「已打开标签的组件名」，
  * 于是关闭标签 = 从名单移除 = 实例真正销毁，内存不会无限增长。
+ *
+ * 组件 key 由 worktab.keyOf(path) 生成（路径 + 刷新序号）：只改 include 无法让
+ * 正在显示的实例重新挂载，「刷新」还需要 key 变化配合，详见 worktab.refresh()。
  *
  * 注意：页面组件必须用 `defineOptions({ name: '<菜单 slug>' })` 声明组件名，
  * 否则 include 匹配不上（页面文件都叫 index.vue，推断出的名字会互相撞车）。

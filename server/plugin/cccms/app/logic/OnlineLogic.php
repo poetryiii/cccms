@@ -25,7 +25,17 @@ final class OnlineLogic
     public static function paginate(array $params): array
     {
         return OnlineSession::paginate(
-            trim((string)($params['keyword'] ?? '')),
+            [
+                'username' => (string)($params['username'] ?? ''),
+                'ip'       => (string)($params['ip'] ?? ''),
+                // 三组时间范围（登录 / 最后活跃 / 过期），各自独立
+                'login_start'  => (string)($params['login_start'] ?? ''),
+                'login_end'    => (string)($params['login_end'] ?? ''),
+                'active_start' => (string)($params['active_start'] ?? ''),
+                'active_end'   => (string)($params['active_end'] ?? ''),
+                'expire_start' => (string)($params['expire_start'] ?? ''),
+                'expire_end'   => (string)($params['expire_end'] ?? ''),
+            ],
             max(1, (int)($params['page'] ?? 1)),
             max(1, (int)($params['limit'] ?? 15)),
         );

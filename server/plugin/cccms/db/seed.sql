@@ -108,8 +108,28 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 ('upload.max_size',             '单文件上限',      'input-number', '10',                           NULL, '上传', 1, 1, '单位 MB', NOW(), NOW()),
 ('upload.ext_allow',            '允许的扩展名',    'input',        'jpg,jpeg,png,gif,webp,bmp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,zip,rar,7z,mp3,mp4,webm', NULL, '上传', 2, 1, '英文逗号分隔，不要带点；留空则用 filesystem.php 的默认白名单。⚠️ 不要加入 svg/html/xml：本地驱动同域直出，会被浏览器内联渲染成存储型 XSS', NOW(), NOW()),
 ('upload.image_ext',            '图片扩展名',      'input',        'jpg,jpeg,png,gif,webp',        NULL, '上传', 3, 1, '需要按图片处理的扩展名', NOW(), NOW()),
-('upload.storage_driver',       '存储驱动',        'select',       'local',                        '[{"label":"本地","value":"local"},{"label":"阿里云 OSS","value":"oss"},{"label":"腾讯云 COS","value":"cos"},{"label":"七牛云","value":"qiniu"}]', '上传', 4, 1, '切换后需填写对应驱动配置', NOW(), NOW()),
+('upload.storage_driver',       '存储驱动',        'select',       'local',                        '[{"label":"本地","value":"local"},{"label":"阿里云 OSS","value":"oss"},{"label":"腾讯云 COS","value":"cos"},{"label":"七牛云","value":"qiniu"}]', '上传', 4, 1, '选中哪个驱动，本页只显示该驱动的凭证项；凭证加密存库，不需要写 .env', NOW(), NOW()),
 ('upload.url_prefix',           '访问前缀',        'input',        '/storage',                     NULL, '上传', 5, 1, '切独立域名 / CDN 时改这里', NOW(), NOW()),
+
+-- 上传 · 阿里云 OSS（driver=oss 时必填；密钥类项加密存储，留空 = 保持原值）
+('upload.oss_access_key_id',     'AccessKey ID',    'input',        '',                             NULL, '上传', 6, 1, '阿里云账号的 AccessKey ID', NOW(), NOW()),
+('upload.oss_access_key_secret', 'AccessKey Secret','password',     '',                             NULL, '上传', 7, 1, 'AccessKey Secret，加密存储', NOW(), NOW()),
+('upload.oss_bucket',            'Bucket',          'input',        '',                             NULL, '上传', 8, 1, 'OSS Bucket 名称', NOW(), NOW()),
+('upload.oss_endpoint',          'Endpoint',        'input',        '',                             NULL, '上传', 9, 1, '如 oss-cn-hangzhou.aliyuncs.com（不带 bucket 前缀）', NOW(), NOW()),
+('upload.oss_domain',            '自定义域名',      'input',        '',                             NULL, '上传', 10, 1, 'CDN / 自定义域名，留空则用 endpoint + bucket 拼装', NOW(), NOW()),
+
+-- 上传 · 腾讯云 COS（driver=cos 时必填）
+('upload.cos_secret_id',         'SecretId',        'input',        '',                             NULL, '上传', 11, 1, '腾讯云 API 密钥 SecretId', NOW(), NOW()),
+('upload.cos_secret_key',        'SecretKey',       'password',     '',                             NULL, '上传', 12, 1, '腾讯云 API 密钥 SecretKey，加密存储', NOW(), NOW()),
+('upload.cos_bucket',            'Bucket',          'input',        '',                             NULL, '上传', 13, 1, '控制台显示的存储桶名称（形如 name-1250000000）；访问时驱动自动拼接 -Region 后缀', NOW(), NOW()),
+('upload.cos_region',            'Region',          'input',        '',                             NULL, '上传', 14, 1, '地域，如 ap-guangzhou', NOW(), NOW()),
+('upload.cos_domain',            '自定义域名',      'input',        '',                             NULL, '上传', 15, 1, 'CDN / 自定义域名，留空则用 bucket + region 拼装', NOW(), NOW()),
+
+-- 上传 · 七牛云 Kodo（driver=qiniu 时必填）
+('upload.qiniu_access_key',      'AccessKey',       'input',        '',                             NULL, '上传', 16, 1, '七牛云账号的 AccessKey', NOW(), NOW()),
+('upload.qiniu_secret_key',      'SecretKey',       'password',     '',                             NULL, '上传', 17, 1, '七牛云账号的 SecretKey，加密存储', NOW(), NOW()),
+('upload.qiniu_bucket',          'Bucket',          'input',        '',                             NULL, '上传', 18, 1, '存储空间名称', NOW(), NOW()),
+('upload.qiniu_domain',          '访问域名',        'input',        '',                             NULL, '上传', 19, 1, '空间绑定的测试域名或自定义域名（必填，七牛不提供默认 URL 拼装）', NOW(), NOW()),
 
 -- 日志
 ('log.keep_days',               '日志保留天数',    'input-number', '30',                           NULL, '日志', 1, 1, '定时任务按此天数清理历史日志', NOW(), NOW()),

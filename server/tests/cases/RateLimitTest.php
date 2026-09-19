@@ -7,8 +7,8 @@ use plugin\cccms\support\RateLimiter;
 return static function (): void {
     suite('接口限流（P1-2）');
 
-    test('重接口路径识别：导出 / 导入 / 生成命中，普通接口不命中', function (): void {
-        foreach (['/user/export', '/data_rule/export', '/log/export', '/user/import', '/data_rule/import', '/generator/generate'] as $path) {
+    test('重接口路径识别：导出 / 生成命中，普通接口不命中', function (): void {
+        foreach (['/log/export', '/generator/generate'] as $path) {
             ok(RateLimiter::isHeavy($path), "{$path} 应被识别为重接口");
         }
 
