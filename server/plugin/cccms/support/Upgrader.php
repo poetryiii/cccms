@@ -423,6 +423,34 @@ final class Upgrader
     }
 
     /**
+     * 目标版本在缓存仓库里的「新鲜」引用。
+     *
+     * `fetch` 只更新远端跟踪分支（`origin/*`）与 tag，**不会**动本地分支；
+     * 而缓存仓库是 clone 出来的，本地分支永远停在 clone 那一刻。
+     * 因此分支名一律改走 `origin/<ref>`，否则 `reset --hard main` 会一直得到旧 commit。
+     *
+     * tag 优先于同名分支（与 git 自身的 ref 解析顺序一致），
+     * commit sha / `origin/xxx` 等解析不到本地分支的引用原样返回。
+     */
+    private static function freshRef(string $repo, string $ref): string
+    {
+        $ref = trim($ref);
+        if ($ref === '') {
+            return $ref;
+        }
+
+        if (self::resolveCommit($repo, 'refs/tags/' . $ref) !== '') {
+            return $ref;
+        }
+
+        if (self::resolveCommit($repo, 'refs/remotes/origin/' . $ref) !== '') {
+            return 'origin/' . $ref;
+        }
+
+        return $ref;
+    }
+
+    /**
      * 切到目标版本（无条件重写工作区），返回该版本的 commit。
      *
      * 用 `reset --hard` 而不是 `checkout`：checkout 在「已处于该 ref 且工作区干净」时会跳过写文件，
@@ -430,6 +458,8 @@ final class Upgrader
      */
     private static function checkout(string $repo, string $ref): string
     {
+        $ref = self::freshRef($repo, $ref);
+
         [$code, , $err] = self::git(['-C', $repo, 'reset', '--hard', '--quiet', $ref]);
 
         if ($code !== 0) {
@@ -804,8 +834,13 @@ final class Upgrader
         }
 
         // 上游从基线到目标的变化：提交记录 + 每文件行数
-        $stats   = self::diffStat($repo, $baseRef, $ref);
-        $commits = self::commits($repo, $baseRef, $ref);
+        // 基线优先用状态里记下的 commit（精确），退化时才用符号 ref。
+        // 统一以解析后的 commit 作区间端点：基线若记的是分支名（如 main），
+        // 直接用 ref 名会被 git 解析成本地陈旧分支，比对结果随之失真。
+        $baseCommit = (string)($state['base_commit'] ?? '');
+        $from       = self::resolveCommit($repo, $baseCommit) !== '' ? $baseCommit : self::freshRef($repo, $baseRef);
+        $stats      = self::diffStat($repo, $from, $commit);
+        $commits    = self::commits($repo, $from, $commit);
 
         $files  = [];
         $added  = 0;
@@ -837,7 +872,7 @@ final class Upgrader
             'ref'         => $ref,
             'commit'      => $commit,
             'base'        => $baseRef,
-            'base_commit' => self::resolveCommit($repo, $baseRef),
+            'base_commit' => self::resolveCommit($repo, $from),
             'items'       => $items,
             'files'       => $files,
             'summary'     => self::summarize($items),
