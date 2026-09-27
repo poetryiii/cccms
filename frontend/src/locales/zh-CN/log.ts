@@ -70,16 +70,6 @@ export default {
   analysisNoChange: '未发现异地登录',
   analysisHint: '数据受数据权限约束：仅统计你有权查看的登录记录。',
 
-  /* ---- 导出任务中心 ---- */
-  exportTasks: '导出任务',
-  exportQueued: '数据量 {total} 超过阈值，已转后台导出，稍后到「导出任务」下载',
-  taskEmpty: '暂无导出任务',
-  taskRows: '行数',
-  taskTime: '创建时间',
-  taskStatusLabel: '状态',
-  taskStatusPending: '待处理',
-  taskStatusRunning: '处理中',
-  taskStatusDone: '完成',
-  taskStatusFailed: '失败',
-  taskStatusExpired: '已过期',
+  /* ---- 导出（全局导出任务中心） ---- */
+  exportQueued: '已加入导出队列（共 {total} 行），可到右上角「导出任务」查看进度',
 }

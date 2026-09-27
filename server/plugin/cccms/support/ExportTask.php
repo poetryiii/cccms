@@ -108,16 +108,48 @@ final class ExportTask
         if (!$task) {
             throw new ApiException(I18n::t('export.task_not_found'), 404);
         }
+
+        // 兜底：webman 的自定义进程（定时调度）仅在 Linux/macOS 启动，Windows 上
+        // `ExportTaskConsumer` 根本不跑，待处理任务会永远卡在 pending。这里在下载时
+        // 同步补生成一次，保证任何环境都能拿到文件；Linux 生产下任务早已被 cron 消费，
+        // 走到这个分支的概率极低（仅「刚导出就立刻点下载」）。
+        if ((int)$task['status'] === self::STATUS_PENDING) {
+            self::runOne($id);
+            $task = Db::name(self::TABLE)->where('id', $id)->find();
+        }
+
         if ((int)$task['status'] !== self::STATUS_DONE) {
             throw new ApiException(I18n::t('export.task_not_ready'), 409);
         }
 
         $full = self::path((string)$task['file_path']);
         if (!is_file($full)) {
+            // 文件被外部删除（如运维清理）而状态仍是「完成」：就地纠正为「已过期」，
+            // 让前端抽屉显示一致，而不是「完成」状态下点下载才报已过期。
+            Db::name(self::TABLE)->where('id', $id)->update(['status' => self::STATUS_EXPIRED]);
             throw new ApiException(I18n::t('export.task_expired'), 410);
         }
 
-        return (new Response())->download($full, (string)$task['file_name']);
+        // 不能用 `Response::download()`：它只写 `filename="操作日志.csv"`，非 ASCII 文件名
+        // 在浏览器里会乱码。这里用 `withFile()` + 手工拼 Content-Disposition（ASCII 兜底名
+        // + RFC 5987 的 `filename*`），与 `Csv::download()` 同一套编码口径。
+        $response = new Response();
+        $response->withFile($full);
+        $response->withHeaders(['Content-Disposition' => self::disposition((string)$task['file_name'])]);
+
+        return $response;
+    }
+
+    /**
+     * 拼 Content-Disposition：`filename` 给 ASCII 兜底名（老浏览器），
+     * `filename*`（RFC 5987）给 rawurlencode 后的 UTF-8 原名（现代浏览器优先取它）。
+     */
+    private static function disposition(string $name): string
+    {
+        // /u 让正则按「字符」而非「字节」替换，中文名得到 4 个下划线而不是 12 个
+        $ascii = preg_replace('/[^A-Za-z0-9._-]/u', '_', $name) ?: 'export';
+
+        return sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", $ascii, rawurlencode($name));
     }
 
     /**

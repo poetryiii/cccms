@@ -19,6 +19,13 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // 附件（本地存储）也代理到后端：缩略图 <img src="/storage/..."> 与「查看」新窗口
+      // 都从 5173 发请求，若不代理，Vite 会把 /storage 当 SPA 路由回退到 index.html，
+      // 于是「查看」跳到 #/dashboard。生产由 Nginx 托管/反代（见 02-安装部署 §5）。
+      '/storage': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+      },
     },
   },
   build: {

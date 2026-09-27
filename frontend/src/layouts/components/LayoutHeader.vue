@@ -51,6 +51,15 @@
         </el-button>
       </el-tooltip>
 
+      <!-- 全局导出任务中心：各模块的异步导出统一在这里看进度并下载 -->
+      <el-tooltip :content="t('export.title')" placement="bottom">
+        <el-badge :value="exportTaskStore.unfinished" :max="99" :hidden="exportTaskStore.unfinished === 0">
+          <el-button text circle @click="exportTaskStore.open()">
+            <el-icon :size="17"><Download /></el-icon>
+          </el-button>
+        </el-badge>
+      </el-tooltip>
+
       <!--
         消息未读数 / 我的消息 / 系统同步 / 租户切换都收进用户下拉：
         未读数贴在头像上，其余作为菜单项，顶栏只留「快捷导航 / 设置 / 全屏」三个高频图标。
@@ -132,6 +141,9 @@
     </div>
 
     <ArtSettingsDrawer v-model="settingsVisible" />
+
+    <!-- 全局导出任务中心 -->
+    <ExportTaskDrawer />
 
     <!-- 快捷导航 -->
     <el-dialog
@@ -308,6 +320,7 @@ import {
   ArrowDown,
   Bell,
   Bottom,
+  Download,
   Expand,
   Fold,
   FullScreen,
@@ -322,6 +335,7 @@ import {
 } from '@element-plus/icons-vue'
 import ArtSettingsDrawer from '@/components/core/ArtSettingsDrawer.vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
+import ExportTaskDrawer from '@/components/ExportTaskDrawer.vue'
 import { reloadMenus, resetAfterLogout } from '@/router'
 import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
 import { tenantOptions, type TenantOption } from '@/api/tenant'
@@ -331,6 +345,7 @@ import { useAppStore } from '@/stores/app'
 import { translateTitle } from '@/locales/title'
 import { useMenuStore } from '@/stores/menu'
 import { useNoticeStore } from '@/stores/notice'
+import { useExportTaskStore } from '@/stores/exportTask'
 import { HOME_PATH, useWorktabStore } from '@/stores/worktab'
 import { useUserStore } from '@/stores/user'
 import { sanitizeHtml } from '@/utils/richText'
@@ -345,6 +360,7 @@ const router = useRouter()
 const appStore = useAppStore()
 const menuStore = useMenuStore()
 const noticeStore = useNoticeStore()
+const exportTaskStore = useExportTaskStore()
 const worktab = useWorktabStore()
 const userStore = useUserStore()
 
@@ -475,6 +491,7 @@ function onHotkey(event: KeyboardEvent): void {
 onMounted(() => {
   window.addEventListener('keydown', onHotkey)
   void noticeStore.refreshUnread()
+  void exportTaskStore.load({ silent: true })
   void loadTenantChoices()
 })
 
@@ -660,6 +677,7 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   }
   await userStore.logout()
   noticeStore.reset()
+  exportTaskStore.reset()
   resetAfterLogout()
   router.push('/login')
 }

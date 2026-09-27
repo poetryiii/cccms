@@ -45,6 +45,7 @@ import dashboard from './dashboard'
 import notice from './notice'
 import richEditor from './richEditor'
 import tenant from './tenant'
+import exportTask from './export'
 
 export default {
   common,
@@ -73,4 +74,5 @@ export default {
   notice,
   richEditor,
   tenant,
+  export: exportTask,
 }

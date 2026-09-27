@@ -17,11 +17,16 @@ return static function (): void {
     suite('异步导出任务（P2-7）');
 
     $cleanup = static function (): void {
-        Db::name('export_task')->where('type', 'log')->where('user_id', 99999)->delete();
-        // 兜底清理测试产生的归档文件
-        foreach (glob(base_path() . '/runtime/exports/*.csv') ?: [] as $file) {
-            @unlink($file);
+        // 只清理**本测试**（user_id=99999）的任务与归档文件，绝不触碰其它用户 / 真实数据。
+        // 曾用 `glob(runtime/exports/*.csv)` 兜底清文件，会把真实用户刚导出的文件一起删掉
+        // （下载因此报「已过期」），所以这里改为按测试任务自己的 file_path 精确删除。
+        $rows = Db::name('export_task')->where('user_id', 99999)->select()->toArray();
+        foreach ($rows as $row) {
+            if (($row['file_path'] ?? '') !== '') {
+                @unlink(base_path() . '/runtime/' . $row['file_path']);
+            }
         }
+        Db::name('export_task')->where('user_id', 99999)->delete();
     };
 
     test('落任务 → 消费 → 生成归档文件 → 可列出', function () use ($cleanup): void {
@@ -71,15 +76,32 @@ return static function (): void {
         }
     }, true);
 
-    test('未完成任务不可下载', function () use ($cleanup): void {
+    test('处理中的任务不可下载（待处理会同步补生成，只有处理中/失败才拒绝）', function () use ($cleanup): void {
         try {
             $taskId = ExportTask::create('log', [], 99999);
+            // 手动置为「处理中」：下载时不会被同步补生成（只对 pending 兜底），应拒绝
+            Db::name('export_task')->where('id', $taskId)->update(['status' => ExportTask::STATUS_RUNNING]);
             try {
                 ExportTask::download($taskId, 99999);
-                fail('未完成任务下载应抛异常，但没有抛');
+                fail('处理中任务下载应抛异常，但没有抛');
             } catch (ApiException $e) {
-                contains('未完成', $e->getMessage(), '未完成下载应提示稍后');
+                contains('未完成', $e->getMessage(), '处理中下载应提示稍后');
             }
+        } finally {
+            $cleanup();
+        }
+    }, true);
+
+    test('待处理任务下载时同步补生成（Windows 无定时进程的兜底）', function () use ($cleanup): void {
+        try {
+            $taskId = ExportTask::create('log', [], 99999);
+            // 不经过 consume()，直接下载：应触发同步生成并返回文件
+            $response = ExportTask::download($taskId, 99999);
+            ok($response instanceof Response, '待处理任务下载应同步生成并返回文件');
+
+            $after = Db::name('export_task')->where('id', $taskId)->find();
+            same(ExportTask::STATUS_DONE, (int)$after['status'], '下载后任务应转为完成');
+            ok(is_file(base_path() . '/runtime/' . $after['file_path']), '文件应已生成');
         } finally {
             $cleanup();
         }

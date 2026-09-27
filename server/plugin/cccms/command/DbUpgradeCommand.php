@@ -321,6 +321,28 @@ SQL,
         ],
     ];
 
+    /**
+     * 内置定时任务（老库补插）：target => [名称, 表达式, 状态, 分组, 说明]。
+     *
+     * 新装环境由 db/seed.sql 建好；已建好的库不会重跑 seed，缺行则这些内置任务
+     * 永远不会被调度（尤其 `ExportTaskConsumer`，缺了它导出就永远停在「待处理」）。
+     * 按 `target` 幂等补插，已存在（哪怕被改名/停用/软删）则跳过，不覆盖管理员配置。
+     */
+    private const BUILTIN_TASKS = [
+        'plugin\\cccms\\command\\task\\LogCleanTask'       => [
+            '清理历史日志', '0 0 3 * * *', 1, '系统', '每天 03:00 清理 keep_days 之前的历史日志',
+        ],
+        'plugin\\cccms\\command\\task\\LogArchiveTask'     => [
+            '日志归档到对象存储', '0 0 4 * * *', 0, '系统', '每天 04:00 归档历史日志到对象存储（默认停用）',
+        ],
+        'plugin\\cccms\\command\\task\\ChunkCleanTask'     => [
+            '清理分片上传临时文件', '0 30 * * * *', 1, '系统', '每小时 30 分清理 24 小时未完成的分片上传临时目录',
+        ],
+        'plugin\\cccms\\command\\task\\ExportTaskConsumer' => [
+            '消费异步导出任务', '*/10 * * * * *', 1, '系统', '每 10 秒生成待处理的导出归档文件，并清理过期导出',
+        ],
+    ];
+
     /** 新增列：表名(不含前缀) => [列名 => 列定义] */
     private const COLUMNS = [
         'dict_type' => [
@@ -636,6 +658,25 @@ SQL,
                 if ($added > 0) {
                     $output->writeln("  <info>新增配置</info> {$name}（{$title}）");
                 }
+            }
+        }
+
+        // 补插内置定时任务：老库不会重跑 seed.sql，缺行则这些任务永远不会被调度。
+        // 按 target 幂等（含软删行），已存在则跳过，不覆盖管理员改过的名称 / 状态 / 表达式。
+        $crontabTable = $prefix . 'crontab';
+        if ($this->exists($crontabTable)) {
+            foreach (self::BUILTIN_TASKS as $target => [$name, $expression, $status, $group, $remark]) {
+                $hit = Db::query("SELECT 1 FROM `{$crontabTable}` WHERE `target` = ? LIMIT 1", [$target]);
+                if ($hit) {
+                    continue;
+                }
+                Db::execute(
+                    "INSERT INTO `{$crontabTable}`
+                     (`name`, `group_name`, `expression`, `target`, `params`, `status`, `overlap`, `timeout`, `retry_times`, `retry_interval`, `remark`, `create_time`, `update_time`)
+                     VALUES (?, ?, ?, ?, NULL, ?, 'skip', 600, 1, 300, ?, NOW(), NOW())",
+                    [$name, $group, $expression, $target, $status, $remark]
+                );
+                $output->writeln("  <info>新增定时任务</info> {$name}（{$target}）");
             }
         }
 

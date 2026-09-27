@@ -14,7 +14,6 @@ use plugin\cccms\support\I18n;
 use plugin\cccms\support\LogChain;
 use support\Log;
 use Throwable;
-use Webman\Http\Response;
 
 /**
  * 日志逻辑：操作日志与登录日志统一存 `sys_log`，登录记录固定 `path=/auth/login`
@@ -28,9 +27,6 @@ use Webman\Http\Response;
  */
 final class LogLogic
 {
-    /** 导出上限：避免一次导出把内存打满 */
-    private const EXPORT_LIMIT = 10000;
-
     /**
      * 登录记录的固定路径。
      *
@@ -100,25 +96,17 @@ final class LogLogic
     /**
      * 导出 CSV（按当前筛选与数据范围）。
      *
-     * 小数据量（<= `EXPORT_LIMIT`）**同步**返回文件流，保持既有体验；
-     * 超过阈值则**转异步任务**：只落一条 `sys_export_task` 就返回，实际生成由
-     * `ExportTaskConsumer` 定时任务消费（不阻塞在线请求），前端轮询任务状态后下载归档文件。
+     * **一律异步**：不区分数据量，只落一条 `sys_export_task` 就返回，实际生成由
+     * `ExportTaskConsumer` 定时任务消费（不阻塞在线请求）。前端在**全局**「导出任务」面板
+     * 里查看状态并下载归档文件 —— 同步下载的体验差异由「小数据量秒级完成」抵消。
      *
-     * @return Response|array{async:true,task_id:int,total:int}
+     * @return array{async:true,task_id:int,total:int}
      */
-    public static function export(array $params, int $userId): Response|array
+    public static function export(array $params, int $userId): array
     {
         $total = (int)self::filtered($params)->count();
 
-        if ($total > self::EXPORT_LIMIT) {
-            $taskId = ExportTask::create('log', $params, $userId);
-
-            return ['async' => true, 'task_id' => $taskId, 'total' => $total];
-        }
-
-        $rows = self::filtered($params)->order('id', 'desc')->limit(self::EXPORT_LIMIT)->select()->toArray();
-
-        return Csv::download('操作日志', self::columns(), array_map(self::formatRow(...), $rows));
+        return ['async' => true, 'task_id' => ExportTask::create('log', $params, $userId), 'total' => $total];
     }
 
     /**

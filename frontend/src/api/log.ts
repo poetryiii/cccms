@@ -1,4 +1,4 @@
-import { downloadFileWithAsync, http } from './request'
+import { http } from './request'
 import type { PageResult } from './types'
 
 export interface LogRow {
@@ -27,9 +27,9 @@ export function logList(params: Record<string, unknown>) {
   return http.get<PageResult<LogRow>>('/log', params)
 }
 
-/** 导出 CSV（按当前筛选与数据范围；超阈值转异步，返回 {async, task_id}） */
+/** 导出 CSV（按当前筛选与数据范围；一律异步，结果到全局「导出任务」面板下载） */
 export function logExport(params: Record<string, unknown>) {
-  return downloadFileWithAsync('/log/export', params, '操作日志.csv')
+  return http.get<{ async: true; task_id: number; total: number }>('/log/export', params)
 }
 
 export function logDelete(ids: number[]) {

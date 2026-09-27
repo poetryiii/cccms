@@ -37,7 +37,6 @@
 
       <template #toolbar-right>
         <el-button v-auth="'cccms:log:export'" :icon="Download" @click="onExport"> {{ t('common.export') }} </el-button>
-        <el-button :icon="List" @click="openTasks">{{ t('log.exportTasks') }}</el-button>
       </template>
 
       <!-- 结果：成功 / 失败 -->
@@ -237,36 +236,6 @@
         </el-timeline>
       </template>
     </el-drawer>
-
-    <!-- 导出任务中心：超阈值导出转后台生成，这里看状态并下载 -->
-    <el-drawer v-model="taskVisible" :title="t('log.exportTasks')" size="520px">
-      <el-button size="small" :icon="Refresh" :loading="taskLoading" @click="loadTasks">
-        {{ t('log.analysisRefresh') }}
-      </el-button>
-
-      <el-empty v-if="tasks.length === 0 && !taskLoading" :description="t('log.taskEmpty')" :image-size="80" />
-      <el-table v-else :data="tasks" size="small" class="task-table">
-        <el-table-column :label="t('log.taskRows')" width="90" align="right">
-          <template #default="{ row }">{{ row.total_rows }}</template>
-        </el-table-column>
-        <el-table-column :label="t('log.taskTime')" min-width="150">
-          <template #default="{ row }">{{ row.create_time }}</template>
-        </el-table-column>
-        <el-table-column :label="t('log.taskStatusLabel')" width="90" align="center">
-          <template #default="{ row }">
-            <el-tag :type="taskStatusTag(row.status)" size="small">{{ taskStatusText(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('table.action')" width="90" align="center">
-          <template #default="{ row }">
-            <el-button v-if="row.status === 2" link type="primary" :icon="Download" @click="downloadTask(row)">
-              {{ t('common.export') }}
-            </el-button>
-            <span v-else-if="row.status === 3" class="task-error" :title="row.error">{{ row.error }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-drawer>
   </div>
 </template>
 
@@ -277,7 +246,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Download, List, Refresh } from '@element-plus/icons-vue'
+import { Delete, Download, Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
@@ -287,7 +256,7 @@ import { useTable } from '@/composables/useTable'
 import { useSettingStore } from '@/stores/setting'
 import { useUserStore } from '@/stores/user'
 import { logDelete, logExport, logList, logLoginAnalysis, logTrace, type LogRow, type LogTrace } from '@/api/log'
-import { exportTaskDownload, exportTaskList, type ExportTaskRow } from '@/api/export'
+import { useExportTaskStore } from '@/stores/exportTask'
 import type { ArtTableColumn } from '@/types/table'
 
 // 按需引入：与工作台同一取舍（只用到折线图，不必整包）
@@ -383,6 +352,7 @@ let trendChart: echarts.ECharts | null = null
 
 const setting = useSettingStore()
 const userStore = useUserStore()
+const exportTaskStore = useExportTaskStore()
 /** 没有分析权限时不渲染入口，避免「点进去 403」 */
 const canAnalyse = computed(() => userStore.hasAuth('cccms:log:analysis'))
 
@@ -531,58 +501,9 @@ onBeforeUnmount(() => {
 
 async function onExport(): Promise<void> {
   const result = await logExport({ ...query })
-  // 超阈值：后端已转后台任务，打开任务中心看进度
-  if (result?.async) {
-    ElMessage.info(t('log.exportQueued', { total: result.total }))
-    await openTasks()
-  }
-}
-
-/* ---- 导出任务中心 ---- */
-const taskVisible = ref(false)
-const taskLoading = ref(false)
-const tasks = ref<ExportTaskRow[]>([])
-
-async function loadTasks(): Promise<void> {
-  taskLoading.value = true
-  try {
-    tasks.value = await exportTaskList()
-  } finally {
-    taskLoading.value = false
-  }
-}
-
-async function openTasks(): Promise<void> {
-  taskVisible.value = true
-  await loadTasks()
-}
-
-function taskStatusText(status: number): string {
-  const map: Record<number, string> = {
-    0: t('log.taskStatusPending'),
-    1: t('log.taskStatusRunning'),
-    2: t('log.taskStatusDone'),
-    3: t('log.taskStatusFailed'),
-    4: t('log.taskStatusExpired'),
-  }
-
-  return map[status] ?? String(status)
-}
-
-function taskStatusTag(status: number): 'info' | 'warning' | 'success' | 'danger' {
-  const map: Record<number, 'info' | 'warning' | 'success' | 'danger'> = {
-    0: 'info',
-    1: 'warning',
-    2: 'success',
-    3: 'danger',
-    4: 'info',
-  }
-
-  return map[status] ?? 'info'
-}
-
-function downloadTask(row: ExportTaskRow): void {
-  void exportTaskDownload(row.id)
+  // 一律异步：提示排队后打开全局「导出任务」面板看进度
+  ElMessage.success(t('log.exportQueued', { total: result.total }))
+  exportTaskStore.open()
 }
 
 /* ---- 详情 ---- */

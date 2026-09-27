@@ -20,14 +20,11 @@ class LogController extends BaseController
         return $this->ok(LogLogic::paginate($request->get()));
     }
 
-    /** 导出 CSV（按当前筛选与数据范围；超阈值转异步任务） */
+    /** 导出 CSV（按当前筛选与数据范围；一律异步，结果到「导出任务」面板下载） */
     #[Permission(slug: 'cccms:log:export', title: '导出操作日志')]
     public function export(Request $request): Response
     {
-        $result = LogLogic::export($request->get(), $request->user->id);
-
-        // 小数据量同步返回文件流；超阈值返回 {async, task_id} 交给前端轮询任务中心
-        return $result instanceof Response ? $result : $this->ok($result);
+        return $this->ok(LogLogic::export($request->get(), $request->user->id));
     }
 
     /** 按 trace_id 聚合一次请求的全部日志（链路视图） */

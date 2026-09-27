@@ -70,16 +70,6 @@ export default {
   analysisNoChange: 'No IP change detected',
   analysisHint: 'Data is limited by data scope: only login records you may view are counted.',
 
-  /* ---- export task center ---- */
-  exportTasks: 'Export tasks',
-  exportQueued: '{total} rows exceed the threshold; exported in the background. Check "Export tasks" shortly',
-  taskEmpty: 'No export tasks yet',
-  taskRows: 'Rows',
-  taskTime: 'Created at',
-  taskStatusLabel: 'Status',
-  taskStatusPending: 'Pending',
-  taskStatusRunning: 'Running',
-  taskStatusDone: 'Done',
-  taskStatusFailed: 'Failed',
-  taskStatusExpired: 'Expired',
+  /* ---- export (global export task center) ---- */
+  exportQueued: 'Queued for export ({total} rows). Check progress in the top-right "Export tasks"',
 }
