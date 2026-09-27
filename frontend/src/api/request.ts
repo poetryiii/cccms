@@ -156,4 +156,46 @@ export async function downloadFile(
   URL.revokeObjectURL(objectUrl)
 }
 
+/** 异步导出排队：后端超阈值时不返回文件流，而是 `{async:true, task_id, total}` */
+export interface AsyncExportResult {
+  async: true
+  task_id: number
+  total: number
+}
+
+/**
+ * 下载后端文件，但**能识别「异步导出」**：
+ * 后端返回 JSON（Content-Type 为 application/json）时，说明导出转后台任务了，
+ * 解析并返回 `{async, task_id, total}`，不触发浏览器下载；
+ * 否则按普通文件下载并返回 null。
+ */
+export async function downloadFileWithAsync(
+  url: string,
+  params?: Record<string, unknown>,
+  fallbackName = 'export.csv',
+): Promise<AsyncExportResult | null> {
+  const response = (await instance.get(url, { params, responseType: 'blob' })) as unknown as AxiosResponse<Blob>
+  const contentType = String(response.headers['content-type'] ?? '')
+
+  if (contentType.includes('application/json')) {
+    const body = JSON.parse(await response.data.text()) as ApiEnvelope<AsyncExportResult>
+    if (body?.data?.async) {
+      return body.data
+    }
+    throw new Error(body?.message || '导出失败')
+  }
+
+  const name = filenameFromDisposition(String(response.headers['content-disposition'] ?? '')) || fallbackName
+  const objectUrl = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+
+  return null
+}
+
 export default instance

@@ -1,0 +1,30 @@
+# 换行符统一为 LF（仓库存储与工作区一致）。
+#
+# 为什么需要它：本仓库内部存的就是 LF，但 Windows 开发机一旦开着
+# `core.autocrlf=true`，工作区会被检出成 CRLF —— 于是同一个文件在本地与 CI（Linux）
+# 的字节内容不同，`composer cs:check`（php-cs-fixer 的 @PSR12 含 `line_ending`）
+# 在本地会把**每个文件**都判成「需要格式化」，CI 却通过，属于假信号。
+# 这里显式定死 `eol=lf`：它的优先级高于 `core.autocrlf`，所有平台检出结果一致。
+* text=auto eol=lf
+
+# Windows 批处理必须保留 CRLF，否则 cmd 解析会出问题
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二进制文件：禁止任何换行符转换（否则会损坏文件）
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.zip  binary
+*.gz   binary
+*.phar binary
+
+# 生成物 / 锁文件不参与语言统计
+composer.lock   linguist-generated
+package-lock.json linguist-generated

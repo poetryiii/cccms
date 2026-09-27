@@ -23,6 +23,14 @@ use plugin\cccms\support\PermissionCache;
  */
 final class RoleLogic
 {
+    /**
+     * 可写字段白名单（防 Mass Assignment）。
+     *
+     * `nodes` 不是表列，是前端勾选的权限节点数组，由 `pullNodes()` 摘出来单独授权。
+     * 刻意不含 `id` / `tenant_id` / `create_time` / `delete_time`。
+     */
+    private const FIELDS = ['name', 'code', 'data_scope', 'parent_id', 'sort', 'status', 'remark', 'nodes'];
+
     public static function paginate(array $params): array
     {
         // trashed=1 → 回收站视图（只看已删除）；软删除过滤由模型层承担
@@ -89,6 +97,8 @@ final class RoleLogic
 
     public static function create(array $data): int
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         self::assertUniqueCode((string)($data['code'] ?? ''), 0);
 
         $nodes = self::pullNodes($data);
@@ -104,6 +114,8 @@ final class RoleLogic
 
     public static function update(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         $role = self::assertExists($id);
         if ($role['code'] === 'super_admin') {
             // 超管角色保护：code 不可改

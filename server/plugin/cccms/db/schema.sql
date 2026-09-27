@@ -350,6 +350,9 @@ CREATE TABLE IF NOT EXISTS `sys_log` (
   `result`      text         COMMENT '执行结果',
   `status_code` int          NOT NULL DEFAULT 200,
   `cost`        int          NOT NULL DEFAULT 0 COMMENT '耗时(ms)',
+  -- 链式哈希（防篡改）：空串 = 未纳入链（本能力上线前的历史行，或被降级写入的行）
+  `prev_hash`   char(64)     NOT NULL DEFAULT '' COMMENT '上一条记录的 row_hash',
+  `row_hash`    char(64)     NOT NULL DEFAULT '' COMMENT '本行内容哈希 sha256(prev_hash + 规范化的行内容)',
   `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_user` (`user_id`),
@@ -357,6 +360,23 @@ CREATE TABLE IF NOT EXISTS `sys_log` (
   KEY `idx_node` (`node`),
   KEY `idx_trace_id` (`trace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='日志(操作 + 登录；登录记录 path=/auth/login)';
+
+-- ---------------------------------------------------------------------
+-- 审计链状态（**单行表**，id 固定为 1）
+--
+-- 只靠「查 sys_log 的最大 id」无法发现**尾行被删**，而删尾正是最常见的掩盖手段，
+-- 因此链尾单独落一行；`anchor_id` 是校验起点：归档 / 清理 / 管理员删除都会
+-- 把链的**头部**拿掉，那是合法操作，不能与篡改混为一谈。
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `sys_log_chain` (
+  `id`          tinyint unsigned NOT NULL COMMENT '固定为 1（单行表）',
+  `tail_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '链尾记录 id',
+  `tail_hash`   char(64)  NOT NULL DEFAULT '' COMMENT '链尾行哈希',
+  `anchor_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '校验起点 id（更早的行已归档或清理）',
+  `anchor_hash` char(64)  NOT NULL DEFAULT '' COMMENT '校验起点行哈希',
+  `update_time` datetime  DEFAULT NULL COMMENT '最后一次推进链的时间',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计链状态';
 
 -- ---------------------------------------------------------------------
 -- 附件
@@ -448,6 +468,26 @@ CREATE TABLE IF NOT EXISTS `sys_crontab_retry` (
   KEY `idx_due` (`retry_at`),
   KEY `idx_crontab` (`crontab_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务独立重试队列';
+
+-- ---------------------------------------------------------------------
+-- 异步导出任务（超阈值导出转后台消费；不参与数据权限，按 user_id 归属）
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `sys_export_task` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `type`        varchar(32)  NOT NULL DEFAULT '' COMMENT '导出类型 log/user/data_rule',
+  `user_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '创建人',
+  `params`      text         COMMENT '导出参数 JSON',
+  `status`      tinyint      NOT NULL DEFAULT 0 COMMENT '0待处理 1处理中 2完成 3失败 4已过期',
+  `total_rows`  int          NOT NULL DEFAULT 0 COMMENT '导出行数',
+  `file_path`   varchar(255) NOT NULL DEFAULT '' COMMENT '归档文件路径（相对 runtime）',
+  `file_name`   varchar(128) NOT NULL DEFAULT '' COMMENT '下载文件名',
+  `error`       varchar(255) NOT NULL DEFAULT '' COMMENT '失败原因',
+  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_status` (`user_id`, `status`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='异步导出任务';
 
 -- ---------------------------------------------------------------------
 -- 通知公告（广播给所有登录用户；已读状态记录在 sys_notice_read）

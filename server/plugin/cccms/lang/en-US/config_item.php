@@ -67,6 +67,7 @@ return [
     'sms.sign_name'   => 'SMS signature',
 
     'upload.max_size'       => 'Max file size',
+    'upload.chunk_max_size' => 'Chunked upload limit',
     'upload.ext_allow'      => 'Allowed extensions',
     'upload.image_ext'      => 'Image extensions',
     'upload.storage_driver' => 'Storage driver',
@@ -93,6 +94,7 @@ return [
     'log.auto_clean'     => 'Auto clean logs',
     'log.record_read'    => 'Log read operations',
     'log.slow_threshold' => 'Slow request threshold',
+    'export.keep_minutes' => 'Export file retention (minutes)',
 
     // ---- group labels ----
     'group.系统' => 'System',

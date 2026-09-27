@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\Dept;
 use plugin\cccms\app\model\UserDept;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 
 /**
@@ -20,6 +21,13 @@ use plugin\cccms\support\I18n;
  */
 final class DeptLogic
 {
+    /**
+     * 可写字段白名单（防 Mass Assignment）。
+     *
+     * 刻意不含 `id` / `tenant_id` / `create_time` / `delete_time`。
+     */
+    private const FIELDS = ['parent_id', 'name', 'leader', 'phone', 'email', 'sort', 'status'];
+
     /**
      * 部门树（按当前用户的数据范围）。
      *
@@ -59,12 +67,16 @@ final class DeptLogic
 
     public static function create(array $data): int
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         // 新增还没有归属，插入语句不需要数据权限条件
         return (int)Dept::withoutGlobalScope()->insertGetId($data);
     }
 
     public static function update(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         self::assertInScope($id);
 
         Dept::newScopedQuery()->where('id', $id)->update($data);

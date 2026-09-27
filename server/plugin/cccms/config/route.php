@@ -2,18 +2,20 @@
 
 use plugin\cccms\app\controller\AuthController;
 use plugin\cccms\app\controller\ConfigController;
-use plugin\cccms\app\controller\DashboardController;
 use plugin\cccms\app\controller\CrontabController;
+use plugin\cccms\app\controller\DashboardController;
 use plugin\cccms\app\controller\DataRuleController;
 use plugin\cccms\app\controller\DataScopeTableController;
 use plugin\cccms\app\controller\DeptController;
 use plugin\cccms\app\controller\DictController;
+use plugin\cccms\app\controller\ExportController;
 use plugin\cccms\app\controller\FileController;
 use plugin\cccms\app\controller\GeneratorController;
 use plugin\cccms\app\controller\LogController;
 use plugin\cccms\app\controller\MaintenanceController;
 use plugin\cccms\app\controller\MenuController;
 use plugin\cccms\app\controller\NoticeController;
+use plugin\cccms\app\controller\ObservabilityController;
 use plugin\cccms\app\controller\OnlineController;
 use plugin\cccms\app\controller\PostController;
 use plugin\cccms\app\controller\ProfileController;
@@ -29,6 +31,12 @@ Route::disableDefaultRoute();
 
 // ---- 认证 ----
 Route::get('/ping', [AuthController::class, 'ping']);
+
+// ---- 可观测性（均 #[NoLogin]，靠 security.metrics_allow_ips 白名单收敛，非白名单返回 404）----
+// /ping 是「存活探针」（不碰外部依赖），/healthz 是「就绪探针」（依赖故障 503）
+Route::get('/healthz', [ObservabilityController::class, 'healthz']);
+// /metrics 输出 Prometheus 文本格式，供抓取端拉取
+Route::get('/metrics', [ObservabilityController::class, 'metrics']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::get('/auth/captcha', [AuthController::class, 'captcha']);
 // 找回密码（匿名）：发送验证码 / 用验证码重置
@@ -152,7 +160,13 @@ Route::post('/recycle/delete', [RecycleController::class, 'delete']);
 // ---- 日志 ----
 Route::get('/log', [LogController::class, 'index']);
 Route::get('/log/export', [LogController::class, 'export']);
+// 导出任务中心（P2-7）：本人的异步导出任务列表 + 归档文件下载
+Route::get('/export/task/list', [ExportController::class, 'list']);
+Route::get('/export/task/download', [ExportController::class, 'download']);
+
 Route::get('/log/trace', [LogController::class, 'trace']);
+// 登录安全分析（失败趋势 / TOP 用户名 / TOP IP / 异地登录）
+Route::get('/log/login/analysis', [LogController::class, 'loginAnalysis']);
 Route::post('/log/delete', [LogController::class, 'delete']);
 
 // ---- 在线用户（Redis 会话索引 + 强制下线） ----
@@ -180,6 +194,10 @@ Route::post('/notice/markAllRead', [NoticeController::class, 'markAllRead']);
 // ---- 附件 ----
 Route::get('/file', [FileController::class, 'index']);
 Route::post('/file/upload', [FileController::class, 'upload']);
+// 分片上传（P2-9）：init（可秒传）→ chunk（可续传）→ complete（合并入库）
+Route::post('/file/upload/init', [FileController::class, 'uploadInit']);
+Route::post('/file/upload/chunk', [FileController::class, 'uploadChunk']);
+Route::post('/file/upload/complete', [FileController::class, 'uploadComplete']);
 Route::post('/file/delete', [FileController::class, 'delete']);
 Route::post('/file/move', [FileController::class, 'move']);
 // 附件分类

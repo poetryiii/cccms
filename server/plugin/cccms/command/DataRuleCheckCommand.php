@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace plugin\cccms\command;
 
-use plugin\cccms\app\model\DataRule;
 use plugin\cccms\support\RuleConflict;
 use plugin\cccms\support\SoftDelete;
 use Symfony\Component\Console\Attribute\AsCommand;

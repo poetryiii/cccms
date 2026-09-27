@@ -15,5 +15,7 @@ use Attribute;
 #[Attribute(Attribute::TARGET_METHOD)]
 final class NoAuth
 {
-    public function __construct(public readonly ?string $title = null) {}
+    public function __construct(public readonly ?string $title = null)
+    {
+    }
 }

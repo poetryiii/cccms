@@ -10,6 +10,7 @@ use plugin\cccms\app\model\User;
 use plugin\cccms\app\model\UserDept;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\PasswordPolicy;
@@ -56,7 +57,7 @@ final class ProfileLogic
 
     public static function update(UserContext $user, array $data): void
     {
-        $data = array_intersect_key($data, array_flip(self::FIELDS));
+        $data = FilterInput::only($data, self::FIELDS);
 
         if (array_key_exists('nickname', $data)) {
             $nickname = trim((string)$data['nickname']);

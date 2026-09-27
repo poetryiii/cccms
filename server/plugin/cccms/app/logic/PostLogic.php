@@ -17,6 +17,13 @@ use plugin\cccms\support\I18n;
  */
 final class PostLogic
 {
+    /**
+     * 可写字段白名单（防 Mass Assignment）。
+     *
+     * 刻意不含 `id` / `tenant_id` / `create_time` / `delete_time`。
+     */
+    private const FIELDS = ['code', 'name', 'sort', 'status'];
+
     public static function paginate(array $params): array
     {
         // trashed=1 → 回收站视图（只看已删除），与正常列表共用同一套列
@@ -39,12 +46,16 @@ final class PostLogic
 
     public static function create(array $data): int
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         // 新增还没有归属，插入语句不需要数据权限条件
         return (int)Post::withoutGlobalScope()->insertGetId($data);
     }
 
     public static function update(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         self::assertExists($id);
         Post::newScopedQuery()->where('id', $id)->update($data);
     }

@@ -39,6 +39,16 @@ services:
       # 运行时（日志 / pid）与本地附件持久化
       - runtime:/app/runtime
       - storage:/app/public/storage
+    # 与 MySQL / Redis 一样给出显式探活，`docker compose ps` 才能看到 webman 的 healthy 状态。
+    # 探的是 /healthz（逐项检查 MySQL / Redis / 磁盘 / 内存，故障返回 503），
+    # 与 Dockerfile 里的 HEALTHCHECK 同一口径；容器内来源是回环地址，
+    # 默认就在 security.metrics_allow_ips 白名单里（开箱可用）。
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O-', 'http://127.0.0.1:8787/healthz']
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
     depends_on:
       mysql:
         condition: service_healthy

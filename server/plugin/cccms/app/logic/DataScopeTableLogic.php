@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\DataRule;
 use plugin\cccms\app\model\DataScopeTable;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use think\facade\Db;
 
@@ -27,6 +28,14 @@ use think\facade\Db;
  */
 final class DataScopeTableLogic
 {
+    /**
+     * 可写字段白名单（防 Mass Assignment）。
+     *
+     * `table_name` 会被校验为「必须存在于当前库」，但仍走白名单，
+     * 避免客户端顺手塞 `id` / `tenant_id` / `create_time`。
+     */
+    private const FIELDS = ['table_name', 'label', 'status', 'remark'];
+
     /** 受控表列表 + 可添加的表（未登记的库表） */
     public static function index(): array
     {
@@ -74,6 +83,8 @@ final class DataScopeTableLogic
 
     public static function save(array $data): int
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         $table  = trim((string)($data['table_name'] ?? ''));
         $tables = self::dbTables();
 
@@ -99,6 +110,8 @@ final class DataScopeTableLogic
 
     public static function update(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         self::assertExists($id);
 
         $update = [];

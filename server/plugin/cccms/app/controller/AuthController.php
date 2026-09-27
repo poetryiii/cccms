@@ -11,6 +11,7 @@ use plugin\cccms\support\attribute\NoAuth;
 use plugin\cccms\support\attribute\NoLogin;
 use plugin\cccms\support\attribute\Restrict;
 use plugin\cccms\support\Captcha;
+use plugin\cccms\support\ClientIp;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PasswordReset;
 use plugin\cccms\support\SysConfig;
@@ -72,7 +73,7 @@ class AuthController extends BaseController
         PasswordReset::sendCode(
             (string)$request->post('account', ''),
             (string)$request->post('channel', ''),
-            (string)($request->getRealIp() ?: '')
+            ClientIp::resolve($request)
         );
 
         return $this->ok(null, I18n::t('auth.reset_code_sent'));

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\app\logic;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\TenantContext;
@@ -162,7 +163,7 @@ final class CategoryLogic
     /** @param array<string,mixed> $data */
     private static function pick(array $data): array
     {
-        return array_intersect_key($data, array_flip(self::FIELDS));
+        return FilterInput::only($data, self::FIELDS);
     }
 
     private static function assertExists(int $id): array

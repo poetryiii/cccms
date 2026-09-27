@@ -142,6 +142,21 @@ final class Csv
         return ['headers' => $headers, 'rows' => $rows];
     }
 
+    /**
+     * 流式写一行（含公式注入防护）。
+     *
+     * 给「异步导出逐行写文件」用：`encode()` / `download()` 需要一次性拿到全部行，
+     * 超大数据量下会占满内存；这里把「写一行」抽成公开方法，调用方按批次喂数据，
+     * 表头也经同一套 `safe()` 处理（普通表头不以危险字符开头，不会误伤）。
+     *
+     * @param resource           $handle
+     * @param array<int,mixed>   $cells
+     */
+    public static function writeRow($handle, array $cells): void
+    {
+        fputcsv($handle, array_map([self::class, 'safe'], array_values($cells)));
+    }
+
     /** 公式注入防护：危险前缀加单引号，Excel 会按纯文本处理 */
     private static function safe(mixed $value): string
     {

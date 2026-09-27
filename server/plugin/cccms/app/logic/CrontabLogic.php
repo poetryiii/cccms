@@ -226,14 +226,7 @@ final class CrontabLogic
      */
     private static function prepare(array $data): array
     {
-        $out = [];
-        foreach (self::FIELDS as $field) {
-            if (array_key_exists($field, $data)) {
-                $out[$field] = $data[$field];
-            }
-        }
-
-        return $out;
+        return FilterInput::only($data, self::FIELDS);
     }
 
     /** @return string */

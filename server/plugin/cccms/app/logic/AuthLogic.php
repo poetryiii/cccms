@@ -9,6 +9,7 @@ use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
 use plugin\cccms\support\Captcha;
 use plugin\cccms\support\Cipher;
+use plugin\cccms\support\ClientIp;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\LoginThrottle;
 use plugin\cccms\support\OnlineSession;
@@ -58,8 +59,10 @@ final class AuthLogic
             throw new ApiException(I18n::t('auth.missing_credentials'), 422);
         }
 
-        // 登录来源 IP：失败锁定与在线会话都要用，统一取一次
-        $ip = (string)(request()->getRealIp() ?: '');
+        // 登录来源 IP：失败锁定与在线会话都要用，统一取一次。
+        // 走 ClientIp（可信代理 + 取最右非可信 IP），不能用 request()->getRealIp() ——
+        // 反代部署下后者取 XFF 第一个值，攻击者可任意伪造以绕过 IP 维度限流（见 R-01）。
+        $ip = ClientIp::resolve(request());
 
         // ① 失败锁定：先判断，避免锁定期间仍可用于撞库。
         // 账号维度防定向爆破，IP 维度防分布式撞库（见 LoginThrottle 类注释）

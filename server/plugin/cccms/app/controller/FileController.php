@@ -8,8 +8,10 @@ use plugin\cccms\app\logic\CategoryLogic;
 use plugin\cccms\app\logic\FileLogic;
 use plugin\cccms\basic\BaseController;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\attribute\NoAuth;
 use plugin\cccms\support\attribute\Permission;
 use plugin\cccms\support\attribute\Restrict;
+use plugin\cccms\support\ChunkUpload;
 use plugin\cccms\support\I18n;
 use Webman\Http\Request;
 use Webman\Http\Response;
@@ -35,6 +37,45 @@ class FileController extends BaseController
             FileLogic::upload($file, $request->user->id, (int)$request->input('category_id', 0)),
             I18n::t('file.uploaded')
         );
+    }
+
+    /**
+     * 分片上传第一步：校验类型 / 大小 → 尝试秒传 → 建会话。
+     *
+     * 分片上传有独立权限节点 `cccms:file:upload:chunk`：它与单请求的 `cccms:file:upload`
+     * 是两个按钮节点，管理员可以只给「传大文件」的岗位开分片、不给普通岗位开。
+     * 后两步 `chunk` / `complete` 用 `#[NoAuth]`（登录即可）——它们没有独立的可授权语义，
+     * 会话只能由「通过了 `init` 校验的本人」创建，`ChunkUpload::load()` 还会校验归属，
+     * 因此没有节点也不会被越权调用。
+     */
+    #[Permission(slug: 'cccms:file:upload:chunk', title: '分片上传')]
+    #[Restrict(methods: ['POST'])]
+    public function uploadInit(Request $request): Response
+    {
+        return $this->ok(ChunkUpload::init($request->post(), $request->user->id));
+    }
+
+    /** 分片上传第二步：接收一片（幂等，可重传） */
+    #[NoAuth(title: '分片上传')]
+    #[Restrict(methods: ['POST'])]
+    public function uploadChunk(Request $request): Response
+    {
+        return $this->ok(ChunkUpload::receive(
+            (string)$request->post('upload_id', ''),
+            (int)$request->post('index', -1),
+            $request->file('chunk'),
+            $request->user->id
+        ));
+    }
+
+    /** 分片上传第三步：合并入库（校验片齐 / 大小 / 哈希） */
+    #[NoAuth(title: '分片上传')]
+    #[Restrict(methods: ['POST'])]
+    public function uploadComplete(Request $request): Response
+    {
+        $result = ChunkUpload::complete((string)$request->post('upload_id', ''), $request->user->id);
+
+        return $this->ok($result, I18n::t('file.uploaded'));
     }
 
     #[Permission(slug: 'cccms:file:delete', title: '删除附件')]

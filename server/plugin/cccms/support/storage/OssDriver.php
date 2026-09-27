@@ -21,9 +21,9 @@ final class OssDriver extends StorageDriver
     /** 需解密的字段（后台以 `enc:` + Cipher 密文存储） */
     private const SECRET_KEYS = ['access_key_secret'];
 
-    public function upload(UploadFile $file): array
+    public function upload(UploadFile $file, ?int $maxBytes = null): array
     {
-        [$ext, $size] = $this->validate($file);
+        [$ext, $size, $mime] = $this->validate($file, $maxBytes);
 
         $path = $this->objectName($ext);
         $local = (string)$file->getPathname();
@@ -31,7 +31,7 @@ final class OssDriver extends StorageDriver
 
         $this->client()->putObject($this->cfg('bucket'), $path, $local);
 
-        return $this->result($file, $path, $ext, $size, $hash);
+        return $this->result($file, $path, $ext, $size, $hash, $mime);
     }
 
     public function put(string $content, string $path): array

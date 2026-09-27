@@ -11,9 +11,9 @@ use Webman\Http\UploadFile;
 /** 本地驱动：落盘 public/storage，同域访问。 */
 final class LocalDriver extends StorageDriver
 {
-    public function upload(UploadFile $file): array
+    public function upload(UploadFile $file, ?int $maxBytes = null): array
     {
-        [$ext, $size] = $this->validate($file);
+        [$ext, $size, $mime] = $this->validate($file, $maxBytes);
 
         $path = $this->objectName($ext);
         $full = $this->root() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $path);
@@ -21,7 +21,7 @@ final class LocalDriver extends StorageDriver
         // move() 会自动创建目录
         $file->move($full);
 
-        return $this->result($file, $path, $ext, $size, sha1_file($full) ?: '');
+        return $this->result($file, $path, $ext, $size, sha1_file($full) ?: '', $mime);
     }
 
     public function put(string $content, string $path): array

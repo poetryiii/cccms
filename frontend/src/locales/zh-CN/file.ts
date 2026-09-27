@@ -63,5 +63,6 @@ export default {
   uploadTooLarge: '单个文件不能超过 10MB',
   uploadSuccess: '上传成功',
   uploadFailed: '上传失败',
+  uploadChunkNoPermission: '没有分片上传权限，请先为该账号授予「分片上传」节点',
   moveSuccess: '已移动 {count} 个附件',
 }

@@ -15,5 +15,7 @@ use Attribute;
 #[Attribute(Attribute::TARGET_CLASS | Attribute::TARGET_METHOD)]
 final class NoLogin
 {
-    public function __construct(public readonly ?string $title = null) {}
+    public function __construct(public readonly ?string $title = null)
+    {
+    }
 }

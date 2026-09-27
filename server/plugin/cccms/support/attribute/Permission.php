@@ -20,5 +20,6 @@ final class Permission
         public readonly string  $title,
         public readonly int     $sort  = 0,
         public readonly ?string $group = null,
-    ) {}
+    ) {
+    }
 }

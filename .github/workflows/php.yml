@@ -52,6 +52,9 @@ jobs:
       REDIS_PORT: 6379
       JWT_SECRET: ci-only-secret-0123456789abcdef0123456789abcdef
       DATA_ENCRYPT_KEY: ci-only-crypto-key
+      # 集成用例必须真跑：MySQL / Redis 没就绪时「跳过」会升级为「失败」，
+      # 避免安全链路（登录双维度锁定 / 租户边界）在 CI 里静默失去回归保护
+      CCCMS_TEST_REQUIRE_SERVICES: '1'
 
     defaults:
       run:
@@ -83,6 +86,19 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress --no-interaction
 
+      # 供应链审计：只审生产依赖（--no-dev）。有中高危漏洞即阻断合并。
+      - name: Audit dependencies
+        run: composer audit --no-dev
+
+      # 静态分析：level 5 + baseline（既有的框架魔术方法类报错已冻结，
+      # 新增代码引入的报错会直接失败）。不需要数据库，放在初始化库之前快速失败。
+      - name: Static analysis (PHPStan)
+        run: composer analyse
+
+      # 代码风格：@PSR12 基线，只校验 plugin/ 与 tests/（本仓库维护的代码）
+      - name: Check code style
+        run: composer cs:check
+
       - name: Initialize database
         run: |
           mysql -h 127.0.0.1 -uroot -p123456 cccms < plugin/cccms/db/schema.sql
@@ -102,6 +118,9 @@ jobs:
 
       - name: Check data rule conflicts
         run: php webman cccms:data-rule-check
+
+      - name: Check write-entry field whitelists
+        run: php webman cccms:write-guard-check
 
       - name: Unit tests
         run: composer test

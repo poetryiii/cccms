@@ -6,9 +6,12 @@ namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\OperationLog;
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\ClientIp;
 use plugin\cccms\support\Csv;
+use plugin\cccms\support\ExportTask;
 use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
+use plugin\cccms\support\LogChain;
 use support\Log;
 use Throwable;
 use Webman\Http\Response;
@@ -27,6 +30,14 @@ final class LogLogic
 {
     /** 导出上限：避免一次导出把内存打满 */
     private const EXPORT_LIMIT = 10000;
+
+    /**
+     * 登录记录的固定路径。
+     *
+     * 操作日志中间件**不记该路径**，登录记录由 `recordLogin()` 自己写，二者天然互斥；
+     * 因此「筛选登录记录」只需要按这一条 path 过滤，不需要再加类型列（`type` 列已下线）。
+     */
+    private const LOGIN_PATH = '/auth/login';
 
     /** 链路视图上限：一次请求正常只有个位数记录，给足余量即可 */
     private const TRACE_LIMIT = 200;
@@ -48,17 +59,20 @@ final class LogLogic
             $request = function_exists('request') ? request() : null;
 
             // 登录链路还没有用户上下文（登录接口是 #[NoLogin]），且登录日志必须**无条件**写入
-            // （含失败尝试）；这里显式跳出数据权限：既没有范围可算，也不允许字段级规则剔除字段。
-            OperationLog::withoutGlobalScope()->insert([
+            // （含失败尝试）。原本用 `OperationLog::withoutGlobalScope()->insert()` 跳出数据权限，
+            // 现在改走 `LogChain::write()`：它直接操作查询构造器，连模型层的作用域与字段规则
+            // 都不经过（对审计写入更安全），同时补上链式哈希 —— 否则登录日志会成为链上的空洞，
+            // 而"删掉/改掉登录失败记录"恰恰是最常见的掩盖手段。
+            LogChain::write([
                 'user_id'     => $userId,
                 'username'    => mb_substr($username, 0, 64),
                 'status'      => $success ? 1 : 0,
                 'message'     => mb_substr($message, 0, 255),
                 'method'      => 'POST',
-                'path'        => '/auth/login',
+                'path'        => self::LOGIN_PATH,
                 'title'       => '登录',
                 'status_code' => $success ? 200 : 400,
-                'ip'          => (string)($request?->getRealIp() ?: ''),
+                'ip'          => $request === null ? '' : ClientIp::resolve($request),
                 'ua'          => mb_substr((string)($request?->header('user-agent', '') ?? ''), 0, 255),
                 'create_time' => date('Y-m-d H:i:s'),
             ]);
@@ -83,12 +97,88 @@ final class LogLogic
         return ['total' => $total, 'list' => $list];
     }
 
-    /** 导出 CSV（按当前筛选与数据范围） */
-    public static function export(array $params): Response
+    /**
+     * 导出 CSV（按当前筛选与数据范围）。
+     *
+     * 小数据量（<= `EXPORT_LIMIT`）**同步**返回文件流，保持既有体验；
+     * 超过阈值则**转异步任务**：只落一条 `sys_export_task` 就返回，实际生成由
+     * `ExportTaskConsumer` 定时任务消费（不阻塞在线请求），前端轮询任务状态后下载归档文件。
+     *
+     * @return Response|array{async:true,task_id:int,total:int}
+     */
+    public static function export(array $params, int $userId): Response|array
     {
+        $total = (int)self::filtered($params)->count();
+
+        if ($total > self::EXPORT_LIMIT) {
+            $taskId = ExportTask::create('log', $params, $userId);
+
+            return ['async' => true, 'task_id' => $taskId, 'total' => $total];
+        }
+
         $rows = self::filtered($params)->order('id', 'desc')->limit(self::EXPORT_LIMIT)->select()->toArray();
 
-        $data = array_map(static fn (array $row): array => [
+        return Csv::download('操作日志', self::columns(), array_map(self::formatRow(...), $rows));
+    }
+
+    /**
+     * 流式把导出结果写进文件（异步任务用），返回总行数。
+     *
+     * 用「id 游标 + 每批 1000 行」的 keyset 分页而不是一次性 `select()->toArray()`：
+     * 10 万行的导出如果整体读进内存会撞 `memory_limit`，每批 1000 行内存恒定。
+     */
+    public static function exportToFile(string $target, array $params): int
+    {
+        $handle = fopen($target, 'wb');
+        if ($handle === false) {
+            throw new ApiException('无法创建导出文件', 500);
+        }
+
+        try {
+            // BOM + 表头（经同一套公式注入防护）
+            fwrite($handle, "\xEF\xBB\xBF");
+            Csv::writeRow($handle, self::columns());
+
+            $total  = 0;
+            $lastId = 0;
+            while (true) {
+                $batch = self::filtered($params)
+                    ->where('id', '>', $lastId)
+                    ->order('id', 'asc')
+                    ->limit(1000)
+                    ->select()->toArray();
+
+                if ($batch === []) {
+                    break;
+                }
+
+                foreach ($batch as $row) {
+                    Csv::writeRow($handle, self::formatRow($row));
+                    $total++;
+                }
+
+                $lastId = (int)end($batch)['id'];
+                if (count($batch) < 1000) {
+                    break;
+                }
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return $total;
+    }
+
+    /** 导出列头（同步 / 异步共用，避免两处漂移） */
+    private static function columns(): array
+    {
+        return ['ID', '账号', '操作', '结果', '说明', '方法', '路径', '节点', 'IP', '状态码', '耗时(ms)', '链路ID', '时间'];
+    }
+
+    /** 一行日志 → CSV 单元格（同步 / 异步共用） */
+    private static function formatRow(array $row): array
+    {
+        return [
             (string)($row['id'] ?? ''),
             (string)($row['username'] ?? ''),
             (string)($row['title'] ?? ''),
@@ -102,13 +192,7 @@ final class LogLogic
             (string)($row['cost'] ?? ''),
             (string)($row['trace_id'] ?? ''),
             (string)($row['create_time'] ?? ''),
-        ], $rows);
-
-        return Csv::download(
-            '操作日志',
-            ['ID', '账号', '操作', '结果', '说明', '方法', '路径', '节点', 'IP', '状态码', '耗时(ms)', '链路ID', '时间'],
-            $data
-        );
+        ];
     }
 
     /**
@@ -196,11 +280,280 @@ final class LogLogic
         return $query;
     }
 
+    // ------------------------------------------------------------------
+    // 登录安全分析（P2-13）
+    // ------------------------------------------------------------------
+
+    /** 登录分析默认回看天数 */
+    private const ANALYSIS_DAYS = 7;
+
+    /** 登录分析最多回看天数（再长意义不大，且趋势图会退化成一堆点） */
+    private const ANALYSIS_MAX_DAYS = 90;
+
+    /** 趋势的时间粒度切换点：窗口不超过该小时数按小时聚合，否则按天 */
+    private const HOURLY_LIMIT_HOURS = 48;
+
+    /** TOP 榜取前几名 */
+    private const TOP_LIMIT = 10;
+
+    /** 异地登录检测的样本上限（按最近 id 倒序取，避免把整段登录历史拉进内存） */
+    private const IP_CHANGE_SAMPLE = 5000;
+
+    /**
+     * 登录安全分析：撞库 / 爆破 / 异地登录的聚合视图。
+     *
+     * 数据源与列表页完全一致（`path = '/auth/login'`，`status` 1 成功 / 0 失败），
+     * 且走同一份 `newScopedQuery()` —— **数据范围对聚合同样生效**：
+     * 「仅本人」档的管理员只看得到自己的登录记录，不会从聚合视图里越权看到全站账号。
+     *
+     * @param  array<string,mixed> $params days / start / end
+     * @return array{
+     *   range:array{start:string,end:string,granularity:string},
+     *   summary:array{total:int,success:int,failed:int,fail_rate:float,users:int,ips:int},
+     *   trend:array<int,array{bucket:string,success:int,failed:int}>,
+     *   top_users:array<int,array{username:string,count:int}>,
+     *   top_ips:array<int,array{ip:string,count:int}>,
+     *   ip_changes:array<int,array{username:string,from_ip:string,to_ip:string,time:string}>
+     * }
+     */
+    public static function loginAnalysis(array $params = []): array
+    {
+        [$start, $end] = self::analysisRange($params);
+
+        $base = static fn () => OperationLog::newScopedQuery()
+            ->where('path', self::LOGIN_PATH)
+            ->where('create_time', '>=', $start)
+            ->where('create_time', '<=', $end);
+
+        // 汇总用**一条**聚合语句取全（原先 4 条 count 分开查）：
+        // 窗口内数据只扫一遍，且 `COUNT(DISTINCT ...)` 写在 field 里可以避开
+        // `distinct()` —— 那个方法只声明在 `think\db\Query`，不在基类 `BaseQuery` 上。
+        $agg = $base()
+            ->field(
+                'COUNT(*) AS total,'
+                . ' SUM(status = 0) AS failed,'
+                . ' COUNT(DISTINCT CASE WHEN status = 0 THEN username END) AS users,'
+                . " COUNT(DISTINCT CASE WHEN status = 0 AND ip <> '' THEN ip END) AS ips"
+            )
+            ->select()
+            ->toArray();
+
+        $total  = (int)($agg[0]['total'] ?? 0);
+        $failed = (int)($agg[0]['failed'] ?? 0);
+        $users  = (int)($agg[0]['users'] ?? 0);
+        $ips    = (int)($agg[0]['ips'] ?? 0);
+
+        return [
+            'range' => [
+                'start'       => $start,
+                'end'         => $end,
+                'granularity' => self::granularity($start, $end),
+            ],
+            'summary' => [
+                'total'     => $total,
+                'success'   => $total - $failed,
+                'failed'    => $failed,
+                'fail_rate' => $total > 0 ? round($failed / $total * 100, 2) : 0.0,
+                'users'     => $users,
+                'ips'       => $ips,
+            ],
+            'trend'      => self::loginTrend($start, $end),
+            'top_users'  => self::loginTop($base(), 'username'),
+            'top_ips'    => self::loginTop($base(), 'ip'),
+            'ip_changes' => self::ipChanges($start, $end),
+        ];
+    }
+
+    /**
+     * 统计窗口：默认回看 `ANALYSIS_DAYS` 天，可用 `days` 覆盖，也可用 `start` / `end` 精确指定。
+     *
+     * @param  array<string,mixed> $params
+     * @return array{0:string,1:string}
+     */
+    private static function analysisRange(array $params): array
+    {
+        [$start, $end] = FilterInput::range($params['start'] ?? null, $params['end'] ?? null);
+
+        if ($start === '' && $end === '') {
+            $days  = (int)($params['days'] ?? self::ANALYSIS_DAYS);
+            $days  = max(1, min(self::ANALYSIS_MAX_DAYS, $days));
+            $start = date('Y-m-d H:i:s', strtotime("-{$days} days"));
+        }
+        if ($start === '') {
+            $start = date('Y-m-d H:i:s', strtotime((string)$end . ' -' . self::ANALYSIS_DAYS . ' days'));
+        }
+        if ($end === '') {
+            $end = date('Y-m-d H:i:s');
+        }
+
+        return [$start, $end];
+    }
+
+    /** 按小时或按天聚合（窗口 <= 48 小时用小时，否则用天） */
+    private static function granularity(string $start, string $end): string
+    {
+        $hours = (strtotime($end) - strtotime($start)) / 3600;
+
+        return $hours <= self::HOURLY_LIMIT_HOURS ? 'hour' : 'day';
+    }
+
+    /**
+     * 成功 / 失败趋势。
+     *
+     * 用 `DATE_FORMAT` 在库里分桶（而不是把整段日志拉进 PHP），并**补齐空桶**：
+     * 否则「某天没有任何登录」会在图上表现为直接跳过去，看不出异常。
+     *
+     * @return array<int,array{bucket:string,success:int,failed:int}>
+     */
+    private static function loginTrend(string $start, string $end): array
+    {
+        $granularity = self::granularity($start, $end);
+        $format      = $granularity === 'hour' ? '%Y-%m-%d %H:00' : '%Y-%m-%d';
+
+        // 运行期实例是 `think\db\Query`，但 `newScopedQuery()` 声明的返回类型是基类
+        // `BaseQuery`（只声明了公共子集）—— `group()` 只存在于具体类上，这里显式收窄，
+        // 而不是把共享方法的签名改宽。
+        /** @var \think\db\Query $trendQuery */
+        $trendQuery = OperationLog::newScopedQuery();
+
+        $rows = $trendQuery
+            ->where('path', self::LOGIN_PATH)
+            ->where('create_time', '>=', $start)
+            ->where('create_time', '<=', $end)
+            ->field("DATE_FORMAT(create_time, '{$format}') AS bucket, status, COUNT(*) AS num")
+            ->group('bucket, status')
+            ->select()
+            ->toArray();
+
+        $buckets = [];
+        foreach ($rows as $row) {
+            $bucket = (string)$row['bucket'];
+            if (!isset($buckets[$bucket])) {
+                $buckets[$bucket] = ['bucket' => $bucket, 'success' => 0, 'failed' => 0];
+            }
+            // status：1 成功 / 0 失败
+            if ((int)$row['status'] === 1) {
+                $buckets[$bucket]['success'] += (int)$row['num'];
+            } else {
+                $buckets[$bucket]['failed'] += (int)$row['num'];
+            }
+        }
+
+        // 补空桶：从窗口起点按粒度一路补到终点
+        $out    = [];
+        $cursor = strtotime($granularity === 'hour' ? date('Y-m-d H:00', strtotime($start)) : date('Y-m-d', strtotime($start)));
+        $last   = strtotime($end);
+        $step   = $granularity === 'hour' ? 3600 : 86400;
+        $guard  = 0;
+
+        while ($cursor <= $last && $guard < 4000) {
+            $key   = date($granularity === 'hour' ? 'Y-m-d H:00' : 'Y-m-d', $cursor);
+            $out[] = $buckets[$key] ?? ['bucket' => $key, 'success' => 0, 'failed' => 0];
+            $cursor += $step;
+            $guard++;
+        }
+
+        // 窗口外的桶（数据里存在但不在补齐区间内）也一并带上，避免丢数据
+        foreach ($buckets as $key => $row) {
+            if (!in_array($key, array_column($out, 'bucket'), true)) {
+                $out[] = $row;
+            }
+        }
+
+        usort($out, static fn (array $a, array $b): int => strcmp($a['bucket'], $b['bucket']));
+
+        return $out;
+    }
+
+    /**
+     * 失败 TOP N（用户名 / IP 共用）。
+     *
+     * @param  \think\db\BaseQuery $query 已限定 path 与窗口的查询
+     * @return array<int,array<string,mixed>>
+     */
+    private static function loginTop($query, string $field): array
+    {
+        // 收窄成具体类：`group()` 只声明在 `think\db\Query` 上（它继承 `BaseQuery`），
+        // 而 `newScopedQuery()` 声明的返回类型是基类。运行期实例就是 `Query`。
+        /** @var \think\db\Query $grouped */
+        $grouped = $query
+            ->where('status', 0)
+            ->where($field, '<>', '')
+            ->field("{$field} AS name, COUNT(*) AS num");
+
+        $rows = $grouped
+            ->group($field)
+            ->order('num', 'desc')
+            ->limit(self::TOP_LIMIT)
+            ->select()
+            ->toArray();
+
+        return array_map(
+            static fn (array $row): array => [
+                $field === 'ip' ? 'ip' : 'username' => (string)$row['name'],
+                'count'                            => (int)$row['num'],
+            ],
+            $rows
+        );
+    }
+
+    /**
+     * 异地登录：同一账号的两次**成功**登录之间 IP 发生了变化。
+     *
+     * 按 id 升序取样本后逐账号比较相邻两次的 IP（忽略空 IP）：只看「与上一次是否相同」，
+     * 因此一个账号来回切换网络会被记多次 —— 这正是想看到的信号，不做去重合并。
+     *
+     * @return array<int,array{username:string,from_ip:string,to_ip:string,time:string}>
+     */
+    private static function ipChanges(string $start, string $end): array
+    {
+        $rows = OperationLog::newScopedQuery()
+            ->where('path', self::LOGIN_PATH)
+            ->where('status', 1)
+            ->where('create_time', '>=', $start)
+            ->where('create_time', '<=', $end)
+            ->field('id, username, ip, create_time')
+            ->order('id', 'desc')
+            ->limit(self::IP_CHANGE_SAMPLE)
+            ->select()
+            ->toArray();
+
+        // 取样是「最近的 N 条」，比较必须按时间正序
+        usort($rows, static fn (array $a, array $b): int => (int)$a['id'] <=> (int)$b['id']);
+
+        $lastIp = [];
+        $out    = [];
+        foreach ($rows as $row) {
+            $username = (string)$row['username'];
+            $ip       = trim((string)$row['ip']);
+            if ($username === '' || $ip === '') {
+                continue;
+            }
+
+            if (isset($lastIp[$username]) && $lastIp[$username] !== $ip) {
+                $out[] = [
+                    'username' => $username,
+                    'from_ip'  => $lastIp[$username],
+                    'to_ip'    => $ip,
+                    'time'     => (string)$row['create_time'],
+                ];
+            }
+            $lastIp[$username] = $ip;
+        }
+
+        // 最新的变化排前面
+        return array_slice(array_reverse($out), 0, self::TOP_LIMIT);
+    }
+
     public static function delete(array $ids): void
     {
         if ($ids) {
             // 带作用域：只能删掉自己看得到的日志
             OperationLog::newScopedQuery()->whereIn('id', array_map('intval', $ids))->delete();
+            // 审计链是"只增"结构，删除必然打断链接。应用自己删的这类删除
+            // 由 reanchor() 把校验起点移到幸存的第一行，避免后续校验把它当成篡改；
+            // 链**中间**的删除仍会被 `cccms:log-verify` 作为断点报出（无法与篡改区分）。
+            LogChain::reanchor();
         }
     }
 
@@ -208,5 +561,6 @@ final class LogLogic
     {
         // 同理：清空的是「当前用户可见范围」内的日志，而不是全表
         OperationLog::newScopedQuery()->where('id', '>', 0)->delete();
+        LogChain::reanchor();
     }
 }

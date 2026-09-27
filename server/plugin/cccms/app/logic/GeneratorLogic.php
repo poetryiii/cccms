@@ -243,6 +243,40 @@ final class GeneratorLogic
         ];
     }
 
+    /**
+     * 生成「可写字段白名单」时要排除的系统维护列。
+     *
+     * 这些列要么由框架写入（`tenant_id` / `create_*`），要么由调度进程维护
+     * （`running*` / `retry*`），经接口改写会造成数据归属错乱或锁不释放。
+     */
+    private const SYSTEM_COLUMNS = [
+        'tenant_id', 'create_time', 'update_time', 'delete_time', 'create_by',
+        'login_time', 'login_ip', 'last_run_time', 'next_run_time',
+        'running', 'running_at', 'retry_left', 'retry_at', 'read_count',
+    ];
+
+    /**
+     * 由表结构推导可写字段（排除主键与系统维护列）。
+     *
+     * @param  array<string,mixed> $c
+     * @return string[]
+     */
+    private static function writableFields(array $c): array
+    {
+        $pk = (string)($c['pk'] ?? 'id');
+
+        $out = [];
+        foreach ((array)($c['columns'] ?? []) as $column) {
+            $name = (string)($column['name'] ?? '');
+            if ($name === '' || $name === $pk || in_array($name, self::SYSTEM_COLUMNS, true)) {
+                continue;
+            }
+            $out[] = $name;
+        }
+
+        return $out;
+    }
+
     /** @param array<string,mixed> $c */
     private static function hasColumn(array $c, string $name): bool
     {
@@ -312,6 +346,8 @@ final class GeneratorLogic
         $delete    = $soft
             ? "SoftDelete::remove({$M}::newScopedQuery(), \$id);"
             : "{$M}::newScopedQuery()->where('{$c['pk']}', \$id)->delete();";
+        // 可写字段白名单：排除主键与系统维护列，其余按表结构生成
+        $fields    = "['" . implode("', '", self::writableFields($c)) . "']";
 
         return <<<PHP
         <?php
@@ -322,6 +358,7 @@ final class GeneratorLogic
 
         use plugin\\{$f}\\app\\model\\{$M};
         {$softUse}use plugin\\cccms\\support\\ApiException;
+        use plugin\\cccms\\support\\FilterInput;
 
         /**
          * {$c['title']}逻辑（代码生成器生成，请按需补充业务规则）。
@@ -332,6 +369,15 @@ final class GeneratorLogic
          */
         final class {$M}Logic
         {
+            /**
+             * 可写字段白名单（防 Mass Assignment）。
+             *
+             * 由代码生成器按表结构生成：**已排除主键与系统维护列**
+             * （`tenant_id` / `create_time` / `update_time` / `delete_time` 等），
+             * 请按业务需要增删；`cccms:write-guard-check` 会校验写方法是否声明了它。
+             */
+            private const FIELDS = {$fields};
+
             public static function paginate(array \$params): array
             {
                 \$query = {$listQuery};
@@ -346,15 +392,16 @@ final class GeneratorLogic
 
             public static function create(array \$data): int
             {
-                unset(\$data['{$c['pk']}']);
+                \$data = FilterInput::only(\$data, self::FIELDS);
                 // 新增的数据还没有归属，插入语句不需要数据权限条件
                 return (int){$M}::withoutGlobalScope()->insertGetId(\$data);
             }
 
             public static function update(int \$id, array \$data): void
             {
+                \$data = FilterInput::only(\$data, self::FIELDS);
+
                 self::assertExists(\$id);
-                unset(\$data['{$c['pk']}']);
                 // 作用域随模型自动生效：改范围外的行时不会更新到任何数据
                 {$M}::newScopedQuery()->where('{$c['pk']}', \$id)->update(\$data);
             }
@@ -507,7 +554,7 @@ final class GeneratorLogic
                 $col['type'] === 'datetime' || $col['type'] === 'timestamp'
                     => "        <a-form-item field=\"{$name}\" label=\"{$label}\">\n          <a-date-picker v-model=\"form.{$name}\" show-time value-format=\"YYYY-MM-DD HH:mm:ss\" />\n        </a-form-item>\n",
                 default
-                    => "        <a-form-item field=\"{$name}\" label=\"{$label}\">\n          <a-input v-model=\"form.{$name}\" />\n        </a-form-item>\n",
+                => "        <a-form-item field=\"{$name}\" label=\"{$label}\">\n          <a-input v-model=\"form.{$name}\" />\n        </a-form-item>\n",
             };
         }
 

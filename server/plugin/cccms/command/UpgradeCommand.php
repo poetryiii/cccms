@@ -111,9 +111,9 @@ class UpgradeCommand extends Command
         }
 
         $output->writeln("上游文件 {$result['total']} 个，其中：");
-        $output->writeln("  本地已修改 <comment>" . count($result['modified']) . '</comment>');
-        $output->writeln("  本地已缺失 <comment>" . count($result['missing']) . '</comment>');
-        $output->writeln("  本地独有（新增）<comment>" . count($result['localOnly']) . '</comment>');
+        $output->writeln('  本地已修改 <comment>' . count($result['modified']) . '</comment>');
+        $output->writeln('  本地已缺失 <comment>' . count($result['missing']) . '</comment>');
+        $output->writeln('  本地独有（新增）<comment>' . count($result['localOnly']) . '</comment>');
 
         $this->printList($output, '本地相对基线改过的文件', $result['modified']);
         $this->printList($output, '本地新增的文件', $result['localOnly']);
@@ -275,7 +275,7 @@ class UpgradeCommand extends Command
 
         $lines = (array)($plan['lines'] ?? []);
         if (($lines['added'] ?? 0) > 0 || ($lines['deleted'] ?? 0) > 0) {
-            $output->writeln("上游改动：<info>+" . $lines['added'] . '</info> / <comment>-' . $lines['deleted'] . '</comment>');
+            $output->writeln('上游改动：<info>+' . $lines['added'] . '</info> / <comment>-' . $lines['deleted'] . '</comment>');
         }
 
         $summary = (array)$plan['summary'];

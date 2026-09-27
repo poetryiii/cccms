@@ -15,11 +15,13 @@ use Webman\Http\UploadFile;
 final class FileStorage
 {
     /**
+     * @param  int|null $maxBytes 本次允许的最大字节数；null = 用 `upload.max_size`
+     *                           （分片上传合并后的文件上限更高，由调用方显式传入）
      * @return array{path:string,name:string,original_name:string,url:string,size:int,mime:string,ext:string,hash:string}
      */
-    public static function upload(UploadFile $file): array
+    public static function upload(UploadFile $file, ?int $maxBytes = null): array
     {
-        return StorageManager::driver()->upload($file);
+        return StorageManager::driver()->upload($file, $maxBytes);
     }
 
     public static function delete(string $path): void

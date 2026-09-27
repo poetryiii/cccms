@@ -117,10 +117,18 @@ final class TenantContext
         return $data;
     }
 
-    /** 是否处于平台租户（无用户上下文时同样按平台处理，供只读展示使用） */
+    /**
+     * 是否处于平台租户（无用户上下文时同样按平台处理，供只读展示使用）。
+     *
+     * ⚠️ 无用户上下文（CLI / 登录链路 / 公共路由）时 `currentTenantId()` 返回 **null**，
+     * 而 `null === 0` 是 false —— 直接比较会把「平台上下文」误判成「非平台」。
+     * 这里显式把 null 归到平台，与本文档的契约一致。
+     */
     public static function isPlatform(): bool
     {
-        return self::currentTenantId() === self::PLATFORM_ID;
+        $tenantId = self::currentTenantId();
+
+        return $tenantId === null || $tenantId === self::PLATFORM_ID;
     }
 
     /**

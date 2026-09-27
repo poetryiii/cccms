@@ -67,13 +67,9 @@
         <template #toolbar>
           <el-upload
             v-auth="'cccms:file:upload'"
-            :action="uploadUrl"
-            :headers="uploadHeaders"
-            :data="uploadData"
             :show-file-list="false"
             :before-upload="onBeforeUpload"
-            :on-success="onUploadSuccess"
-            :on-error="onUploadError"
+            :http-request="onHttpRequest"
           >
             <el-button type="primary" :icon="Upload" :loading="uploading">{{ t('file.upload') }}</el-button>
           </el-upload>
@@ -205,7 +201,14 @@ defineOptions({ name: 'cccms:file' })
 
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadRawFile } from 'element-plus'
+import {
+  ElMessage,
+  ElMessageBox,
+  type FormInstance,
+  type FormRules,
+  type UploadRawFile,
+  type UploadRequestOptions,
+} from 'element-plus'
 import { Delete, Document, Edit, FolderChecked, Plus, RefreshLeft, Upload } from '@element-plus/icons-vue'
 import ArtSplitView from '@/components/core/ArtSplitView.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
@@ -213,10 +216,18 @@ import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { useTable } from '@/composables/useTable'
 import { useRecycle } from '@/composables/useRecycle'
+import { useUserStore } from '@/stores/user'
 import { categoryDelete, categorySave, categoryTree, categoryUpdate, type CategoryNode } from '@/api/category'
-import { FILE_UPLOAD_URL, fileDelete, fileList, fileMove, type FileRow } from '@/api/file'
-import { getToken } from '@/utils/auth'
-import { UPLOAD_PROGRESS, progressDone, progressStart } from '@/utils/progress'
+import {
+  fileDelete,
+  fileList,
+  fileMove,
+  fileUpload,
+  fileUploadChunk,
+  fileUploadComplete,
+  fileUploadInit,
+  type FileRow,
+} from '@/api/file'
 import type { ArtTableColumn } from '@/types/table'
 
 const MODULE = 'file' as const
@@ -233,8 +244,13 @@ interface Query {
 }
 
 const MAX_SIZE = 10 * 1024 * 1024
+/** 超过该体积就不算 SHA-1 秒传指纹（整文件读进内存哈希，再大无谓） */
+const HASH_LIMIT = 64 * 1024 * 1024
+/** 分片大小：与后端 ChunkUpload::CHUNK_SIZE 一致 */
+const CHUNK_SIZE = 4 * 1024 * 1024
 
 const { t } = useI18n({ useScope: 'global' })
+const userStore = useUserStore()
 
 // 表格列文案跟随语言切换，用 computed 包裹
 const columns = computed<ArtTableColumn[]>(() => [
@@ -387,47 +403,96 @@ async function onCategoryDelete(record: CategoryNode): Promise<void> {
 
 /* ---- 上传 ---- */
 const uploading = ref(false)
-const uploadUrl = FILE_UPLOAD_URL
-const uploadHeaders = computed(() => ({ Authorization: `Bearer ${getToken()}` }))
 /** 上传直接落到左侧选中的分类（全部/未分类 → 0） */
-const uploadData = computed(() => ({ category_id: currentId.value > 0 ? currentId.value : 0 }))
+function uploadCategory(): number {
+  return currentId.value > 0 ? currentId.value : 0
+}
 
-function onBeforeUpload(file: UploadRawFile): boolean {
-  if (file.size > MAX_SIZE) {
-    ElMessage.warning(t('file.uploadTooLarge'))
-    return false
-  }
+function onBeforeUpload(): boolean {
   uploading.value = true
-  // el-upload 走原生 XHR，不经过 axios 实例，所以进度条要在这里单独登记；
-  // 必须放在体积校验通过之后，否则 return false 不会触发 on-success / on-error，进度条会卡住
-  progressStart(UPLOAD_PROGRESS)
+  // http-request 走 axios 实例，进度条由请求拦截器统一登记，无需在这里手动 start
   return true
 }
 
-function onUploadSuccess(response: unknown): void {
-  uploading.value = false
-  progressDone(UPLOAD_PROGRESS)
-  const body = typeof response === 'string' ? safeParse(response) : (response as { code?: number; message?: string })
-  if (body && body.code === 0) {
+/**
+ * 自定义上传：小文件单请求直传，大文件走分片（init → chunk → complete）。
+ * 触发条件是文件体积，不是两个按钮 —— 同一个「上传」按钮自动分流。
+ */
+async function onHttpRequest(options: UploadRequestOptions): Promise<void> {
+  const file = options.file as UploadRawFile
+  const categoryId = uploadCategory()
+
+  try {
+    const result = file.size > MAX_SIZE ? await chunkedUpload(file, categoryId) : await singleUpload(file, categoryId)
+    options.onSuccess(result)
+    uploading.value = false
     ElMessage.success(t('file.uploadSuccess'))
     search()
-  } else {
-    ElMessage.error(body?.message || t('file.uploadFailed'))
+  } catch (error) {
+    // onError 的形参类型 UploadAjaxError 未从 element-plus 导出，这里只作失败信号用
+    options.onError(error as never)
+    uploading.value = false
+    // 具体错误由 request 拦截器（HTTP 错误）或 chunkedUpload（无分片权限）提示，避免弹两条
   }
 }
 
-function onUploadError(): void {
-  uploading.value = false
-  progressDone(UPLOAD_PROGRESS)
-  ElMessage.error(t('file.uploadFailed'))
+async function singleUpload(file: UploadRawFile, categoryId: number): Promise<FileRow> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('category_id', String(categoryId))
+
+  return fileUpload(form)
 }
 
-function safeParse(text: string): { code?: number; message?: string } | null {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return null
+async function chunkedUpload(file: UploadRawFile, categoryId: number): Promise<FileRow> {
+  if (!userStore.hasAuth('cccms:file:upload:chunk')) {
+    ElMessage.warning(t('file.uploadChunkNoPermission'))
+    throw new Error(t('file.uploadChunkNoPermission'))
   }
+
+  const chunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE))
+
+  // 秒传指纹：只有体积可控时才整文件读进内存算 SHA-1；WebCrypto 需要安全上下文
+  // （HTTPS / localhost），非安全环境算不出来就跳过秒传（不影响分片续传）。
+  let hash = ''
+  if (file.size <= HASH_LIMIT && typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      hash = await sha1Hex(file)
+    } catch {
+      hash = ''
+    }
+  }
+
+  const init = await fileUploadInit({ name: file.name, size: file.size, chunks, hash, category_id: categoryId })
+  if (init.instant && init.file) {
+    return init.file
+  }
+
+  const uploadId = init.upload_id as string
+  const received = new Set(init.received ?? [])
+  for (let i = 0; i < chunks; i++) {
+    // 断点续传：服务端返回已收到的分片序号，跳过它们只补缺的
+    if (received.has(i)) {
+      continue
+    }
+    const start = i * CHUNK_SIZE
+    const blob = file.slice(start, Math.min(start + CHUNK_SIZE, file.size))
+    await fileUploadChunk(uploadId, i, blob, `${file.name}.part${i}`)
+  }
+
+  const done = await fileUploadComplete(uploadId)
+
+  return done.file
+}
+
+/** SHA-1 十六进制（与服务端 sha1_file 同口径，用于 init 阶段秒传） */
+async function sha1Hex(file: Blob): Promise<string> {
+  const buf = await file.arrayBuffer()
+  const digest = await crypto.subtle.digest('SHA-1', buf)
+
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 /* ---- 移动到分类 ---- */

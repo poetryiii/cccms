@@ -25,14 +25,14 @@ class PermScanCommand extends Command
         $scanner = new PermScanner();
         $items = PermScanner::scanAllPlugins();
 
-        $output->writeln("<info>扫描到 " . count($items) . " 个方法</info>");
+        $output->writeln('<info>扫描到 ' . count($items) . ' 个方法</info>');
 
         $errors = PermScanner::validate($items);
         foreach ($errors as $e) {
             $output->writeln("<error>{$e}</error>");
         }
         if ($errors) {
-            $output->writeln("<error>校验失败，共 " . count($errors) . " 处错误</error>");
+            $output->writeln('<error>校验失败，共 ' . count($errors) . ' 处错误</error>');
             return Command::FAILURE;
         }
 

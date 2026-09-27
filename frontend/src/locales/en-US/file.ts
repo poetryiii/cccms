@@ -63,5 +63,6 @@ export default {
   uploadTooLarge: 'A single file cannot exceed 10MB',
   uploadSuccess: 'Uploaded successfully',
   uploadFailed: 'Upload failed',
+  uploadChunkNoPermission: 'No chunked upload permission. Grant the "Chunked upload" node to this account first',
   moveSuccess: 'Moved {count} attachment(s)',
 }

@@ -63,6 +63,7 @@ return [
     'sms.sign_name'   => '短信签名',
 
     'upload.max_size'       => '单文件上限',
+    'upload.chunk_max_size' => '分片上传上限',
     'upload.ext_allow'      => '允许的扩展名',
     'upload.image_ext'      => '图片扩展名',
     'upload.storage_driver' => '存储驱动',
@@ -89,6 +90,7 @@ return [
     'log.auto_clean'     => '自动清理日志',
     'log.record_read'    => '记录查询操作',
     'log.slow_threshold' => '慢接口告警阈值',
+    'export.keep_minutes' => '导出文件保留时长',
 
     // ---- 分组展示名 ----
     'group.系统' => '系统',

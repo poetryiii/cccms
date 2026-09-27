@@ -20,11 +20,14 @@ class LogController extends BaseController
         return $this->ok(LogLogic::paginate($request->get()));
     }
 
-    /** 导出 CSV（按当前筛选与数据范围） */
+    /** 导出 CSV（按当前筛选与数据范围；超阈值转异步任务） */
     #[Permission(slug: 'cccms:log:export', title: '导出操作日志')]
     public function export(Request $request): Response
     {
-        return LogLogic::export($request->get());
+        $result = LogLogic::export($request->get(), $request->user->id);
+
+        // 小数据量同步返回文件流；超阈值返回 {async, task_id} 交给前端轮询任务中心
+        return $result instanceof Response ? $result : $this->ok($result);
     }
 
     /** 按 trace_id 聚合一次请求的全部日志（链路视图） */
@@ -32,6 +35,13 @@ class LogController extends BaseController
     public function trace(Request $request): Response
     {
         return $this->ok(LogLogic::trace((string)$request->get('trace_id', '')));
+    }
+
+    /** 登录安全分析：失败趋势 / TOP 用户名 / TOP IP / 异地登录（受数据范围约束） */
+    #[Permission(slug: 'cccms:log:analysis', title: '查看登录分析')]
+    public function loginAnalysis(Request $request): Response
+    {
+        return $this->ok(LogLogic::loginAnalysis($request->get()));
     }
 
     #[Permission(slug: 'cccms:log:delete', title: '删除日志')]

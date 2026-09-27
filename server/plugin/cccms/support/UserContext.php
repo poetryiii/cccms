@@ -25,7 +25,8 @@ final class UserContext
         public readonly string $avatar = '',
         public readonly int    $tenantId = 0,
         public readonly int    $homeTenantId = 0,
-    ) {}
+    ) {
+    }
 
     public function isSuperAdmin(): bool
     {

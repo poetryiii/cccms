@@ -682,12 +682,7 @@ final class NoticeLogic
      */
     private static function prepare(array $data, bool $partial = false): array
     {
-        $payload = [];
-        foreach (self::FIELDS as $field) {
-            if (array_key_exists($field, $data)) {
-                $payload[$field] = $data[$field];
-            }
-        }
+        $payload = FilterInput::only($data, self::FIELDS);
 
         // 标题：新增必填；更新时若显式传入则不能为空
         if (!$partial || array_key_exists('title', $payload)) {

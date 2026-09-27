@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace plugin\cccms\command\task;
 
 use plugin\cccms\support\CrontabTask;
+use plugin\cccms\support\LogChain;
 use plugin\cccms\support\SysConfig;
 use think\facade\Db;
 
@@ -37,6 +38,12 @@ class LogCleanTask implements CrontabTask
 
         $before  = date('Y-m-d H:i:s', strtotime("-{$keepDays} days"));
         $deleted = Db::name('log')->where('create_time', '<', $before)->delete();
+
+        // 审计链是只增结构：清理删的是链头部，必须把校验起点前移到幸存的第一行，
+        // 否则下一次 `cccms:log-verify` 会把「合法清理」报成断点（链中间的删除仍会被报出）
+        if ($deleted > 0) {
+            LogChain::reanchor();
+        }
 
         return "已清理 {$deleted} 条 {$keepDays} 天前的操作日志";
     }

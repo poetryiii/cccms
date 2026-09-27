@@ -312,7 +312,7 @@ final class TenantLogic
     /** @param array<string,mixed> $data */
     private static function pick(array $data): array
     {
-        $picked = array_intersect_key($data, array_flip(self::FIELDS));
+        $picked = FilterInput::only($data, self::FIELDS);
 
         if (array_key_exists('expire_at', $picked)) {
             $picked['expire_at'] = self::normalizeExpire((string)$picked['expire_at']);

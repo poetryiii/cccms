@@ -7,6 +7,7 @@ namespace plugin\cccms\app\logic;
 use plugin\cccms\app\model\DictType;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\DictCache;
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\TenantContext;
@@ -15,6 +16,15 @@ use think\facade\Db;
 /** 数据字典逻辑。 */
 final class DictLogic
 {
+    /**
+     * 可写字段白名单（防 Mass Assignment）。
+     *
+     * 类型与数据是两张表，各一份；刻意不含 `id` / `tenant_id` / `create_time` / `delete_time`，
+     * `type_id` 属于字典数据（归属校验由 `assertTypeInTenant` 承担）。
+     */
+    private const TYPE_FIELDS = ['category_id', 'name', 'type', 'status', 'remark'];
+    private const DATA_FIELDS = ['type_id', 'label', 'value', 'sort', 'status', 'remark'];
+
     // ---- 类型 ----
     public static function typePaginate(array $params): array
     {
@@ -48,6 +58,8 @@ final class DictLogic
 
     public static function typeCreate(array $data): int
     {
+        $data = FilterInput::only($data, self::TYPE_FIELDS);
+
         // 唯一索引不做软删特例：回收站里的字典类型仍占用标识。
         // `uk_type` 是**全局唯一索引**（标识不随租户重复），因此查重同样不按租户收敛。
         $type = (string)($data['type'] ?? '');
@@ -71,6 +83,8 @@ final class DictLogic
 
     public static function typeUpdate(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::TYPE_FIELDS);
+
         self::assertTypeInTenant($id);
         TenantContext::table('dict_type')->where('id', $id)->update(TenantContext::stamp('dict_type', $data));
         DictCache::bump();
@@ -122,6 +136,8 @@ final class DictLogic
 
     public static function dataCreate(array $data): int
     {
+        $data = FilterInput::only($data, self::DATA_FIELDS);
+
         $typeId = (int)($data['type_id'] ?? 0);
         if ($typeId <= 0) {
             throw new ApiException(I18n::t('dict.type_not_found'), 422);
@@ -136,6 +152,7 @@ final class DictLogic
 
     public static function dataUpdate(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::DATA_FIELDS);
         $data = TenantContext::stamp('dict_data', $data);
         TenantContext::table('dict_data')->where('id', $id)->update($data);
         DictCache::bump();

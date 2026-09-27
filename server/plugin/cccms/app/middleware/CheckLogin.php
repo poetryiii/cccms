@@ -6,6 +6,7 @@ namespace plugin\cccms\app\middleware;
 
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
+use plugin\cccms\support\ClientIp;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\OnlineSession;
 use plugin\cccms\support\PermissionMeta;
@@ -66,7 +67,7 @@ class CheckLogin implements MiddlewareInterface
             OnlineSession::touch(
                 (string)($claims['jti'] ?? ''),
                 $user,
-                (string)($request->getRealIp() ?: ''),
+                ClientIp::resolve($request),
                 (string)$request->header('user-agent', ''),
                 (int)($claims['iat'] ?? 0),
                 (int)($claims['exp'] ?? 0),

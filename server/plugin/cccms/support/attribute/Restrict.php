@@ -23,5 +23,6 @@ final class Restrict
     public function __construct(
         public readonly array  $methods = [],
         public readonly ?array $encode  = null,
-    ) {}
+    ) {
+    }
 }

@@ -95,9 +95,32 @@ final class FileLogic
             ->update(['category_id' => $categoryId]);
     }
 
-    public static function upload(UploadFile $file, int $userId, int $categoryId = 0): array
+    /**
+     * 秒传：内容（`hash` + `size`）完全相同且**在当前数据范围内可见**时，直接复用该记录。
+     *
+     * 与 `upload()` 的去重同一口径 —— 都走带作用域的查询。否则等于把别人上传的
+     * 附件路径告诉当前用户：命中即返回，连字节都不用传。
+     *
+     * @return array<string,mixed>|null
+     */
+    public static function findReusable(string $hash, int $size): ?array
     {
-        $info = FileStorage::upload($file);
+        if ($hash === '' || $size <= 0) {
+            return null;
+        }
+
+        $exist = File::newScopedQuery()->where('hash', $hash)->where('size', $size)->find();
+
+        return $exist ? self::decorate($exist->toArray()) : null;
+    }
+
+    /**
+     * @param int|null $maxBytes 本次允许的最大字节数；null = 用 `upload.max_size`
+     *                           （分片上传合并出的文件可超过单请求上限，由调用方传入）
+     */
+    public static function upload(UploadFile $file, int $userId, int $categoryId = 0, ?int $maxBytes = null): array
+    {
+        $info = FileStorage::upload($file, $maxBytes);
 
         // 去重：相同内容已存在则复用记录，丢弃新文件（回收站里的不算，避免「复活」已删附件）。
         // 刻意走**带作用域**的查询：范围外的同 hash 文件不该被「复用」——

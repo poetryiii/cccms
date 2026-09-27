@@ -45,9 +45,17 @@ abstract class StorageDriver
     ];
 
     /**
+     * 上传一个完整文件。
+     *
+     * `$maxBytes` 是**本次允许的最大字节数**，`null` 表示用配置里的 `upload.max_size`。
+     * 之所以把它做成显式参数而不是可变的成员 / 静态属性：驱动实例由
+     * `StorageManager` **静态缓存**（多请求共用一个对象），任何可变状态都会被
+     * 并发请求互相污染 —— 分片上传合并出的文件上限远高于单请求上传，
+     * 一旦串味就会出现「这次放行了 2GB、下个请求也跟着放行」。
+     *
      * @return array{path:string,name:string,original_name:string,url:string,size:int,mime:string,ext:string,hash:string}
      */
-    abstract public function upload(UploadFile $file): array;
+    abstract public function upload(UploadFile $file, ?int $maxBytes = null): array;
 
     /**
      * 把一段内容写入**指定对象路径**（附件上传之外的第二条入口）。
@@ -87,17 +95,91 @@ abstract class StorageDriver
     /**
      * 扩展名白名单 + 内容魔数 + 大小上限校验。
      *
-     * 白名单与上限优先取后台配置（upload.ext_allow / upload.max_size），
-     * 未配置时回退到 filesystem.php 的默认值；`DANGEROUS_EXT` 为硬拒绝，
-     * 不受配置影响。
+     * 白名单优先取后台配置（upload.ext_allow），未配置时回退到 filesystem.php 的默认值；
+     * 大小上限取 `upload.max_size`，也可由调用方用 `$maxBytes` 显式覆盖
+     * （分片上传合并后的文件走这条）；`DANGEROUS_EXT` 为硬拒绝，不受配置影响。
      *
-     * @return array{0:string,1:int} [扩展名, 字节数]
+     * 一并返回**服务端探测到的 MIME**：本地驱动紧接着就会把临时文件 `move()` 走，
+     * 之后再探测只能拿到失败值，所以探测必须发生在校验阶段。
+     *
+     * @param  int|null $maxBytes 本次允许的最大字节数；null = 用 `upload.max_size`
+     * @return array{0:string,1:int,2:string} [扩展名, 字节数, 服务端 MIME]
      */
-    final protected function validate(UploadFile $file): array
+    final protected function validate(UploadFile $file, ?int $maxBytes = null): array
     {
         $ext = strtolower((string)$file->getUploadExtension());
+        self::assertExtAllowed($ext);
 
-        // 硬拒绝优先于白名单：配置里残留 svg 也不能放行（见 DANGEROUS_EXT 说明）
+        $size = (int)$file->getSize();
+        if ($size <= 0) {
+            throw new ApiException('文件为空', 422);
+        }
+
+        $maxMb = SysConfig::getInt('upload.max_size', 0);
+        $max   = $maxBytes ?? ($maxMb > 0 ? $maxMb * 1048576 : (int)config('plugin.cccms.filesystem.max_size', 10 * 1024 * 1024));
+        if ($size > $max) {
+            throw new ApiException('文件超出大小限制（最大 ' . round($max / 1048576, 1) . 'MB）', 422);
+        }
+
+        $this->assertContentMatches($file, $ext);
+
+        return [$ext, $size, self::probeMime($file)];
+    }
+
+    /**
+     * 服务端 MIME 探测（finfo，作用于**临时文件**）。
+     *
+     * 客户端上报的 `getUploadMimeType()` 可被任意伪造、且随浏览器 / 系统而变，
+     * 因此**入库与展示**统一用服务端探测结果。探测不到时（finfo 不可用，或
+     * 类型无魔数被识别为 `application/octet-stream`）回退客户端上报值，
+     * 避免整列 MIME 变成 octet-stream。
+     *
+     * 公开为静态方法：分片上传（P2-9）合并出的临时文件同样需要按服务端探测值入库，
+     * 单测也需要能直接验证「客户端上报值不会进库」。
+     */
+    public static function probeMime(UploadFile $file): string
+    {
+        $mime = self::finfoMime($file);
+        if ($mime !== null && $mime !== 'application/octet-stream') {
+            return $mime;
+        }
+
+        return (string)$file->getUploadMimeType();
+    }
+
+    /**
+     * 原始 finfo 探测值（不做任何回退）；无法探测时返回 null。
+     *
+     * 魔数校验必须用这个**未经回退**的值 —— 一旦回退到客户端上报值，
+     * 校验就形同虚设。
+     */
+    private static function finfoMime(UploadFile $file): ?string
+    {
+        if (!class_exists(\finfo::class)) {
+            return null;
+        }
+
+        $path = (string)$file->getPathname();
+        if ($path === '' || !is_file($path)) {
+            return null;
+        }
+
+        $mime = (string)(new \finfo(FILEINFO_MIME_TYPE))->file($path);
+
+        return $mime === '' ? null : $mime;
+    }
+
+    /**
+     * 仅校验扩展名白名单（不涉及文件本体）。
+     *
+     * 抽出来是给**分片上传的 init 阶段**用的：类型不合法要在只传了几百字节时就拒绝，
+     * 而不是等用户传完 100MB 再报错。`validate()` 也调用它，保证只有一份判定逻辑。
+     *
+     * 硬拒绝优先于白名单：配置里残留 `svg` 也不能放行（见 `DANGEROUS_EXT` 说明）。
+     */
+    public static function assertExtAllowed(string $ext): void
+    {
+        $ext = strtolower($ext);
         if (in_array($ext, self::DANGEROUS_EXT, true)) {
             throw new ApiException('不支持的文件类型：' . $ext, 422);
         }
@@ -109,21 +191,6 @@ abstract class StorageDriver
         if ($ext === '' || !in_array($ext, $allow, true)) {
             throw new ApiException('不支持的文件类型：' . ($ext ?: '未知'), 422);
         }
-
-        $size = (int)$file->getSize();
-        if ($size <= 0) {
-            throw new ApiException('文件为空', 422);
-        }
-
-        $maxMb = SysConfig::getInt('upload.max_size', 0);
-        $max   = $maxMb > 0 ? $maxMb * 1048576 : (int)config('plugin.cccms.filesystem.max_size', 10 * 1024 * 1024);
-        if ($size > $max) {
-            throw new ApiException('文件超出大小限制（最大 ' . round($max / 1048576, 1) . 'MB）', 422);
-        }
-
-        $this->assertContentMatches($file, $ext);
-
-        return [$ext, $size];
     }
 
     /**
@@ -135,12 +202,12 @@ abstract class StorageDriver
     private function assertContentMatches(UploadFile $file, string $ext): void
     {
         $rules = self::MAGIC_RULES[$ext] ?? [];
-        if ($rules === [] || !class_exists(\finfo::class)) {
+        if ($rules === []) {
             return;
         }
 
-        $mime = (string)(new \finfo(FILEINFO_MIME_TYPE))->file((string)$file->getPathname());
-        if ($mime === '' || in_array($mime, $rules, true)) {
+        $mime = self::finfoMime($file);
+        if ($mime === null || in_array($mime, $rules, true)) {
             return;
         }
 
@@ -156,7 +223,7 @@ abstract class StorageDriver
     /**
      * @return array{path:string,name:string,original_name:string,url:string,size:int,mime:string,ext:string,hash:string}
      */
-    final protected function result(UploadFile $file, string $path, string $ext, int $size, string $hash): array
+    final protected function result(UploadFile $file, string $path, string $ext, int $size, string $hash, string $mime): array
     {
         return [
             'path'          => $path,
@@ -164,7 +231,7 @@ abstract class StorageDriver
             'original_name' => (string)$file->getUploadName(),
             'url'           => $this->url($path),
             'size'          => $size,
-            'mime'          => (string)$file->getUploadMimeType(),
+            'mime'          => $mime,
             'ext'           => $ext,
             'hash'          => $hash,
         ];

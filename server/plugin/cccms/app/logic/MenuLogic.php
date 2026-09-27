@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SoftDelete;
@@ -13,6 +14,17 @@ use think\facade\Db;
 /** 菜单 / 权限节点逻辑。 */
 final class MenuLogic
 {
+    /**
+     * 可写字段白名单（防 Mass Assignment）。
+     *
+     * 刻意不含 `id` / `create_time` / `update_time` / `delete_time`：
+     * 菜单是**平台级**资源，没有 `tenant_id`，作用域与租户列也不允许经接口改写。
+     */
+    private const FIELDS = [
+        'parent_id', 'type', 'title', 'path', 'component', 'icon', 'sort',
+        'node', 'status', 'keep_alive', 'remark',
+    ];
+
     /**
      * 全量菜单树（菜单管理用）。
      *
@@ -113,6 +125,8 @@ final class MenuLogic
 
     public static function create(array $data): int
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         $data['node'] = $data['node'] ?? '';
         $id = (int)Db::name('menu')->insertGetId($data);
         // 菜单即权限节点：变更后所有用户的可见菜单 / 权限集合都要重新计算
@@ -123,6 +137,8 @@ final class MenuLogic
 
     public static function update(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         if (!SoftDelete::apply(Db::name('menu'))->where('id', $id)->find()) {
             throw new \RuntimeException(I18n::t('menu.not_found'));
         }

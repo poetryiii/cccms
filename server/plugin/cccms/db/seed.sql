@@ -52,6 +52,22 @@ WHERE NOT EXISTS (
     SELECT 1 FROM `sys_crontab` WHERE `target` = 'plugin\\cccms\\command\\task\\LogCleanTask'
 );
 
+-- 分片上传的临时文件回收（每小时）：只清 24 小时未继续写入的会话，不依赖任何外部服务
+INSERT INTO `sys_crontab` (`name`, `expression`, `target`, `params`, `status`, `group_name`, `overlap`, `timeout`, `retry_times`, `retry_interval`, `remark`, `create_time`, `update_time`)
+SELECT '清理分片上传临时文件', '0 30 * * * *', 'plugin\\cccms\\command\\task\\ChunkCleanTask', NULL, 1, '系统', 'skip', 600, 1, 300, '每小时 30 分清理 24 小时未完成的分片上传临时目录', NOW(), NOW()
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `sys_crontab` WHERE `target` = 'plugin\\cccms\\command\\task\\ChunkCleanTask'
+);
+
+-- 消费异步导出任务（每 10 秒）：超阈值导出转后台生成归档文件，顺带清理过期导出
+INSERT INTO `sys_crontab` (`name`, `expression`, `target`, `params`, `status`, `group_name`, `overlap`, `timeout`, `retry_times`, `retry_interval`, `remark`, `create_time`, `update_time`)
+SELECT '消费异步导出任务', '*/10 * * * * *', 'plugin\\cccms\\command\\task\\ExportTaskConsumer', NULL, 1, '系统', 'skip', 600, 1, 300, '每 10 秒生成待处理的导出归档文件，并清理 export.keep_minutes 之前的过期导出', NOW(), NOW()
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `sys_crontab` WHERE `target` = 'plugin\\cccms\\command\\task\\ExportTaskConsumer'
+);
+
 -- ---------------------------------------------------------------------
 -- 内置定时任务：归档历史日志到对象存储
 --
@@ -105,37 +121,39 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 ('security.rate_limit_window', '限流窗口',        'input-number', '60',                           NULL, '安全', 12, 1, '单位秒，计数窗口长度', NOW(), NOW()),
 
 -- 上传
-('upload.max_size',             '单文件上限',      'input-number', '10',                           NULL, '上传', 1, 1, '单位 MB', NOW(), NOW()),
-('upload.ext_allow',            '允许的扩展名',    'input',        'jpg,jpeg,png,gif,webp,bmp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,zip,rar,7z,mp3,mp4,webm', NULL, '上传', 2, 1, '英文逗号分隔，不要带点；留空则用 filesystem.php 的默认白名单。⚠️ 不要加入 svg/html/xml：本地驱动同域直出，会被浏览器内联渲染成存储型 XSS', NOW(), NOW()),
-('upload.image_ext',            '图片扩展名',      'input',        'jpg,jpeg,png,gif,webp',        NULL, '上传', 3, 1, '需要按图片处理的扩展名', NOW(), NOW()),
-('upload.storage_driver',       '存储驱动',        'select',       'local',                        '[{"label":"本地","value":"local"},{"label":"阿里云 OSS","value":"oss"},{"label":"腾讯云 COS","value":"cos"},{"label":"七牛云","value":"qiniu"}]', '上传', 4, 1, '选中哪个驱动，本页只显示该驱动的凭证项；凭证加密存库，不需要写 .env', NOW(), NOW()),
-('upload.url_prefix',           '访问前缀',        'input',        '/storage',                     NULL, '上传', 5, 1, '切独立域名 / CDN 时改这里', NOW(), NOW()),
+('upload.max_size',             '单文件上限',      'input-number', '10',                           NULL, '上传', 1, 1, '单位 MB；单请求直传的上限。大文件请走分片上传（前端自动切换）', NOW(), NOW()),
+('upload.chunk_max_size',       '分片上传上限',    'input-number', '2048',                        NULL, '上传', 2, 1, '单位 MB；分片上传合并后文件的总大小上限（建议远大于单文件上限）', NOW(), NOW()),
+('upload.ext_allow',            '允许的扩展名',    'input',        'jpg,jpeg,png,gif,webp,bmp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,zip,rar,7z,mp3,mp4,webm', NULL, '上传', 3, 1, '英文逗号分隔，不要带点；留空则用 filesystem.php 的默认白名单。⚠️ 不要加入 svg/html/xml：本地驱动同域直出，会被浏览器内联渲染成存储型 XSS', NOW(), NOW()),
+('upload.image_ext',            '图片扩展名',      'input',        'jpg,jpeg,png,gif,webp',        NULL, '上传', 4, 1, '需要按图片处理的扩展名', NOW(), NOW()),
+('upload.storage_driver',       '存储驱动',        'select',       'local',                        '[{"label":"本地","value":"local"},{"label":"阿里云 OSS","value":"oss"},{"label":"腾讯云 COS","value":"cos"},{"label":"七牛云","value":"qiniu"}]', '上传', 5, 1, '选中哪个驱动，本页只显示该驱动的凭证项；凭证加密存库，不需要写 .env', NOW(), NOW()),
+('upload.url_prefix',           '访问前缀',        'input',        '/storage',                     NULL, '上传', 6, 1, '切独立域名 / CDN 时改这里', NOW(), NOW()),
 
 -- 上传 · 阿里云 OSS（driver=oss 时必填；密钥类项加密存储，留空 = 保持原值）
-('upload.oss_access_key_id',     'AccessKey ID',    'input',        '',                             NULL, '上传', 6, 1, '阿里云账号的 AccessKey ID', NOW(), NOW()),
-('upload.oss_access_key_secret', 'AccessKey Secret','password',     '',                             NULL, '上传', 7, 1, 'AccessKey Secret，加密存储', NOW(), NOW()),
-('upload.oss_bucket',            'Bucket',          'input',        '',                             NULL, '上传', 8, 1, 'OSS Bucket 名称', NOW(), NOW()),
-('upload.oss_endpoint',          'Endpoint',        'input',        '',                             NULL, '上传', 9, 1, '如 oss-cn-hangzhou.aliyuncs.com（不带 bucket 前缀）', NOW(), NOW()),
-('upload.oss_domain',            '自定义域名',      'input',        '',                             NULL, '上传', 10, 1, 'CDN / 自定义域名，留空则用 endpoint + bucket 拼装', NOW(), NOW()),
+('upload.oss_access_key_id',     'AccessKey ID',    'input',        '',                             NULL, '上传', 7, 1, '阿里云账号的 AccessKey ID', NOW(), NOW()),
+('upload.oss_access_key_secret', 'AccessKey Secret','password',     '',                             NULL, '上传', 8, 1, 'AccessKey Secret，加密存储', NOW(), NOW()),
+('upload.oss_bucket',            'Bucket',          'input',        '',                             NULL, '上传', 9, 1, 'OSS Bucket 名称', NOW(), NOW()),
+('upload.oss_endpoint',          'Endpoint',        'input',        '',                             NULL, '上传', 10, 1, '如 oss-cn-hangzhou.aliyuncs.com（不带 bucket 前缀）', NOW(), NOW()),
+('upload.oss_domain',            '自定义域名',      'input',        '',                             NULL, '上传', 11, 1, 'CDN / 自定义域名，留空则用 endpoint + bucket 拼装', NOW(), NOW()),
 
 -- 上传 · 腾讯云 COS（driver=cos 时必填）
-('upload.cos_secret_id',         'SecretId',        'input',        '',                             NULL, '上传', 11, 1, '腾讯云 API 密钥 SecretId', NOW(), NOW()),
-('upload.cos_secret_key',        'SecretKey',       'password',     '',                             NULL, '上传', 12, 1, '腾讯云 API 密钥 SecretKey，加密存储', NOW(), NOW()),
-('upload.cos_bucket',            'Bucket',          'input',        '',                             NULL, '上传', 13, 1, '控制台显示的存储桶名称（形如 name-1250000000）；访问时驱动自动拼接 -Region 后缀', NOW(), NOW()),
-('upload.cos_region',            'Region',          'input',        '',                             NULL, '上传', 14, 1, '地域，如 ap-guangzhou', NOW(), NOW()),
-('upload.cos_domain',            '自定义域名',      'input',        '',                             NULL, '上传', 15, 1, 'CDN / 自定义域名，留空则用 bucket + region 拼装', NOW(), NOW()),
+('upload.cos_secret_id',         'SecretId',        'input',        '',                             NULL, '上传', 12, 1, '腾讯云 API 密钥 SecretId', NOW(), NOW()),
+('upload.cos_secret_key',        'SecretKey',       'password',     '',                             NULL, '上传', 13, 1, '腾讯云 API 密钥 SecretKey，加密存储', NOW(), NOW()),
+('upload.cos_bucket',            'Bucket',          'input',        '',                             NULL, '上传', 14, 1, '控制台显示的存储桶名称（形如 name-1250000000）；访问时驱动自动拼接 -Region 后缀', NOW(), NOW()),
+('upload.cos_region',            'Region',          'input',        '',                             NULL, '上传', 15, 1, '地域，如 ap-guangzhou', NOW(), NOW()),
+('upload.cos_domain',            '自定义域名',      'input',        '',                             NULL, '上传', 16, 1, 'CDN / 自定义域名，留空则用 bucket + region 拼装', NOW(), NOW()),
 
 -- 上传 · 七牛云 Kodo（driver=qiniu 时必填）
-('upload.qiniu_access_key',      'AccessKey',       'input',        '',                             NULL, '上传', 16, 1, '七牛云账号的 AccessKey', NOW(), NOW()),
-('upload.qiniu_secret_key',      'SecretKey',       'password',     '',                             NULL, '上传', 17, 1, '七牛云账号的 SecretKey，加密存储', NOW(), NOW()),
-('upload.qiniu_bucket',          'Bucket',          'input',        '',                             NULL, '上传', 18, 1, '存储空间名称', NOW(), NOW()),
-('upload.qiniu_domain',          '访问域名',        'input',        '',                             NULL, '上传', 19, 1, '空间绑定的测试域名或自定义域名（必填，七牛不提供默认 URL 拼装）', NOW(), NOW()),
+('upload.qiniu_access_key',      'AccessKey',       'input',        '',                             NULL, '上传', 17, 1, '七牛云账号的 AccessKey', NOW(), NOW()),
+('upload.qiniu_secret_key',      'SecretKey',       'password',     '',                             NULL, '上传', 18, 1, '七牛云账号的 SecretKey，加密存储', NOW(), NOW()),
+('upload.qiniu_bucket',          'Bucket',          'input',        '',                             NULL, '上传', 19, 1, '存储空间名称', NOW(), NOW()),
+('upload.qiniu_domain',          '访问域名',        'input',        '',                             NULL, '上传', 20, 1, '空间绑定的测试域名或自定义域名（必填，七牛不提供默认 URL 拼装）', NOW(), NOW()),
 
 -- 日志
 ('log.keep_days',               '日志保留天数',    'input-number', '30',                           NULL, '日志', 1, 1, '定时任务按此天数清理历史日志', NOW(), NOW()),
 ('log.auto_clean',              '自动清理日志',    'switch',       '1',                            NULL, '日志', 2, 1, '关闭后需手工清理', NOW(), NOW()),
 ('log.record_read',             '记录查询操作',    'switch',       '0',                            NULL, '日志', 3, 1, '开启后 GET 请求也会写入操作日志', NOW(), NOW()),
 ('log.slow_threshold',          '慢接口告警阈值',  'input-number', '3000',                         NULL, '日志', 4, 1, '单位毫秒；请求耗时超过该值时写慢接口告警日志(slow.log)，0 表示关闭', NOW(), NOW()),
+('export.keep_minutes',         '导出文件保留时长','input-number', '60',                           NULL, '日志', 5, 1, '单位分钟；异步导出的归档文件保留多久，过期即删并置为「已过期」', NOW(), NOW()),
 
 -- 找回密码（渠道开关默认关闭，最安全；开启前请先配好 邮箱 / 短信 分组）
 ('security.reset_channel',      '找回密码渠道',    'select',       'off',                          '[{"label":"关闭","value":"off"},{"label":"邮箱","value":"email"},{"label":"短信","value":"sms"},{"label":"邮箱 + 短信","value":"both"}]', '安全', 13, 1, '找回密码可用的验证码通道；off 表示关闭找回入口', NOW(), NOW()),
@@ -143,6 +161,8 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 ('security.reset_send_interval','发送间隔',        'input-number', '60',                           NULL, '安全', 15, 1, '单位秒，同一账号两次发送验证码的最小间隔；0 表示不限制', NOW(), NOW()),
 ('security.reset_max_attempts', '验证码尝试上限',  'input-number', '5',                            NULL, '安全', 16, 1, '同一验证码最多校验几次，达到上限即作废，防暴力猜码', NOW(), NOW()),
 ('security.reset_daily_limit',  '每日发送上限',    'input-number', '10',                           NULL, '安全', 17, 1, '同一账号每天最多发送几次验证码；0 表示不限制', NOW(), NOW()),
+('security.trusted_proxies',    '可信代理',        'textarea',     '',                             NULL, '安全', 18, 1, '反向代理/网关的 IP 或 CIDR，逗号或换行分隔（如 172.18.0.0/16）；仅这些来源的 X-Forwarded-For 会被采信以溯源真实客户端 IP，留空表示不采信任何转发头（直接用直连 IP）', NOW(), NOW()),
+('security.metrics_allow_ips',  '可观测端点白名单','textarea',     '127.0.0.1,::1',                NULL, '安全', 19, 1, '允许访问 /healthz 与 /metrics 的 IP 或 CIDR，逗号或换行分隔（如 172.18.0.0/16）；非白名单来源一律返回 404。留空等同 127.0.0.1,::1（仅容器内探活可用）', NOW(), NOW()),
 
 -- 邮箱（找回密码 · 邮件通道；密码字段用 type=password，加密存储）
 ('mail.enabled',                '启用邮箱通道',    'switch',       '0',                            NULL, '邮箱', 1, 1, '开启后支持邮箱找回密码，还需在「安全」分组把找回渠道设为邮箱或邮箱+短信', NOW(), NOW()),

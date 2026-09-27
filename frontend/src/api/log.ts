@@ -1,4 +1,4 @@
-import { downloadFile, http } from './request'
+import { downloadFileWithAsync, http } from './request'
 import type { PageResult } from './types'
 
 export interface LogRow {
@@ -27,9 +27,9 @@ export function logList(params: Record<string, unknown>) {
   return http.get<PageResult<LogRow>>('/log', params)
 }
 
-/** 导出 CSV（按当前筛选与数据范围） */
+/** 导出 CSV（按当前筛选与数据范围；超阈值转异步，返回 {async, task_id}） */
 export function logExport(params: Record<string, unknown>) {
-  return downloadFile('/log/export', params, '操作日志.csv')
+  return downloadFileWithAsync('/log/export', params, '操作日志.csv')
 }
 
 export function logDelete(ids: number[]) {
@@ -49,4 +49,37 @@ export interface LogTrace {
 /** 按 trace_id 聚合查看同一次请求的全部日志 */
 export function logTrace(traceId: string) {
   return http.get<LogTrace>('/log/trace', { trace_id: traceId })
+}
+
+/** 登录安全分析（P2-13）：失败趋势 / TOP 用户名 / TOP IP / 异地登录 */
+export interface LoginAnalysis {
+  range: {
+    start: string
+    end: string
+    /** hour = 窗口不超过 48 小时，day = 更长窗口 */
+    granularity: 'hour' | 'day'
+  }
+  summary: {
+    total: number
+    success: number
+    failed: number
+    /** 百分比，已保留两位小数 */
+    fail_rate: number
+    users: number
+    ips: number
+  }
+  trend: Array<{ bucket: string; success: number; failed: number }>
+  top_users: Array<{ username: string; count: number }>
+  top_ips: Array<{ ip: string; count: number }>
+  ip_changes: Array<{ username: string; from_ip: string; to_ip: string; time: string }>
+}
+
+/**
+ * 拉取登录分析。
+ *
+ * `days` 与 `start`/`end` 二选一：传了显式区间时后端优先用区间，
+ * `days` 会被收敛到 [1, 90]。
+ */
+export function logLoginAnalysis(params: { days?: number; start?: string; end?: string } = {}) {
+  return http.get<LoginAnalysis>('/log/login/analysis', params)
 }

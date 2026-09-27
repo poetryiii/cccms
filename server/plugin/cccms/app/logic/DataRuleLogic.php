@@ -10,10 +10,10 @@ use plugin\cccms\app\model\Post;
 use plugin\cccms\app\model\Role;
 use plugin\cccms\app\model\User;
 use plugin\cccms\support\ApiException;
-use plugin\cccms\support\RuleConflict;
 use plugin\cccms\support\DataScope;
 use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
+use plugin\cccms\support\RuleConflict;
 use think\facade\Db;
 
 /**
@@ -266,7 +266,7 @@ final class DataRuleLogic
      */
     private static function prepare(array $data): array
     {
-        $data = array_intersect_key($data, array_flip(self::FIELDS));
+        $data = FilterInput::only($data, self::FIELDS);
 
         if (array_key_exists('action', $data)) {
             $action = (string)$data['action'];

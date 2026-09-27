@@ -1,6 +1,15 @@
 <template>
   <div class="art-fill">
+    <!-- 标签页：操作日志 / 登录分析（后者需要 cccms:log:analysis，无权限时不渲染入口） -->
+    <div v-if="canAnalyse" class="log-tabs">
+      <el-radio-group v-model="activeTab" size="small">
+        <el-radio-button value="operation">{{ t('log.tabOperation') }}</el-radio-button>
+        <el-radio-button value="login">{{ t('log.tabLogin') }}</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <ArtTable
+      v-show="activeTab === 'operation'"
       :columns="columns"
       :data="list"
       :loading="loading"
@@ -28,6 +37,7 @@
 
       <template #toolbar-right>
         <el-button v-auth="'cccms:log:export'" :icon="Download" @click="onExport"> {{ t('common.export') }} </el-button>
+        <el-button :icon="List" @click="openTasks">{{ t('log.exportTasks') }}</el-button>
       </template>
 
       <!-- 结果：成功 / 失败 -->
@@ -72,6 +82,65 @@
         </el-button>
       </template>
     </ArtTable>
+
+    <!-- 登录安全分析（P2-13）：失败趋势 / TOP 账号 / TOP IP / 异地登录 -->
+    <div v-if="canAnalyse && activeTab === 'login'" v-loading="analysisLoading" class="login-analysis">
+      <div class="analysis-bar">
+        <el-radio-group v-model="analysisDays" size="small">
+          <el-radio-button :value="7">{{ t('log.analysisRange7') }}</el-radio-button>
+          <el-radio-button :value="30">{{ t('log.analysisRange30') }}</el-radio-button>
+          <el-radio-button :value="90">{{ t('log.analysisRange90') }}</el-radio-button>
+        </el-radio-group>
+        <el-button size="small" :icon="Refresh" @click="loadAnalysis">{{ t('log.analysisRefresh') }}</el-button>
+      </div>
+
+      <template v-if="analysis">
+        <div class="analysis-cards">
+          <div v-for="card in analysisCards" :key="card.label" class="analysis-card">
+            <div class="analysis-card-value" :class="card.tone">{{ card.value }}</div>
+            <div class="analysis-card-label">{{ card.label }}</div>
+          </div>
+        </div>
+
+        <div class="analysis-panel">
+          <div class="analysis-panel-title">{{ t('log.analysisTrend') }}</div>
+          <div ref="trendRef" class="analysis-chart" />
+        </div>
+
+        <div class="analysis-grid">
+          <div class="analysis-panel">
+            <div class="analysis-panel-title">{{ t('log.analysisTopUsers') }}</div>
+            <el-empty v-if="analysis.top_users.length === 0" :description="t('log.analysisEmpty')" :image-size="60" />
+            <el-table v-else :data="analysis.top_users" size="small" :show-header="false">
+              <el-table-column prop="username" />
+              <el-table-column prop="count" width="80" align="right" />
+            </el-table>
+          </div>
+
+          <div class="analysis-panel">
+            <div class="analysis-panel-title">{{ t('log.analysisTopIps') }}</div>
+            <el-empty v-if="analysis.top_ips.length === 0" :description="t('log.analysisEmpty')" :image-size="60" />
+            <el-table v-else :data="analysis.top_ips" size="small" :show-header="false">
+              <el-table-column prop="ip" />
+              <el-table-column prop="count" width="80" align="right" />
+            </el-table>
+          </div>
+        </div>
+
+        <div class="analysis-panel">
+          <div class="analysis-panel-title">{{ t('log.analysisIpChanges') }}</div>
+          <el-empty v-if="analysis.ip_changes.length === 0" :description="t('log.analysisNoChange')" :image-size="60" />
+          <el-table v-else :data="analysis.ip_changes" size="small">
+            <el-table-column prop="username" :label="t('log.username')" width="160" />
+            <el-table-column prop="from_ip" :label="t('log.analysisFromIp')" width="160" />
+            <el-table-column prop="to_ip" :label="t('log.analysisToIp')" width="160" />
+            <el-table-column prop="time" :label="t('log.analysisTime')" />
+          </el-table>
+        </div>
+
+        <div class="analysis-hint">{{ t('log.analysisHint') }}</div>
+      </template>
+    </div>
 
     <el-drawer v-model="detailVisible" :title="t('log.detailTitle')" size="680px">
       <template v-if="current">
@@ -168,23 +237,63 @@
         </el-timeline>
       </template>
     </el-drawer>
+
+    <!-- 导出任务中心：超阈值导出转后台生成，这里看状态并下载 -->
+    <el-drawer v-model="taskVisible" :title="t('log.exportTasks')" size="520px">
+      <el-button size="small" :icon="Refresh" :loading="taskLoading" @click="loadTasks">
+        {{ t('log.analysisRefresh') }}
+      </el-button>
+
+      <el-empty v-if="tasks.length === 0 && !taskLoading" :description="t('log.taskEmpty')" :image-size="80" />
+      <el-table v-else :data="tasks" size="small" class="task-table">
+        <el-table-column :label="t('log.taskRows')" width="90" align="right">
+          <template #default="{ row }">{{ row.total_rows }}</template>
+        </el-table-column>
+        <el-table-column :label="t('log.taskTime')" min-width="150">
+          <template #default="{ row }">{{ row.create_time }}</template>
+        </el-table-column>
+        <el-table-column :label="t('log.taskStatusLabel')" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="taskStatusTag(row.status)" size="small">{{ taskStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('table.action')" width="90" align="center">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 2" link type="primary" :icon="Download" @click="downloadTask(row)">
+              {{ t('common.export') }}
+            </el-button>
+            <span v-else-if="row.status === 3" class="task-error" :title="row.error">{{ row.error }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 defineOptions({ name: 'cccms:log' })
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Download } from '@element-plus/icons-vue'
+import { Delete, Download, List, Refresh } from '@element-plus/icons-vue'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import ArtTable from '@/components/core/ArtTable.vue'
 import { useTable } from '@/composables/useTable'
-import { logDelete, logExport, logList, logTrace, type LogRow, type LogTrace } from '@/api/log'
+import { useSettingStore } from '@/stores/setting'
+import { useUserStore } from '@/stores/user'
+import { logDelete, logExport, logList, logLoginAnalysis, logTrace, type LogRow, type LogTrace } from '@/api/log'
+import { exportTaskDownload, exportTaskList, type ExportTaskRow } from '@/api/export'
 import type { ArtTableColumn } from '@/types/table'
 
-const { t } = useI18n({ useScope: 'global' })
+// 按需引入：与工作台同一取舍（只用到折线图，不必整包）
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+
+const { t, locale } = useI18n({ useScope: 'global' })
 
 interface Query {
   username: string
@@ -264,6 +373,135 @@ const { list, loading, total, page, limit, query, selection, load, onPageChange,
     pageSize: 15,
   })
 
+/* ---- 登录分析（P2-13） ---- */
+const activeTab = ref<'operation' | 'login'>('operation')
+const analysisDays = ref(7)
+const analysis = ref<Awaited<ReturnType<typeof logLoginAnalysis>> | null>(null)
+const analysisLoading = ref(false)
+const trendRef = ref<HTMLElement>()
+let trendChart: echarts.ECharts | null = null
+
+const setting = useSettingStore()
+const userStore = useUserStore()
+/** 没有分析权限时不渲染入口，避免「点进去 403」 */
+const canAnalyse = computed(() => userStore.hasAuth('cccms:log:analysis'))
+
+const analysisCards = computed(() => {
+  const s = analysis.value?.summary
+  if (!s) {
+    return []
+  }
+
+  return [
+    { label: t('log.analysisTotal'), value: String(s.total), tone: '' },
+    { label: t('log.analysisSuccess'), value: String(s.success), tone: 'is-ok' },
+    { label: t('log.analysisFailed'), value: String(s.failed), tone: s.failed > 0 ? 'is-danger' : '' },
+    { label: t('log.analysisFailRate'), value: `${s.fail_rate}%`, tone: s.fail_rate > 0 ? 'is-danger' : '' },
+    { label: t('log.analysisFailUsers'), value: String(s.users), tone: '' },
+    { label: t('log.analysisFailIps'), value: String(s.ips), tone: '' },
+  ]
+})
+
+async function loadAnalysis(): Promise<void> {
+  if (!canAnalyse.value) {
+    return
+  }
+
+  analysisLoading.value = true
+  try {
+    analysis.value = await logLoginAnalysis({ days: analysisDays.value })
+    await nextTick()
+    renderTrend()
+  } finally {
+    analysisLoading.value = false
+  }
+}
+
+/** 主题色 / 文字色取自 CSS 变量，与全局主题保持一致 */
+function cssVar(name: string, fallback: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+
+function renderTrend(): void {
+  if (!trendRef.value || !analysis.value) {
+    return
+  }
+  trendChart ??= echarts.init(trendRef.value)
+
+  const primary = cssVar('--art-primary', '#2b6cff')
+  const danger = cssVar('--art-danger', '#e34d59')
+  const line = cssVar('--art-card-border', '#e9edf5')
+  const sub = cssVar('--art-sub', '#5b6474')
+
+  const hourly = analysis.value.range.granularity === 'hour'
+  // 小时粒度只展示「时:分」，天粒度展示「月-日」，否则 X 轴会被年份挤满
+  const labels = analysis.value.trend.map((item) => (hourly ? item.bucket.slice(11, 16) : item.bucket.slice(5, 10)))
+
+  trendChart.setOption({
+    grid: { left: 6, right: 18, top: 32, bottom: 4, containLabel: true },
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0, right: 0, textStyle: { color: sub } },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: labels,
+      axisLine: { lineStyle: { color: line } },
+      axisTick: { show: false },
+      axisLabel: { color: sub },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      splitLine: { lineStyle: { color: line, type: 'dashed' } },
+      axisLabel: { color: sub },
+    },
+    series: [
+      {
+        name: t('log.analysisTrendSuccess'),
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        data: analysis.value.trend.map((item) => item.success),
+        itemStyle: { color: primary },
+        lineStyle: { width: 2, color: primary },
+      },
+      {
+        name: t('log.analysisTrendFailed'),
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        data: analysis.value.trend.map((item) => item.failed),
+        itemStyle: { color: danger },
+        lineStyle: { width: 2, color: danger },
+      },
+    ],
+  })
+}
+
+// 首次切到分析页才请求（省掉无谓的聚合查询）
+watch(activeTab, (tab) => {
+  if (tab === 'login' && analysis.value === null) {
+    void loadAnalysis()
+  }
+})
+watch(analysisDays, () => {
+  if (activeTab.value === 'login') {
+    void loadAnalysis()
+  }
+})
+// 主题 / 语言变化后重绘：echarts 是命令式渲染，不会跟着响应式更新
+watch([() => setting.isDark, locale], async () => {
+  await nextTick()
+  renderTrend()
+})
+
+function onResize(): void {
+  trendChart?.resize()
+}
+
 /* ---- 链路视图 ---- */
 const traceVisible = ref(false)
 const trace = ref<LogTrace | null>(null)
@@ -281,10 +519,70 @@ onMounted(() => {
   if (initialTraceId) {
     void openTrace(initialTraceId)
   }
+  window.addEventListener('resize', onResize)
 })
 
-function onExport(): void {
-  void logExport({ ...query })
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  // 组件销毁时手动释放：echarts 实例不挂在 DOM 上，不 dispose 会随路由切换堆积
+  trendChart?.dispose()
+  trendChart = null
+})
+
+async function onExport(): Promise<void> {
+  const result = await logExport({ ...query })
+  // 超阈值：后端已转后台任务，打开任务中心看进度
+  if (result?.async) {
+    ElMessage.info(t('log.exportQueued', { total: result.total }))
+    await openTasks()
+  }
+}
+
+/* ---- 导出任务中心 ---- */
+const taskVisible = ref(false)
+const taskLoading = ref(false)
+const tasks = ref<ExportTaskRow[]>([])
+
+async function loadTasks(): Promise<void> {
+  taskLoading.value = true
+  try {
+    tasks.value = await exportTaskList()
+  } finally {
+    taskLoading.value = false
+  }
+}
+
+async function openTasks(): Promise<void> {
+  taskVisible.value = true
+  await loadTasks()
+}
+
+function taskStatusText(status: number): string {
+  const map: Record<number, string> = {
+    0: t('log.taskStatusPending'),
+    1: t('log.taskStatusRunning'),
+    2: t('log.taskStatusDone'),
+    3: t('log.taskStatusFailed'),
+    4: t('log.taskStatusExpired'),
+  }
+
+  return map[status] ?? String(status)
+}
+
+function taskStatusTag(status: number): 'info' | 'warning' | 'success' | 'danger' {
+  const map: Record<number, 'info' | 'warning' | 'success' | 'danger'> = {
+    0: 'info',
+    1: 'warning',
+    2: 'success',
+    3: 'danger',
+    4: 'info',
+  }
+
+  return map[status] ?? 'info'
+}
+
+function downloadTask(row: ExportTaskRow): void {
+  void exportTaskDownload(row.id)
 }
 
 /* ---- 详情 ---- */
@@ -350,6 +648,94 @@ async function onDeleteOne(id: number): Promise<void> {
 </script>
 
 <style scoped>
+/* ---- 标签页 ---- */
+.log-tabs {
+  flex: none;
+  margin-bottom: 12px;
+}
+
+/* ---- 登录分析 ---- */
+.login-analysis {
+  flex: 1;
+  min-height: 0;
+  padding-right: 2px;
+  overflow: auto;
+}
+
+.analysis-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.analysis-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.analysis-card {
+  padding: 14px 16px;
+  background: var(--art-card-bg);
+  border: 1px solid var(--art-card-border);
+  border-radius: var(--art-radius);
+}
+
+.analysis-card-value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--art-main);
+}
+
+.analysis-card-value.is-ok {
+  color: var(--art-success);
+}
+
+.analysis-card-value.is-danger {
+  color: var(--art-danger);
+}
+
+.analysis-card-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--art-muted);
+}
+
+.analysis-panel {
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: var(--art-card-bg);
+  border: 1px solid var(--art-card-border);
+  border-radius: var(--art-radius);
+}
+
+.analysis-panel-title {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--art-main);
+}
+
+.analysis-chart {
+  height: 260px;
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.analysis-hint {
+  padding-bottom: 4px;
+  font-size: 12px;
+  color: var(--art-muted);
+}
+
 .log-title {
   color: var(--art-main);
 }

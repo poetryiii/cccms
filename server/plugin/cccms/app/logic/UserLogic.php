@@ -36,6 +36,19 @@ final class UserLogic
     /** 对外安全字段（不含 password）。 */
     private const SAFE_FIELDS = 'id,username,nickname,avatar,email,phone,status,remark,login_time,login_ip,create_time,update_time';
 
+    /**
+     * 可写字段白名单（防 Mass Assignment）。
+     *
+     * 前三行是 `sys_user` 的可写列；`role_ids` / `dept_ids` / `post_ids` 不是表列，
+     * 是前端提交的**关联数组**，由 `pull()` 摘出来交给 `assign()` 系列处理。
+     * 刻意不含 `id` / `tenant_id` / `login_time` / `login_ip` / `create_time` / `delete_time`：
+     * 它们要么由系统维护，要么会破坏数据归属与审计。
+     */
+    private const FIELDS = [
+        'username', 'password', 'nickname', 'avatar', 'email', 'phone', 'status', 'remark',
+        'role_ids', 'dept_ids', 'post_ids',
+    ];
+
     public static function paginate(array $params): array
     {
         // trashed=1 → 回收站视图（只看已删除），与正常列表共用同一套列。
@@ -93,6 +106,8 @@ final class UserLogic
 
     public static function create(array $data): int
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         self::assertUniqueUsername((string)($data['username'] ?? ''), 0);
         if (empty($data['password'])) {
             throw new ApiException(I18n::t('user.password_required'), 422);
@@ -117,6 +132,8 @@ final class UserLogic
 
     public static function update(int $id, array $data): void
     {
+        $data = FilterInput::only($data, self::FIELDS);
+
         self::assertExists($id);
         self::assertInScope($id);
         if (!empty($data['username'])) {

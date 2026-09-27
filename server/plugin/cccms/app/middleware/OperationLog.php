@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace plugin\cccms\app\middleware;
 
 use plugin\cccms\support\ApiException;
+use plugin\cccms\support\ClientIp;
+use plugin\cccms\support\LogChain;
 use plugin\cccms\support\LogRedactor;
 use plugin\cccms\support\PermissionMeta;
 use plugin\cccms\support\SysConfig;
 use support\Log;
-use think\facade\Db;
 use Throwable;
 use Webman\Http\Request;
 use Webman\Http\Response;
@@ -27,6 +28,18 @@ use Webman\MiddlewareInterface;
 class OperationLog implements MiddlewareInterface
 {
     private const WRITE_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH'];
+
+    /**
+     * 不写日志的路径：探活 / 指标抓取。
+     *
+     * 这类请求由机器按固定周期发起（容器 `HEALTHCHECK` 每 30s、Prometheus 每 15~60s），
+     * 写进 `sys_log` 有两个坏处：
+     *   1. 真实业务日志被周期请求淹没，按时间翻日志变得没有意义；
+     *   2. `/metrics` 的请求量**本身就是从 `sys_log` 派生的**，抓取记录会自反馈成
+     *      「请求量虚高」，越抓越高。
+     * 慢接口告警同样跳过：探针变慢本身就意味着依赖故障，告警会随故障持续刷屏。
+     */
+    private const SKIP_PATHS = ['/ping', '/healthz', '/metrics'];
 
     /** text 上限 65535 字节，utf8mb4 单字符最多 4 字节，8000 字符足够安全 */
     private const TEXT_LIMIT = 8000;
@@ -63,6 +76,10 @@ class OperationLog implements MiddlewareInterface
      */
     private function alertSlow(Request $request, int $cost): void
     {
+        if (self::isProbe($request)) {
+            return;
+        }
+
         $threshold = SysConfig::getInt('log.slow_threshold', 0);
         if ($threshold <= 0 || $cost < $threshold) {
             return;
@@ -75,7 +92,7 @@ class OperationLog implements MiddlewareInterface
                 '/' . ltrim($request->path(), '/'),
                 $cost,
                 (string)($request->user?->username ?? '-'),
-                (string)($request->getRealIp() ?: '-'),
+                (ClientIp::resolve($request) ?: '-'),
                 (string)($request->traceId ?? '-')
             ));
         } catch (Throwable) {
@@ -85,6 +102,11 @@ class OperationLog implements MiddlewareInterface
 
     private function write(Request $request, ?Response $response, ?Throwable $error, int $cost): void
     {
+        // 探活 / 指标抓取是周期性的机器请求，不入业务日志（见 SKIP_PATHS 说明）
+        if (self::isProbe($request)) {
+            return;
+        }
+
         // 登录接口由 AuthLogic 自己记（path='/auth/login'），这里跳过：那时没有用户上下文，
         // 中间件记出来的 user_id=0 且 node/title 为空，是重复且不友好的记录
         if ($request->method() === 'POST' && '/' . ltrim($request->path(), '/') === '/auth/login') {
@@ -122,7 +144,9 @@ class OperationLog implements MiddlewareInterface
                 $result     = (string)$response?->rawBody();
             }
 
-            Db::name('log')->insert([
+            // 统一走 LogChain：它一边算链式哈希（防篡改），一边负责这一次插入。
+            // 直接 Db::name('log')->insert() 会绕过链，留下无法校验的"空洞"。
+            LogChain::write([
                 'user_id'     => $user?->id ?? 0,
                 'username'    => $user?->username ?? '',
                 'status'      => $error !== null ? 0 : 1,
@@ -133,7 +157,8 @@ class OperationLog implements MiddlewareInterface
                 'title'       => (string)($meta['title'] ?? ''),
                 // 由 Cors（中间件链第一环）生成，可把一次请求的多条记录串起来
                 'trace_id'    => (string)($request->traceId ?? ''),
-                'ip'          => (string)($request->getRealIp() ?: ''),
+                // 可信代理 + 取最右非可信 IP；不能用 getRealIp()（反代下取 XFF 首值，可伪造）
+                'ip'          => ClientIp::resolve($request),
                 'ua'          => self::clip((string)$request->header('User-Agent', ''), 255),
                 'params'      => self::encode($params),
                 'result'      => self::clip($result, self::TEXT_LIMIT),
@@ -145,6 +170,12 @@ class OperationLog implements MiddlewareInterface
             // 日志写入失败绝不影响业务
             Log::error('operation log failed: ' . $e->getMessage());
         }
+    }
+
+    /** 是否为「探活 / 指标」这类不该入日志的周期性请求 */
+    private static function isProbe(Request $request): bool
+    {
+        return in_array('/' . ltrim($request->path(), '/'), self::SKIP_PATHS, true);
     }
 
     /**

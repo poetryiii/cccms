@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace plugin\cccms\command;
 
+use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SqlFileRunner;
 use plugin\cccms\support\storage\StorageDriver;
-use plugin\cccms\support\PermissionCache;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -81,6 +81,24 @@ CREATE TABLE IF NOT EXISTS `%scrontab_retry` (
   KEY `idx_crontab` (`crontab_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务独立重试队列'
 SQL,
+        'export_task' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%sexport_task` (
+  `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
+  `type`        varchar(32)  NOT NULL DEFAULT '' COMMENT '导出类型 log/user/data_rule',
+  `user_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '创建人',
+  `params`      text         COMMENT '导出参数 JSON',
+  `status`      tinyint      NOT NULL DEFAULT 0 COMMENT '0待处理 1处理中 2完成 3失败 4已过期',
+  `total_rows`  int          NOT NULL DEFAULT 0 COMMENT '导出行数',
+  `file_path`   varchar(255) NOT NULL DEFAULT '' COMMENT '归档文件路径（相对 runtime）',
+  `file_name`   varchar(128) NOT NULL DEFAULT '' COMMENT '下载文件名',
+  `error`       varchar(255) NOT NULL DEFAULT '' COMMENT '失败原因',
+  `create_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_status` (`user_id`, `status`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='异步导出任务'
+SQL,
         'notice' => <<<'SQL'
 CREATE TABLE IF NOT EXISTS `%snotice` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -124,6 +142,18 @@ CREATE TABLE IF NOT EXISTS `%snotice_read` (
   UNIQUE KEY `uk_notice_user` (`notice_id`, `user_id`),
   KEY `idx_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通知公告已读'
+SQL,
+        // 审计链状态（单行）：链尾 + 校验起点。只查 sys_log 的 max(id) 无法发现尾行被删
+        'log_chain' => <<<'SQL'
+CREATE TABLE IF NOT EXISTS `%slog_chain` (
+  `id`          tinyint unsigned NOT NULL COMMENT '固定为 1（单行表）',
+  `tail_id`     bigint unsigned NOT NULL DEFAULT 0 COMMENT '链尾记录 id',
+  `tail_hash`   char(64)  NOT NULL DEFAULT '' COMMENT '链尾行哈希',
+  `anchor_id`   bigint unsigned NOT NULL DEFAULT 0 COMMENT '校验起点 id（更早的行已归档或清理）',
+  `anchor_hash` char(64)  NOT NULL DEFAULT '' COMMENT '校验起点行哈希',
+  `update_time` datetime  DEFAULT NULL COMMENT '最后一次推进链的时间',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计链状态'
 SQL,
     ];
 
@@ -204,6 +234,24 @@ SQL,
         'security.reset_daily_limit' => [
             '每日发送上限', 'input-number', '10', '安全', 17,
             '同一账号每天最多发送几次验证码；0 表示不限制',
+        ],
+        'security.trusted_proxies' => [
+            '可信代理', 'textarea', '', '安全', 18,
+            '反向代理/网关的 IP 或 CIDR，逗号或换行分隔（如 172.18.0.0/16）；'
+            . '仅这些来源的 X-Forwarded-For 会被采信以溯源真实客户端 IP，留空表示不采信任何转发头（直接用直连 IP）',
+        ],
+        'upload.chunk_max_size' => [
+            '分片上传上限', 'input-number', '2048', '上传', 2,
+            '分片上传合并后文件的总大小上限（单位 MB，建议远大于单文件上限）；前端在文件超过单文件上限时自动切换到分片上传',
+        ],
+        'export.keep_minutes' => [
+            '导出文件保留时长', 'input-number', '60', '日志', 5,
+            '异步导出的归档文件保留多少分钟，过期即删并置为「已过期」',
+        ],
+        'security.metrics_allow_ips' => [
+            '可观测端点白名单', 'textarea', '127.0.0.1,::1', '安全', 19,
+            '允许访问 /healthz 与 /metrics 的 IP 或 CIDR，逗号或换行分隔（如 172.18.0.0/16）；'
+            . '非白名单来源一律返回 404。留空等同 127.0.0.1,::1（仅容器内探活可用）',
         ],
         'mail.enabled' => [
             '启用邮箱通道', 'switch', '0', '邮箱', 1,
@@ -289,6 +337,9 @@ SQL,
             'status'   => "tinyint NOT NULL DEFAULT 1 COMMENT '1成功 0失败' AFTER `title`",
             'message'  => "varchar(255) NOT NULL DEFAULT '' COMMENT '结果说明(登录失败原因等)' AFTER `status`",
             'trace_id' => "varchar(32) NOT NULL DEFAULT '' COMMENT '请求链路 ID' AFTER `message`",
+            // 审计链式哈希（P2-14）：空串 = 未纳入链（本能力上线前的历史行，或降级写入的行）
+            'prev_hash' => "char(64) NOT NULL DEFAULT '' COMMENT '上一条记录的 row_hash' AFTER `cost`",
+            'row_hash'  => "char(64) NOT NULL DEFAULT '' COMMENT '本行内容哈希 sha256(prev_hash + 规范化的行内容)' AFTER `prev_hash`",
         ],
         // 定时任务增强：重叠保护 / 超时 / 失败重试 / 分组
         'crontab' => [

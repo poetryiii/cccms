@@ -55,6 +55,27 @@ final class FilterInput
     }
 
     /**
+     * 只保留白名单内的键（防 Mass Assignment）。
+     *
+     * 写接口拿到的 `$request->post()` 是**整数组**：可写字段集合原本是**隐式**的 ——
+     * 靠模型声明约束、靠 `ScopedQuery` 在写库前剔除 `hidden` / `readonly` / `mask` / `encrypt`。
+     * 这套设计自洽，但「哪些普通业务字段可写」没人显式声明，新增字段时容易漏判；
+     * 反过来，客户端多塞一个恰好是库列的键（如 `tenant_id` / `create_by` / `dept_id`），
+     * 只要模型没声明为只读就会被写进去。
+     *
+     * 因此每个写方法入口都要显式声明「可写字段」，白名单外的键一律丢弃。
+     * 用 `array_intersect_key` 而不是遍历赋值，保证**顺序与类型原样保留**。
+     *
+     * @param array<string,mixed> $raw
+     * @param string[]            $allow
+     * @return array<string,mixed>
+     */
+    public static function only(array $raw, array $allow): array
+    {
+        return array_intersect_key($raw, array_flip($allow));
+    }
+
+    /**
      * 归一化时间范围（列头时间筛选下发 `start` / `end`）。
      *
      * 值可能是纯日期（`Y-m-d`），也可能带时分秒（`Y-m-d H:i:s`，选择器统一带时间）。

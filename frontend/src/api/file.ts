@@ -35,3 +35,45 @@ export function fileMove(ids: number[], categoryId: number) {
 }
 
 export const FILE_UPLOAD_URL = `${import.meta.env.VITE_API_BASE || '/api'}/file/upload`
+
+/** 单请求直传（≤ 单文件上限时使用） */
+export function fileUpload(form: FormData) {
+  return http.post<FileRow>('/file/upload', form)
+}
+
+/** 分片上传第一步的返回 */
+export interface UploadInitResult {
+  instant: boolean
+  /** 秒传命中：直接复用已有记录 */
+  file?: FileRow
+  /** 非秒传：会话与分片参数 */
+  upload_id?: string
+  chunk_size?: number
+  total_chunks?: number
+  /** 已上传的分片序号（断点续传依据） */
+  received?: number[]
+}
+
+export function fileUploadInit(data: {
+  name: string
+  size: number
+  chunks: number
+  hash?: string
+  category_id?: number
+}) {
+  return http.post<UploadInitResult>('/file/upload/init', data)
+}
+
+/** 上传一片（幂等，可重传；带文件名让后端把它当文件而不是普通字段） */
+export function fileUploadChunk(uploadId: string, index: number, chunk: Blob, fileName: string) {
+  const form = new FormData()
+  form.append('upload_id', uploadId)
+  form.append('index', String(index))
+  form.append('chunk', chunk, fileName)
+
+  return http.post<{ received: number; total_chunks: number }>('/file/upload/chunk', form)
+}
+
+export function fileUploadComplete(uploadId: string) {
+  return http.post<{ instant: boolean; file: FileRow }>('/file/upload/complete', { upload_id: uploadId })
+}

@@ -15,6 +15,10 @@ declare(strict_types=1);
  *
  * 需要数据库的用例在数据库不可用时**自动跳过**（本地无库也能跑）。
  * 退出码：有失败 → 1，否则 0（可直接用于 CI）。
+ *
+ * **CI 必须让集成用例真跑**：设 `CCCMS_TEST_REQUIRE_SERVICES=1` 后，
+ * 「跳过」会升级为「失败」——否则 CI 里服务没起好时用例会静默全绿，
+ * 安全链路（登录双维度锁定、租户边界）等于没有回归保护。
  */
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -86,6 +90,33 @@ function suite(string $name): void
 }
 
 /**
+ * 依赖服务是否**必须**可用：CI 里设 `CCCMS_TEST_REQUIRE_SERVICES=1`，
+ * 此时「跳过」按失败处理（详见文件头说明）。
+ */
+function requireServices(): bool
+{
+    $raw = strtolower((string)getenv('CCCMS_TEST_REQUIRE_SERVICES'));
+
+    return in_array($raw, ['1', 'true', 'on', 'yes'], true);
+}
+
+/** 跳过一条需要依赖服务的用例：要求服务时记为失败，否则记为跳过 */
+function skipNeedsService(string $name, string $reason): void
+{
+    if (requireServices()) {
+        Suite::$failed++;
+        Suite::$failures[] = "[{$name}] 依赖服务不可用（{$reason}），而本次运行要求服务必须可用";
+
+        echo '  ' . Suite::color('✗', 'red') . " {$name}（{$reason}，本次要求服务必须可用）\n";
+
+        return;
+    }
+
+    Suite::$skipped++;
+    echo '  ' . Suite::color('○ 跳过', 'gray') . " {$name}（{$reason}）\n";
+}
+
+/**
  * 注册一个用例。
  *
  * @param callable():void $fn
@@ -98,8 +129,7 @@ function test(string $name, callable $fn, bool $requiresDb = false): void
     }
 
     if ($requiresDb && !Suite::dbAvailable()) {
-        Suite::$skipped++;
-        echo '  ' . Suite::color('○ 跳过', 'gray') . " {$name}（数据库不可用）\n";
+        skipNeedsService($name, '数据库不可用');
         return;
     }
 
@@ -172,6 +202,15 @@ if (Suite::$failed > 0) {
     foreach (Suite::$failures as $failure) {
         echo '  - ' . $failure . "\n";
     }
+    exit(1);
+}
+
+// 要求依赖服务可用时，「跳过」也视为失败：CI 里服务没起好不该静默全绿
+if (requireServices() && Suite::$skipped > 0) {
+    echo "\n" . Suite::color(
+        '本次运行要求依赖服务必须可用，但有 ' . Suite::$skipped . ' 条用例被跳过（MySQL / Redis 没起好？）',
+        'red'
+    ) . "\n";
     exit(1);
 }
 

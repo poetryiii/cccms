@@ -78,6 +78,16 @@ class LogArchiveCommand extends Command
             $result['driver']
         ));
 
+        if ($result['chain_broken']) {
+            // 数据已归档（不能因为链有问题就不存），但这件事必须让人看见
+            $output->writeln(
+                '<error>注意：归档过程中发现审计链不自洽</error>'
+                . '（已在上传的 .chain.json 里记录 broken_at），请执行 php webman cccms:log-verify 核查'
+            );
+
+            return Command::FAILURE;
+        }
+
         return Command::SUCCESS;
     }
 }

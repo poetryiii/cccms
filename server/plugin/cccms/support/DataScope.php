@@ -520,7 +520,7 @@ final class DataScope
                 case 'encrypt':
                     $row[$field] = Cipher::encrypt((string)$row[$field]);
                     break;
-                // readonly：出参照常，仅入参剔除
+                    // readonly：出参照常，仅入参剔除
             }
         }
     }

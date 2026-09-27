@@ -1,2 +1,9 @@
 /dist
+
 /node_modules
+
+# 单元测试覆盖率产物（`npm run test:coverage`），只作本地/CI 查看，不入库
+/coverage
+
+# Vitest 缓存
+node_modules/.vite

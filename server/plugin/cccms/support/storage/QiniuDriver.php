@@ -21,9 +21,9 @@ final class QiniuDriver extends StorageDriver
     /** 需解密的字段（后台以 `enc:` + Cipher 密文存储） */
     private const SECRET_KEYS = ['secret_key'];
 
-    public function upload(UploadFile $file): array
+    public function upload(UploadFile $file, ?int $maxBytes = null): array
     {
-        [$ext, $size] = $this->validate($file);
+        [$ext, $size, $mime] = $this->validate($file, $maxBytes);
 
         $path = $this->objectName($ext);
         $local = (string)$file->getPathname();
@@ -34,7 +34,7 @@ final class QiniuDriver extends StorageDriver
             throw new ApiException('七牛上传失败：' . (is_object($err) && method_exists($err, 'message') ? $err->message() : (string)$err), 500);
         }
 
-        return $this->result($file, $path, $ext, $size, $hash);
+        return $this->result($file, $path, $ext, $size, $hash, $mime);
     }
 
     public function put(string $content, string $path): array
