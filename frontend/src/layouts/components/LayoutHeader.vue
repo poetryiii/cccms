@@ -16,7 +16,7 @@
         <el-breadcrumb-item
           v-for="(c, index) in crumbs"
           :key="c.path"
-          :to="index < crumbs.length - 1 && c.path ? { path: c.path } : undefined"
+          :to="c.linkable && index < crumbs.length - 1 ? { path: c.path } : undefined"
         >
           {{ c.title }}
         </el-breadcrumb-item>
@@ -326,6 +326,7 @@ import { reloadMenus, resetAfterLogout } from '@/router'
 import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
 import { tenantOptions, type TenantOption } from '@/api/tenant'
 import type { NoticeRow } from '@/api/notice'
+import type { MenuNode } from '@/api/types'
 import { useAppStore } from '@/stores/app'
 import { translateTitle } from '@/locales/title'
 import { useMenuStore } from '@/stores/menu'
@@ -349,14 +350,61 @@ const userStore = useUserStore()
 
 const settingsVisible = ref(false)
 
-/** 面包屑：动态路由都挂在 layout 下，故跳过第一层 */
-const crumbs = computed(() =>
-  route.matched
-    .slice(1)
-    .filter((r) => r.meta?.title)
-    // meta.title 可能是静态路由的 i18n key，也可能是后端已翻译好的菜单标题
-    .map((r) => ({ path: r.path, title: translateTitle(r.meta.title) })),
-)
+/** 面包屑项：`linkable=false` 表示只展示文字（目录没有真实路由，给了链接也是 404） */
+interface Crumb {
+  path: string
+  title: string
+  linkable: boolean
+}
+
+/**
+ * 在菜单树里找出「从根节点到命中节点」的整条链路；找不到返回空数组。
+ *
+ * @param nodes 菜单树
+ * @param node  目标菜单的权限节点标识（对应路由 meta.node）
+ */
+function menuChain(nodes: MenuNode[], node: string): MenuNode[] {
+  for (const item of nodes) {
+    if (item.node === node) {
+      return [item]
+    }
+    const sub = item.children?.length ? menuChain(item.children, node) : []
+    if (sub.length) {
+      return [item, ...sub]
+    }
+  }
+  return []
+}
+
+/**
+ * 面包屑。
+ *
+ * 动态路由是**扁平**注册的（目录 `type=1` 不产生路由记录，见 `router/index.ts` 的 `buildRoutes`），
+ * 因此 `route.matched` 里只有叶子页 —— 直接用它渲染会丢掉目录层级
+ * （「首页 → 权限配置 → 租户管理」只剩「首页 → 租户管理」）。这里改从菜单树取祖先链补上目录。
+ */
+const crumbs = computed<Crumb[]>(() => {
+  const node = String(route.meta?.node ?? '')
+  const chain = node ? menuChain(menuStore.menus, node) : []
+
+  if (chain.length > 0) {
+    return chain.map((item, index) => ({
+      path: item.path,
+      title: translateTitle(item.title),
+      // 目录没有对应路由，不可跳转；末级是当前页，同样不给链接
+      linkable: item.type !== 1 && index < chain.length - 1,
+    }))
+  }
+
+  // 兜底：不在菜单树里的静态页（个人中心 / 403 / 404 等）仍按路由匹配链展示
+  return (
+    route.matched
+      .slice(1)
+      .filter((r) => r.meta?.title)
+      // meta.title 可能是静态路由的 i18n key，也可能是后端已翻译好的菜单标题
+      .map((r) => ({ path: r.path, title: translateTitle(r.meta.title), linkable: true }))
+  )
+})
 
 const avatarText = computed(() => (userStore.nickname || 'U').charAt(0).toUpperCase())
 
