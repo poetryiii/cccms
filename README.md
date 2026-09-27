@@ -231,6 +231,7 @@ docker compose exec webman php webman cccms:perm-scan
 php webman cccms:perm-scan            # 扫描注解 → 校验 + 同步按钮节点
 php webman cccms:perm-scan --check    # 只校验不写库（CI 用）
 php webman cccms:menu-sync            # 同步 db/menu.php 的目录 / 菜单
+php webman cccms:plugin-create shop   # 生成业务插件骨架并自动登记菜单（前台 / 后台交互式选择）
 php webman cccms:db-upgrade           # 已有库补新增表 / 列 / 索引（幂等）
 php webman cccms:update               # 从上游仓库同步框架更新（安全覆盖 + 自动备份）
 php webman cccms:data-scope-check     # 校验数据权限接入
