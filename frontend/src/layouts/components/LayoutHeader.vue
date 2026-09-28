@@ -58,25 +58,7 @@
         </el-button>
       </el-tooltip>
 
-      <!-- 4. 消息通知 -->
-      <el-tooltip :content="t('layout.notice')" placement="bottom">
-        <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0">
-          <el-button text circle @click="openNoticeDrawer">
-            <el-icon :size="17"><i class="ri-notification-3-line" /></el-icon>
-          </el-button>
-        </el-badge>
-      </el-tooltip>
-
-      <!-- 5. 全局导出任务中心：各模块的异步导出统一在这里看进度并下载 -->
-      <el-tooltip :content="t('export.title')" placement="bottom">
-        <el-badge :value="exportTaskStore.unfinished" :max="99" :hidden="exportTaskStore.unfinished === 0">
-          <el-button text circle @click="exportTaskStore.open()">
-            <el-icon :size="17"><i class="ri-download-2-line" /></el-icon>
-          </el-button>
-        </el-badge>
-      </el-tooltip>
-
-      <!-- 6. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
+      <!-- 4. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
       <el-dropdown v-if="canRefresh" trigger="click" @command="onRefreshCommand">
         <span class="header-action" :class="{ 'is-loading': refreshing }">
           <el-icon :size="17"><i class="ri-refresh-line" /></el-icon>
@@ -110,9 +92,11 @@
       <!-- 8. 用户名 -->
       <el-dropdown trigger="click" @command="onUserCommand">
         <div class="header-user">
-          <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
-            {{ avatarText }}
-          </el-avatar>
+          <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0" class="header-user-badge">
+            <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
+              {{ avatarText }}
+            </el-avatar>
+          </el-badge>
           <span class="header-user-name">{{ userStore.nickname || t('layout.notLoggedIn') }}</span>
           <el-icon :size="12"><i class="ri-arrow-down-s-line" /></el-icon>
         </div>
@@ -125,6 +109,20 @@
                     ? t('layout.superAdmin')
                     : (userStore.profile?.roles || []).join(' / ') || t('layout.normalUser')
                 }}
+              </span>
+            </el-dropdown-item>
+            <el-dropdown-item command="notice" divided>
+              <el-icon><i class="ri-notification-3-line" /></el-icon>
+              <span class="header-menu-label">{{ t('layout.notice') }}</span>
+              <span v-if="noticeStore.unread > 0" class="header-menu-count">
+                {{ noticeStore.unread > 99 ? '99+' : noticeStore.unread }}
+              </span>
+            </el-dropdown-item>
+            <el-dropdown-item command="export">
+              <el-icon><i class="ri-download-2-line" /></el-icon>
+              <span class="header-menu-label">{{ t('export.title') }}</span>
+              <span v-if="exportTaskStore.unfinished > 0" class="header-menu-count">
+                {{ exportTaskStore.unfinished > 99 ? '99+' : exportTaskStore.unfinished }}
               </span>
             </el-dropdown-item>
             <el-dropdown-item command="profile" divided>
@@ -639,11 +637,19 @@ function onLocaleCommand(command: string | number | object): void {
 }
 
 /**
- * 用户名下拉：只剩个人中心与登出（消息 / 系统刷新 / 租户切换已拆成顶栏独立入口）。
+ * 用户名下拉：消息 / 导出任务 / 个人中心 / 登出。
  */
 async function onUserCommand(command: string | number | object): Promise<void> {
   const cmd = String(command)
 
+  if (cmd === 'notice') {
+    openNoticeDrawer()
+    return
+  }
+  if (cmd === 'export') {
+    exportTaskStore.open()
+    return
+  }
   if (cmd === 'profile') {
     router.push('/profile')
     return
@@ -740,6 +746,13 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   background: var(--art-hover-bg);
 }
 
+/* 未读消息徽标贴在头像上（下拉收起时也看得见） */
+.header-user-badge {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
 .header-user-avatar {
   font-size: 13px;
   background: var(--art-primary);
@@ -770,6 +783,20 @@ async function onUserCommand(command: string | number | object): Promise<void> {
 /* 下拉菜单项里的占位：让右侧的图标（如语言当前项的勾选）贴右 */
 .header-menu-label {
   flex: 1;
+}
+
+/* 下拉菜单项右侧的未读 / 未完成计数徽标 */
+.header-menu-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 0 5px;
+  margin-left: auto;
+  font-size: 11px;
+  line-height: 16px;
+  color: #fff;
+  text-align: center;
+  background: var(--art-danger);
+  border-radius: 9px;
 }
 
 /* ---- 快捷导航 ---- */
