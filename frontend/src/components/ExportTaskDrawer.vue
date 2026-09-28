@@ -1,7 +1,8 @@
 <template>
   <el-drawer :model-value="store.visible" :title="t('export.title')" size="560px" append-to-body @close="store.close()">
     <div class="export-toolbar">
-      <el-button size="small" :icon="Refresh" :loading="store.loading" @click="store.load()">
+      <el-button size="small" :loading="store.loading" @click="store.load()"
+        ><template #icon><i class="ri-refresh-line" /></template>
         {{ t('export.refresh') }}
       </el-button>
       <span class="export-hint">{{ t('export.hint') }}</span>
@@ -26,13 +27,8 @@
       <el-table-column :label="t('table.action')" width="110" align="center">
         <template #default="{ row }">
           <!-- 完成直接下载；待处理时点击会触发后端同步生成并下载（Windows 无定时进程的兜底） -->
-          <el-button
-            v-if="row.status === 0 || row.status === 2"
-            link
-            type="primary"
-            :icon="Download"
-            @click="download(row)"
-          >
+          <el-button v-if="row.status === 0 || row.status === 2" link type="primary" @click="download(row)"
+            ><template #icon><i class="ri-download-2-line" /></template>
             {{ row.status === 2 ? t('export.download') : t('export.generateDownload') }}
           </el-button>
           <span v-else-if="row.status === 3" class="export-error" :title="row.error">{{ row.error }}</span>
@@ -43,7 +39,6 @@
 </template>
 
 <script setup lang="ts">
-import { Download, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { exportTaskDownload, type ExportTaskRow } from '@/api/export'
 import { useExportTaskStore } from '@/stores/exportTask'

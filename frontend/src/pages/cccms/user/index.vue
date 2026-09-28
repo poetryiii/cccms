@@ -18,7 +18,8 @@
       @selection-change="onSelectionChange"
     >
       <template #toolbar>
-        <el-button v-auth="'cccms:user:save'" type="primary" :icon="Plus" @click="openCreate">
+        <el-button v-auth="'cccms:user:save'" type="primary" @click="openCreate"
+          ><template #icon><i class="ri-add-line" /></template>
           {{ t('common.create') }}
         </el-button>
 
@@ -26,7 +27,7 @@
         <el-dropdown :disabled="selected.length === 0" @command="onBatchCommand">
           <el-button :disabled="selected.length === 0">
             {{ selected.length ? t('user.batchActionCount', { count: selected.length }) : t('user.batchAction') }}
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            <el-icon class="el-icon--right"><i class="ri-arrow-down-s-line" /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -203,7 +204,6 @@ defineOptions({ name: 'cccms:user' })
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'

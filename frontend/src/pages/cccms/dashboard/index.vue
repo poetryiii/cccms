@@ -79,7 +79,7 @@
           >
             <el-icon :size="18" class="shortcut-icon"><ArtIcon :name="item.icon" /></el-icon>
             <span class="shortcut-title">{{ item.title }}</span>
-            <el-icon :size="13" class="shortcut-handle"><Rank /></el-icon>
+            <el-icon :size="13" class="shortcut-handle"><i class="ri-award-line" /></el-icon>
           </div>
         </div>
       </el-card>
@@ -93,7 +93,6 @@ defineOptions({ name: 'dashboard' })
 import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { Rank } from '@element-plus/icons-vue'
 import * as echarts from 'echarts/core'
 import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'

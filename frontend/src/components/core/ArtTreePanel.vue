@@ -12,12 +12,12 @@
     <el-input
       v-if="filterable"
       v-model="keyword"
-      :prefix-icon="Search"
       placeholder="搜索名称"
       clearable
       size="small"
       class="art-tree-panel-filter"
-    />
+      ><template #prefix><i class="ri-search-line" /></template
+    ></el-input>
 
     <div class="art-tree-panel-body">
       <el-tree
@@ -43,8 +43,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElTree } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
-
 /**
  * 左侧树面板：搜索 + 树 + 高亮当前节点。
  *

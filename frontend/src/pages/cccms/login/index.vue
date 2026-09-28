@@ -4,8 +4,8 @@
       <el-tooltip :content="setting.isDark ? t('login.toLight') : t('login.toDark')" placement="bottom">
         <el-button text circle @click="setting.toggleDark()">
           <el-icon :size="18">
-            <Sunny v-if="setting.isDark" />
-            <Moon v-else />
+            <i class="ri-sun-line" v-if="setting.isDark" />
+            <i class="ri-moon-line" v-else />
           </el-icon>
         </el-button>
       </el-tooltip>
@@ -28,7 +28,7 @@
 
         <ul class="login-brand-list">
           <li v-for="item in features" :key="item">
-            <el-icon :size="14"><Check /></el-icon>
+            <el-icon :size="14"><i class="ri-check-line" /></el-icon>
             <span>{{ item }}</span>
           </li>
         </ul>
@@ -55,7 +55,7 @@
           <el-form-item prop="username">
             <el-input v-model="form.username" :placeholder="t('login.username')" clearable>
               <template #prefix
-                ><el-icon><User /></el-icon
+                ><el-icon><i class="ri-user-line" /></el-icon
               ></template>
             </el-input>
           </el-form-item>
@@ -63,7 +63,7 @@
           <el-form-item prop="password">
             <el-input v-model="form.password" type="password" show-password :placeholder="t('login.password')">
               <template #prefix
-                ><el-icon><Lock /></el-icon
+                ><el-icon><i class="ri-lock-line" /></el-icon
               ></template>
             </el-input>
           </el-form-item>
@@ -72,7 +72,7 @@
             <div class="login-captcha">
               <el-input v-model="form.captcha" :placeholder="t('login.captcha')">
                 <template #prefix
-                  ><el-icon><Key /></el-icon
+                  ><el-icon><i class="ri-key-2-line" /></el-icon
                 ></template>
               </el-input>
               <img class="login-captcha-img" :src="captchaImage" :alt="t('login.captcha')" @click="loadCaptcha" />
@@ -153,7 +153,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Check, Key, Lock, Moon, Sunny, User } from '@element-plus/icons-vue'
 import { captcha as captchaApi, resetPassword, sendResetCode, type ResetChannel } from '@/api/auth'
 import { passwordValidator } from '@/utils/password'
 import { useAppStore } from '@/stores/app'

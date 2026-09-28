@@ -2,6 +2,7 @@
 import '@/assets/styles/index.css'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
+import 'remixicon/fonts/remixicon.css'
 import '@/assets/styles/element.css'
 import '@/assets/styles/app.css'
 import 'nprogress/nprogress.css'

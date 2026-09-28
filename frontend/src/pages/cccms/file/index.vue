@@ -10,7 +10,9 @@
         >
           <template #header>
             <el-tooltip :content="t('file.addTopCategory')" placement="top">
-              <el-button v-auth="'cccms:file:category_save'" text circle :icon="Plus" @click="openCategoryCreate(0)" />
+              <el-button v-auth="'cccms:file:category_save'" text circle @click="openCategoryCreate(0)"
+                ><i class="ri-add-line"
+              /></el-button>
             </el-tooltip>
             <!-- 只显示附件模块的分类，避免看到字典模块的分类 -->
             <RecycleToggle
@@ -26,17 +28,23 @@
               <span v-if="data.id > 0" class="cat-node-actions">
                 <!-- 分类回收站：节点操作换成还原 / 彻底删除 -->
                 <template v-if="categoryRecycle">
-                  <el-icon :title="t('table.restore')" @click.stop="onCategoryRestore(data)"><RefreshLeft /></el-icon>
+                  <el-icon :title="t('table.restore')" @click.stop="onCategoryRestore(data)"
+                    ><i class="ri-restart-line"
+                  /></el-icon>
                   <el-icon :title="t('table.forceDelete')" @click.stop="onCategoryForceDelete(data)">
-                    <Delete />
+                    <i class="ri-delete-bin-line" />
                   </el-icon>
                 </template>
                 <template v-else>
                   <el-icon :title="t('file.addSubCategory')" @click.stop="openCategoryCreate(data.id)"
-                    ><Plus
+                    ><i class="ri-add-line"
                   /></el-icon>
-                  <el-icon :title="t('file.renameCategory')" @click.stop="openCategoryEdit(data)"><Edit /></el-icon>
-                  <el-icon :title="t('common.delete')" @click.stop="onCategoryDelete(data)"><Delete /></el-icon>
+                  <el-icon :title="t('file.renameCategory')" @click.stop="openCategoryEdit(data)"
+                    ><i class="ri-edit-line"
+                  /></el-icon>
+                  <el-icon :title="t('common.delete')" @click.stop="onCategoryDelete(data)"
+                    ><i class="ri-delete-bin-line"
+                  /></el-icon>
                 </template>
               </span>
             </span>
@@ -71,15 +79,13 @@
             :before-upload="onBeforeUpload"
             :http-request="onHttpRequest"
           >
-            <el-button type="primary" :icon="Upload" :loading="uploading">{{ t('file.upload') }}</el-button>
+            <el-button type="primary" :loading="uploading"
+              ><template #icon><i class="ri-upload-2-line" /></template>{{ t('file.upload') }}</el-button
+            >
           </el-upload>
 
-          <el-button
-            v-auth="'cccms:file:move'"
-            :icon="FolderChecked"
-            :disabled="selection.length === 0"
-            @click="openMove"
-          >
+          <el-button v-auth="'cccms:file:move'" :disabled="selection.length === 0" @click="openMove"
+            ><template #icon><i class="ri-folder-check-line" /></template>
             {{ selection.length ? t('file.moveWithCount', { count: selection.length }) : t('file.move') }}
           </el-button>
 
@@ -99,7 +105,7 @@
             preview-teleported
             fit="cover"
           />
-          <el-icon v-else :size="18" class="file-thumb-icon"><Document /></el-icon>
+          <el-icon v-else :size="18" class="file-thumb-icon"><i class="ri-file-text-line" /></el-icon>
         </template>
 
         <template #ext="{ row }">
@@ -209,7 +215,6 @@ import {
   type UploadRawFile,
   type UploadRequestOptions,
 } from 'element-plus'
-import { Delete, Document, Edit, FolderChecked, Plus, RefreshLeft, Upload } from '@element-plus/icons-vue'
 import ArtSplitView from '@/components/core/ArtSplitView.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'

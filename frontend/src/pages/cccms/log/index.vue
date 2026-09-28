@@ -27,16 +27,17 @@
           v-auth="'cccms:log:delete'"
           type="danger"
           plain
-          :icon="Delete"
           :disabled="selection.length === 0"
           @click="onBatchDelete"
-        >
+          ><template #icon><i class="ri-delete-bin-line" /></template>
           {{ selection.length ? t('log.deleteSelectedCount', { count: selection.length }) : t('log.deleteSelected') }}
         </el-button>
       </template>
 
       <template #toolbar-right>
-        <el-button v-auth="'cccms:log:export'" :icon="Download" @click="onExport"> {{ t('common.export') }} </el-button>
+        <el-button v-auth="'cccms:log:export'" @click="onExport"
+          ><template #icon><i class="ri-download-2-line" /></template> {{ t('common.export') }}
+        </el-button>
       </template>
 
       <!-- 结果：成功 / 失败 -->
@@ -90,7 +91,9 @@
           <el-radio-button :value="30">{{ t('log.analysisRange30') }}</el-radio-button>
           <el-radio-button :value="90">{{ t('log.analysisRange90') }}</el-radio-button>
         </el-radio-group>
-        <el-button size="small" :icon="Refresh" @click="loadAnalysis">{{ t('log.analysisRefresh') }}</el-button>
+        <el-button size="small" @click="loadAnalysis"
+          ><template #icon><i class="ri-refresh-line" /></template>{{ t('log.analysisRefresh') }}</el-button
+        >
       </div>
 
       <template v-if="analysis">
@@ -246,7 +249,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Download, Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'

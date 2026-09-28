@@ -53,17 +53,12 @@
           </el-form-item>
 
           <el-form-item>
-            <el-button type="primary" :loading="previewing" :icon="View" @click="onPreview">
+            <el-button type="primary" :loading="previewing" @click="onPreview"
+              ><template #icon><i class="ri-eye-line" /></template>
               {{ t('generator.preview') }}
             </el-button>
-            <el-button
-              v-auth="'cccms:generator:generate'"
-              type="danger"
-              plain
-              :loading="generating"
-              :icon="MagicStick"
-              @click="onGenerate"
-            >
+            <el-button v-auth="'cccms:generator:generate'" type="danger" plain :loading="generating" @click="onGenerate"
+              ><template #icon><i class="ri-magic-line" /></template>
               {{ t('generator.generate') }}
             </el-button>
           </el-form-item>
@@ -132,7 +127,6 @@ defineOptions({ name: 'cccms:generator' })
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { MagicStick, View } from '@element-plus/icons-vue'
 import {
   generatorColumns,
   generatorGenerate,

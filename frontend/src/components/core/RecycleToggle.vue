@@ -6,16 +6,14 @@
       circle
       class="recycle-toggle"
       :class="{ 'is-active': active }"
-      :icon="Delete"
       @click="emit('toggle')"
-    />
+      ><i class="ri-delete-bin-line"
+    /></el-button>
   </el-tooltip>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { Delete } from '@element-plus/icons-vue'
-
 /**
  * 模块页表格右上角的「回收站」开关。
  *

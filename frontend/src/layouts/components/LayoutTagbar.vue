@@ -17,7 +17,7 @@
             tab.path === HOME_PATH ? t('layout.home') : translateTitle(tab.title)
           }}</span>
           <el-icon v-if="!tab.pinned" class="tagbar-item-close" :size="12" @click.stop="close(tab.path)">
-            <Close />
+            <i class="ri-close-line" />
           </el-icon>
         </div>
       </div>
@@ -32,21 +32,21 @@
       >
         <el-button text circle size="small" :class="{ 'is-favorite': activeFavorite }" @click="toggleFavoriteActive">
           <el-icon :size="15">
-            <StarFilled v-if="activeFavorite" />
-            <Star v-else />
+            <i class="ri-star-fill" v-if="activeFavorite" />
+            <i class="ri-star-line" v-else />
           </el-icon>
         </el-button>
       </el-tooltip>
 
       <el-tooltip :content="t('layout.refreshPage')" placement="bottom">
         <el-button text circle size="small" @click="refreshActive">
-          <el-icon :size="15"><RefreshRight /></el-icon>
+          <el-icon :size="15"><i class="ri-refresh-line" /></el-icon>
         </el-button>
       </el-tooltip>
 
       <el-dropdown trigger="click" @command="onDropdownCommand">
         <el-button text circle size="small">
-          <el-icon :size="15"><More /></el-icon>
+          <el-icon :size="15"><i class="ri-more-2-fill" /></el-icon>
         </el-button>
         <template #dropdown>
           <el-dropdown-menu>
@@ -79,7 +79,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Close, More, RefreshRight, Star, StarFilled } from '@element-plus/icons-vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import { translateTitle } from '@/locales/title'
 import { useMenuStore } from '@/stores/menu'

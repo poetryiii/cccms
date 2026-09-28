@@ -10,7 +10,9 @@
         >
           <template #header>
             <el-tooltip :content="t('dict.addTopCategory')" placement="top">
-              <el-button v-auth="'cccms:dict:category_save'" text circle :icon="Plus" @click="openCategoryCreate(0)" />
+              <el-button v-auth="'cccms:dict:category_save'" text circle @click="openCategoryCreate(0)"
+                ><i class="ri-add-line"
+              /></el-button>
             </el-tooltip>
             <!-- 只显示本模块的分类，避免看到附件模块的分类 -->
             <RecycleToggle
@@ -27,17 +29,23 @@
               <span v-if="data.id > 0" class="cat-node-actions">
                 <!-- 分类回收站：节点操作换成还原 / 彻底删除 -->
                 <template v-if="categoryRecycle">
-                  <el-icon :title="t('table.restore')" @click.stop="onCategoryRestore(data)"><RefreshLeft /></el-icon>
+                  <el-icon :title="t('table.restore')" @click.stop="onCategoryRestore(data)"
+                    ><i class="ri-restart-line"
+                  /></el-icon>
                   <el-icon :title="t('table.forceDelete')" @click.stop="onCategoryForceDelete(data)">
-                    <Delete />
+                    <i class="ri-delete-bin-line" />
                   </el-icon>
                 </template>
                 <template v-else>
                   <el-icon :title="t('dict.addSubCategory')" @click.stop="openCategoryCreate(data.id)"
-                    ><Plus
+                    ><i class="ri-add-line"
                   /></el-icon>
-                  <el-icon :title="t('dict.renameCategory')" @click.stop="openCategoryEdit(data)"><Edit /></el-icon>
-                  <el-icon :title="t('common.delete')" @click.stop="onCategoryDelete(data)"><Delete /></el-icon>
+                  <el-icon :title="t('dict.renameCategory')" @click.stop="openCategoryEdit(data)"
+                    ><i class="ri-edit-line"
+                  /></el-icon>
+                  <el-icon :title="t('common.delete')" @click.stop="onCategoryDelete(data)"
+                    ><i class="ri-delete-bin-line"
+                  /></el-icon>
                 </template>
               </span>
             </span>
@@ -63,14 +71,15 @@
         @selection-change="onSelectionChange"
       >
         <template #toolbar>
-          <el-button v-auth="'cccms:dict:save'" type="primary" :icon="Plus" @click="openTypeCreate">
+          <el-button v-auth="'cccms:dict:save'" type="primary" @click="openTypeCreate"
+            ><template #icon><i class="ri-add-line" /></template>
             {{ t('dict.createType') }}
           </el-button>
           <!-- 批量操作：只作用于可见行，越权 / 已删除的 id 由后端跳过并回报 -->
           <el-dropdown :disabled="selected.length === 0" @command="onBatchCommand">
             <el-button :disabled="selected.length === 0">
               {{ selected.length ? t('dict.batchActionCount', { count: selected.length }) : t('dict.batchAction') }}
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              <el-icon class="el-icon--right"><i class="ri-arrow-down-s-line" /></el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
@@ -182,13 +191,8 @@
     <!-- 字典数据抽屉 -->
     <el-drawer v-model="dataVisible" :title="t('dict.dataTitle', { name: currentType.name })" size="680px">
       <div class="drawer-toolbar">
-        <el-button
-          v-if="!dataRecycle"
-          v-auth="'cccms:dict:save_data'"
-          type="primary"
-          :icon="Plus"
-          @click="openDataCreate"
-        >
+        <el-button v-if="!dataRecycle" v-auth="'cccms:dict:save_data'" type="primary" @click="openDataCreate"
+          ><template #icon><i class="ri-add-line" /></template>
           {{ t('dict.createData') }}
         </el-button>
         <!-- 批量操作（字典数据） -->
@@ -197,7 +201,7 @@
             {{
               selectedData.length ? t('dict.batchActionCount', { count: selectedData.length }) : t('dict.batchAction')
             }}
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            <el-icon class="el-icon--right"><i class="ri-arrow-down-s-line" /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -291,7 +295,6 @@ defineOptions({ name: 'cccms:dict' })
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowDown, Delete, Edit, Plus, RefreshLeft } from '@element-plus/icons-vue'
 import ArtSplitView from '@/components/core/ArtSplitView.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'

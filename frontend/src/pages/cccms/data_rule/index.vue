@@ -17,10 +17,12 @@
       @force-delete="onForceDelete"
     >
       <template #toolbar>
-        <el-button v-auth="'cccms:data_rule:save'" type="primary" :icon="Plus" @click="openCreate">
+        <el-button v-auth="'cccms:data_rule:save'" type="primary" @click="openCreate"
+          ><template #icon><i class="ri-add-line" /></template>
           {{ t('data_rule.create') }}
         </el-button>
-        <el-button v-auth="'cccms:data_rule:table_index'" :icon="Setting" @click="openTables">
+        <el-button v-auth="'cccms:data_rule:table_index'" @click="openTables"
+          ><template #icon><i class="ri-settings-3-line" /></template>
           {{ t('data_rule.managedTables') }}
         </el-button>
       </template>
@@ -150,7 +152,8 @@
             </el-tabs>
 
             <div class="bind-add">
-              <el-button type="primary" plain size="small" :icon="Plus" :disabled="!canAdd" @click="addBinding">
+              <el-button type="primary" plain size="small" :disabled="!canAdd" @click="addBinding"
+                ><template #icon><i class="ri-add-line" /></template>
                 {{ t('data_rule.addToSelected') }}
               </el-button>
               <span class="form-tip bind-add-tip">{{ addHint }}</span>
@@ -386,7 +389,6 @@ defineOptions({ name: 'cccms:data_rule' })
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus, Setting } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import { useRecycle } from '@/composables/useRecycle'

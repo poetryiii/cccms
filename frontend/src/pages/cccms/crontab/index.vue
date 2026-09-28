@@ -15,7 +15,8 @@
       @force-delete="onForceDelete"
     >
       <template #toolbar>
-        <el-button v-auth="'cccms:crontab:save'" type="primary" :icon="Plus" @click="openCreate">
+        <el-button v-auth="'cccms:crontab:save'" type="primary" @click="openCreate"
+          ><template #icon><i class="ri-add-line" /></template>
           {{ t('crontab.create') }}
         </el-button>
         <span class="toolbar-tip">{{ t('crontab.toolbarTip') }}</span>
@@ -161,7 +162,6 @@ defineOptions({ name: 'cccms:crontab' })
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import CronEditor from '@/components/core/CronEditor.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'

@@ -12,25 +12,23 @@
           </div>
 
           <div class="cfg-head-right">
-            <el-input
-              v-model="keyword"
-              :placeholder="t('config.searchPlaceholder')"
-              clearable
-              :prefix-icon="Search"
-              class="cfg-search"
-            />
-            <el-button :icon="Refresh" @click="reload">{{ t('common.refresh') }}</el-button>
-            <el-button :icon="RefreshLeft" :disabled="!dirtyCount" @click="discard">
+            <el-input v-model="keyword" :placeholder="t('config.searchPlaceholder')" clearable class="cfg-search"
+              ><template #prefix><i class="ri-search-line" /></template
+            ></el-input>
+            <el-button @click="reload"
+              ><template #icon><i class="ri-refresh-line" /></template>{{ t('common.refresh') }}</el-button
+            >
+            <el-button :disabled="!dirtyCount" @click="discard"
+              ><template #icon><i class="ri-restart-line" /></template>
               {{ t('config.discard') }}
             </el-button>
             <el-button
               v-auth="'cccms:config:save'"
               type="primary"
-              :icon="Check"
               :loading="saving"
               :disabled="!dirtyCount"
               @click="onSave"
-            >
+              ><template #icon><i class="ri-check-line" /></template>
               {{ dirtyCount ? t('config.saveCount', { count: dirtyCount }) : t('common.save') }}
             </el-button>
           </div>
@@ -155,7 +153,6 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Refresh, RefreshLeft, Search } from '@element-plus/icons-vue'
 import { configList, configSave, type ConfigItem, type ConfigOption } from '@/api/config'
 
 const { t } = useI18n({ useScope: 'global' })

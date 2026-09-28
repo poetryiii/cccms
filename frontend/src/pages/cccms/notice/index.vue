@@ -15,7 +15,8 @@
       @force-delete="onForceDelete"
     >
       <template #toolbar>
-        <el-button v-auth="'cccms:notice:save'" type="primary" :icon="Plus" @click="openCreate">
+        <el-button v-auth="'cccms:notice:save'" type="primary" @click="openCreate"
+          ><template #icon><i class="ri-add-line" /></template>
           {{ t('common.create') }}
         </el-button>
       </template>
@@ -211,7 +212,6 @@ defineOptions({ name: 'cccms:notice' })
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import ArtRichEditor from '@/components/core/ArtRichEditor.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import ArtNodePicker from '@/components/core/ArtNodePicker.vue'

@@ -12,7 +12,8 @@
       @force-delete="onForceDelete"
     >
       <template #toolbar>
-        <el-button v-auth="'cccms:menu:save'" type="primary" :icon="Plus" @click="openCreate(0)">
+        <el-button v-auth="'cccms:menu:save'" type="primary" @click="openCreate(0)"
+          ><template #icon><i class="ri-add-line" /></template>
           {{ t('common.create') }}
         </el-button>
         <span class="toolbar-tip">
@@ -139,7 +140,6 @@ defineOptions({ name: 'cccms:menu' })
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'

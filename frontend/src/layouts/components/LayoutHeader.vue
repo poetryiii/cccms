@@ -4,8 +4,8 @@
       <el-tooltip :content="collapsed ? t('layout.expandMenu') : t('layout.collapseMenu')" placement="bottom">
         <el-button text circle @click="toggleCollapse">
           <el-icon :size="18">
-            <Fold v-if="!collapsed" />
-            <Expand v-else />
+            <i v-if="!collapsed" class="ri-menu-fold-line" />
+            <i v-else class="ri-menu-unfold-line" />
           </el-icon>
         </el-button>
       </el-tooltip>
@@ -27,14 +27,14 @@
       <!-- 1. 快捷导航：搜索菜单并跳转（Ctrl/⌘ + K） -->
       <el-tooltip :content="t('layout.quickNavHotkey')" placement="bottom">
         <el-button text circle @click="openSearch">
-          <el-icon :size="17"><Search /></el-icon>
+          <el-icon :size="17"><i class="ri-search-line" /></el-icon>
         </el-button>
       </el-tooltip>
 
       <!-- 2. 语言切换 -->
       <el-dropdown trigger="click" @command="onLocaleCommand">
         <span class="header-action">
-          <el-icon :size="17"><Reading /></el-icon>
+          <el-icon :size="17"><i class="ri-translate-2" /></el-icon>
         </span>
         <template #dropdown>
           <el-dropdown-menu>
@@ -45,7 +45,7 @@
               :disabled="item.value === currentLocale"
             >
               <span class="header-menu-label">{{ item.label }}</span>
-              <el-icon v-if="item.value === currentLocale"><Check /></el-icon>
+              <el-icon v-if="item.value === currentLocale"><i class="ri-check-line" /></el-icon>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -54,7 +54,7 @@
       <!-- 3. 全屏 -->
       <el-tooltip :content="t('layout.fullscreen')" placement="bottom">
         <el-button text circle @click="toggleFullscreen">
-          <el-icon :size="17"><FullScreen /></el-icon>
+          <el-icon :size="17"><i class="ri-fullscreen-line" /></el-icon>
         </el-button>
       </el-tooltip>
 
@@ -62,7 +62,7 @@
       <el-tooltip :content="t('layout.notice')" placement="bottom">
         <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0">
           <el-button text circle @click="openNoticeDrawer">
-            <el-icon :size="17"><Bell /></el-icon>
+            <el-icon :size="17"><i class="ri-notification-3-line" /></el-icon>
           </el-button>
         </el-badge>
       </el-tooltip>
@@ -71,7 +71,7 @@
       <el-tooltip :content="t('export.title')" placement="bottom">
         <el-badge :value="exportTaskStore.unfinished" :max="99" :hidden="exportTaskStore.unfinished === 0">
           <el-button text circle @click="exportTaskStore.open()">
-            <el-icon :size="17"><Download /></el-icon>
+            <el-icon :size="17"><i class="ri-download-2-line" /></el-icon>
           </el-button>
         </el-badge>
       </el-tooltip>
@@ -79,7 +79,7 @@
       <!-- 6. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
       <el-dropdown v-if="canRefresh" trigger="click" @command="onRefreshCommand">
         <span class="header-action" :class="{ 'is-loading': refreshing }">
-          <el-icon :size="17"><Refresh /></el-icon>
+          <el-icon :size="17"><i class="ri-refresh-line" /></el-icon>
         </span>
         <template #dropdown>
           <el-dropdown-menu>
@@ -93,7 +93,7 @@
       <!-- 7. 切换租户（租户是硬边界，跨租户只能显式切换；仅平台超管可见） -->
       <el-dropdown v-if="userStore.superAdmin" trigger="click" @command="onTenantCommand">
         <span class="header-action">
-          <el-icon :size="17"><Switch /></el-icon>
+          <el-icon :size="17"><i class="ri-swap-line" /></el-icon>
         </span>
         <template #dropdown>
           <el-dropdown-menu>
@@ -114,7 +114,7 @@
             {{ avatarText }}
           </el-avatar>
           <span class="header-user-name">{{ userStore.nickname || t('layout.notLoggedIn') }}</span>
-          <el-icon :size="12"><ArrowDown /></el-icon>
+          <el-icon :size="12"><i class="ri-arrow-down-s-line" /></el-icon>
         </div>
         <template #dropdown>
           <el-dropdown-menu>
@@ -128,11 +128,11 @@
               </span>
             </el-dropdown-item>
             <el-dropdown-item command="profile" divided>
-              <el-icon><User /></el-icon>
+              <el-icon><i class="ri-user-line" /></el-icon>
               {{ t('layout.profile') }}
             </el-dropdown-item>
             <el-dropdown-item command="logout" divided>
-              <el-icon><SwitchButton /></el-icon>
+              <el-icon><i class="ri-logout-box-r-line" /></el-icon>
               {{ t('layout.logout') }}
             </el-dropdown-item>
           </el-dropdown-menu>
@@ -142,7 +142,7 @@
       <!-- 9. 设置 -->
       <el-tooltip :content="t('layout.themeSetting')" placement="bottom">
         <el-button text circle @click="settingsVisible = true">
-          <el-icon :size="17"><Setting /></el-icon>
+          <el-icon :size="17"><i class="ri-settings-3-line" /></el-icon>
         </el-button>
       </el-tooltip>
     </div>
@@ -165,9 +165,10 @@
         v-model="keyword"
         :placeholder="t('layout.searchPlaceholder')"
         clearable
-        :prefix-icon="Search"
         @keydown.enter="gotoFirst"
-      />
+      >
+        <template #prefix><i class="ri-search-line" /></template>
+      </el-input>
 
       <!-- 收藏：置顶展示，可用箭头调整顺序（顺序存在本机，按用户 + 租户隔离） -->
       <div class="header-search-section">
@@ -201,7 +202,7 @@
                 :disabled="index === 0"
                 @click.stop="menuStore.moveFavorite(item.path, -1)"
               >
-                <el-icon :size="14"><Top /></el-icon>
+                <el-icon :size="14"><i class="ri-arrow-up-double-line" /></el-icon>
               </el-button>
             </el-tooltip>
             <el-tooltip :content="t('layout.favoriteMoveDown')" placement="top">
@@ -212,12 +213,12 @@
                 :disabled="index === menuStore.favoriteMenus.length - 1"
                 @click.stop="menuStore.moveFavorite(item.path, 1)"
               >
-                <el-icon :size="14"><Bottom /></el-icon>
+                <el-icon :size="14"><i class="ri-arrow-down-double-line" /></el-icon>
               </el-button>
             </el-tooltip>
             <el-tooltip :content="t('layout.favoriteRemove')" placement="top">
               <el-button text circle size="small" @click.stop="menuStore.toggleFavorite(item.path)">
-                <el-icon :size="14" class="header-search-star"><StarFilled /></el-icon>
+                <el-icon :size="14" class="header-search-star"><i class="ri-star-fill" /></el-icon>
               </el-button>
             </el-tooltip>
           </span>
@@ -248,8 +249,8 @@
               >
                 <el-button text circle size="small" @click.stop="menuStore.toggleFavorite(item.path)">
                   <el-icon :size="14" :class="{ 'header-search-star': menuStore.isFavorite(item.path) }">
-                    <StarFilled v-if="menuStore.isFavorite(item.path)" />
-                    <Star v-else />
+                    <i v-if="menuStore.isFavorite(item.path)" class="ri-star-fill" />
+                    <i v-else class="ri-star-line" />
                   </el-icon>
                 </el-button>
               </el-tooltip>
@@ -323,26 +324,6 @@ import { computed, onBeforeUnmount, onMounted, nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  ArrowDown,
-  Bell,
-  Bottom,
-  Check,
-  Download,
-  Expand,
-  Fold,
-  FullScreen,
-  Reading,
-  Refresh,
-  Search,
-  Setting,
-  Star,
-  StarFilled,
-  Switch,
-  SwitchButton,
-  Top,
-  User,
-} from '@element-plus/icons-vue'
 import ArtSettingsDrawer from '@/components/core/ArtSettingsDrawer.vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import ExportTaskDrawer from '@/components/ExportTaskDrawer.vue'

@@ -22,7 +22,8 @@
         @force-delete="onForceDelete"
       >
         <template #toolbar>
-          <el-button v-auth="'cccms:dept:save'" type="primary" :icon="Plus" @click="openCreate()">
+          <el-button v-auth="'cccms:dept:save'" type="primary" @click="openCreate()"
+            ><template #icon><i class="ri-add-line" /></template>
             {{ t('common.create') }}
           </el-button>
           <el-tag v-if="currentId" type="info" closable @close="currentId = 0">
@@ -111,7 +112,6 @@ defineOptions({ name: 'cccms:dept' })
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import ArtSplitView from '@/components/core/ArtSplitView.vue'
 import ArtTable from '@/components/core/ArtTable.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'

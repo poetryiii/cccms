@@ -116,15 +116,16 @@
               </div>
 
               <div class="actions">
-                <el-button :loading="checking" :icon="Search" @click="onCheck"> {{ t('upgrade.check') }} </el-button>
+                <el-button :loading="checking" @click="onCheck"
+                  ><template #icon><i class="ri-search-line" /></template> {{ t('upgrade.check') }}
+                </el-button>
                 <el-button
                   v-auth="'cccms:upgrade:run'"
                   type="primary"
-                  :icon="Refresh"
                   :loading="running"
                   :disabled="!plan"
                   @click="onRun"
-                >
+                  ><template #icon><i class="ri-refresh-line" /></template>
                   {{ t('upgrade.run') }}
                 </el-button>
               </div>
@@ -261,7 +262,6 @@ defineOptions({ name: 'cccms:upgrade' })
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import {
   upgradeCheck,
