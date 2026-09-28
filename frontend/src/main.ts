@@ -23,7 +23,10 @@ const pinia = createPinia()
 app.use(pinia)
 // Element Plus 的语言包不在这里写死：App.vue 用 ElConfigProvider 按当前语言响应式下发，
 // 这样切换语言后日期选择器 / 分页等内置文案会立即跟随，无需刷新页面。
-app.use(ElementPlus, { zIndex: 3000 })
+// ⚠️ 不能在这里传 `{ zIndex: 3000 }`：installer 会以 global=true 写入全局配置（不含 locale），
+// 之后 ElConfigProvider 因「全局配置已存在」而无法再注入 locale，ElMessageBox / ElMessage
+// 等命令式组件（挂在 body 下）会回退成英文。zIndex 改在 App.vue 的 ElConfigProvider 上传。
+app.use(ElementPlus)
 app.use(i18n)
 setupDirectives(app)
 app.use(router)
