@@ -754,6 +754,14 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   white-space: nowrap;
 }
 
+/* 移动端：用户名只展示头像，隐藏用户名文字与下拉箭头 */
+@media (max-width: 900px) {
+  .header-user-name,
+  .header-user > .el-icon {
+    display: none;
+  }
+}
+
 .header-user-role {
   font-size: 12px;
   color: var(--art-muted);
