@@ -20,21 +20,32 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const LOCALES = path.join(ROOT, 'src/locales')
 const DEFAULT_LOCALE = 'zh-CN'
 
-/** 把某个语言目录的 index.ts 打包成 CJS 并在内存里求值，返回语言包对象 */
+/**
+ * 把某个语言目录下的每个 `*.ts` 模块分别打包成 CJS 并求值，按「文件名 = 命名空间」组装成语言包。
+ *
+ * 注意：`index.ts` 现在用 `import.meta.glob` 自动收集模块（Vite 专属语法），esbuild 不支持，
+ * 所以这里不再打包 `index.ts`，而是直接对每个模块文件逐个打包求值 —— 口径与运行时的
+ * 「文件名 = 命名空间」完全一致。
+ */
 async function loadLocale(locale) {
-  const result = await build({
-    entryPoints: [path.join(LOCALES, locale, 'index.ts')],
-    bundle: true,
-    format: 'cjs',
-    platform: 'node',
-    write: false,
-    logLevel: 'silent',
-  })
+  const files = await moduleFiles(locale)
+  const messages = {}
+  for (const file of files) {
+    const result = await build({
+      entryPoints: [path.join(LOCALES, locale, file)],
+      bundle: true,
+      format: 'cjs',
+      platform: 'node',
+      write: false,
+      logLevel: 'silent',
+    })
 
-  const code = result.outputFiles[0].text
-  const module = { exports: {} }
-  new Function('module', 'exports', 'require', code)(module, module.exports, () => ({}))
-  return module.exports.default ?? module.exports
+    const code = result.outputFiles[0].text
+    const module = { exports: {} }
+    new Function('module', 'exports', 'require', code)(module, module.exports, () => ({}))
+    messages[file.replace(/\.ts$/, '')] = module.exports.default ?? module.exports
+  }
+  return messages
 }
 
 /** 把嵌套语言包拍平成 `命名空间.键名` 的集合 */
