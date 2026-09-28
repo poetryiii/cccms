@@ -8,6 +8,7 @@ use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SoftDelete;
+use plugin\cccms\support\TenantContext;
 use plugin\cccms\support\UserContext;
 use think\facade\Db;
 
@@ -24,6 +25,15 @@ final class MenuLogic
         'parent_id', 'type', 'title', 'path', 'component', 'icon', 'sort',
         'node', 'status', 'keep_alive', 'remark',
     ];
+
+    /**
+     * 平台级模块 slug 前缀：这些模块的菜单与按钮只在**平台租户**下可见。
+     *
+     * 用前缀匹配可同时命中菜单 slug（`cccms:tenant`）与其按钮 slug（`cccms:tenant:index` 等）。
+     * 按钮节点是 perm-scan 从控制器注解生成的、不在 `db/menu.php` 里声明，
+     * 只有前缀匹配才能把按钮也一并藏掉，避免「菜单没了、按钮节点残留」。
+     */
+    private const PLATFORM_ONLY_PREFIXES = ['cccms:tenant'];
 
     /**
      * 全量菜单树（菜单管理用）。
@@ -45,7 +55,14 @@ final class MenuLogic
         return $trashed ? $all : self::localizeTitles(self::buildTree($all, 0));
     }
 
-    /** 当前用户可见的菜单树（前端动态路由）。 */
+    /**
+     * 当前用户可见的菜单树（前端动态路由）。
+     *
+     * 切到非平台租户后隐藏「平台级」模块（见 `PLATFORM_ONLY_PREFIXES`）——超管也不例外：
+     * 否则超管切到租户后仍能看到「租户管理」入口，点进去才被 `TenantLogic::assertPlatformAdmin()`
+     * 403，体验割裂。前端据此不注册对应动态路由，手动敲 URL 也落 404；
+     * 后端接口的 `assertPlatformAdmin` 兜底仍在，不依赖前端。
+     */
     public static function userTree(UserContext $user): array
     {
         $all = SoftDelete::apply(Db::name('menu'))
@@ -53,6 +70,10 @@ final class MenuLogic
             ->order('sort', 'asc')
             ->order('id', 'asc')
             ->select()->toArray();
+
+        if ($user->tenantId !== TenantContext::PLATFORM_ID) {
+            $all = array_values(array_filter($all, static fn (array $item): bool => !self::isPlatformOnly($item)));
+        }
 
         if ($user->isSuperAdmin()) {
             return self::localizeTitles(self::buildTree($all, 0));
@@ -98,6 +119,19 @@ final class MenuLogic
 
         $filtered = array_values(array_filter($all, fn ($i) => isset($visible[(int)$i['id']])));
         return self::localizeTitles(self::buildTree($filtered, 0));
+    }
+
+    /** 节点是否属于平台级模块（只应出现在平台租户的菜单里） */
+    private static function isPlatformOnly(array $item): bool
+    {
+        $node = (string)($item['node'] ?? '');
+        foreach (self::PLATFORM_ONLY_PREFIXES as $prefix) {
+            if ($node === $prefix || str_starts_with($node, $prefix . ':')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
