@@ -33,10 +33,9 @@
 
       <!-- 2. 语言切换 -->
       <el-dropdown trigger="click" @command="onLocaleCommand">
-        <button type="button" class="header-locale">
-          <span>{{ currentLocale === 'zh-CN' ? '中' : 'EN' }}</span>
-          <el-icon :size="12"><ArrowDown /></el-icon>
-        </button>
+        <span class="header-action">
+          <el-icon :size="17"><Reading /></el-icon>
+        </span>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item
@@ -79,9 +78,9 @@
 
       <!-- 6. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
       <el-dropdown v-if="canRefresh" trigger="click" @command="onRefreshCommand">
-        <el-button text circle :loading="refreshing">
+        <span class="header-action" :class="{ 'is-loading': refreshing }">
           <el-icon :size="17"><Refresh /></el-icon>
-        </el-button>
+        </span>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item v-for="scope in refreshScopes" :key="scope" :command="scope" :disabled="refreshing">
@@ -93,9 +92,9 @@
 
       <!-- 7. 切换租户（租户是硬边界，跨租户只能显式切换；仅平台超管可见） -->
       <el-dropdown v-if="userStore.superAdmin" trigger="click" @command="onTenantCommand">
-        <el-button text circle>
+        <span class="header-action">
           <el-icon :size="17"><Switch /></el-icon>
-        </el-button>
+        </span>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item disabled divided>
@@ -333,6 +332,7 @@ import {
   Expand,
   Fold,
   FullScreen,
+  Reading,
   Refresh,
   Search,
   Setting,
@@ -706,9 +706,40 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   align-items: center;
 }
 
+/* 顶栏下拉的触发按钮：用原生 span 而非 el-button，
+   规避 el-button 作为 el-dropdown trigger 时的点击透传兼容问题 */
+.header-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--art-main);
+  cursor: pointer;
+  border-radius: 50%;
+  outline: none;
+  transition: background-color 0.15s ease;
+}
+
+.header-action:hover {
+  background-color: var(--art-hover-bg);
+}
+
+.header-action.is-loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
 .header-breadcrumb {
   margin-left: 6px;
   font-size: 13px;
+}
+
+/* 移动端：隐藏面包屑，把顶栏空间让给右侧按钮 */
+@media (max-width: 900px) {
+  .header-breadcrumb {
+    display: none;
+  }
 }
 
 .header-user {
@@ -725,28 +756,6 @@ async function onUserCommand(command: string | number | object): Promise<void> {
 }
 
 .header-user:hover {
-  background: var(--art-hover-bg);
-}
-
-/* 语言切换按钮（顶栏第 2 位，显示当前语言缩写） */
-.header-locale {
-  display: inline-flex;
-  gap: 2px;
-  align-items: center;
-  height: 36px;
-  padding: 0 8px;
-  margin-left: 4px;
-  font-size: 13px;
-  color: var(--art-main);
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  border-radius: calc(var(--art-radius) - 2px);
-  outline: none;
-  transition: background 0.15s ease;
-}
-
-.header-locale:hover {
   background: var(--art-hover-bg);
 }
 
