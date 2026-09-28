@@ -386,6 +386,27 @@ final class OnlineSession
     }
 
     /**
+     * 去重后的在线用户数：同一账号多端登录只算 1 个。
+     *
+     * 与 `count()`（会话数）不同，工作台「在线用户」卡片要的是**人数**不是会话数。
+     * 需要扫一遍会话明细取 `user_id` 去重 —— 在线量级有限，全量扫描可接受；
+     * 僵尸会话（明细已过期、索引残留）不计入，并顺手摘掉索引里的残留成员。
+     */
+    public static function countUsers(): int
+    {
+        $users   = [];
+        $orphans = self::scanAll(static function (string $jti, array $row) use (&$users): void {
+            $userId = (int)($row['user_id'] ?? 0);
+            if ($userId > 0) {
+                $users[$userId] = true;
+            }
+        });
+        self::dropOrphans($orphans);
+
+        return count($users);
+    }
+
+    /**
      * 清理已过期（明细键已消失）的索引成员。
      *
      * @return int 清理条数

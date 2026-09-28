@@ -41,10 +41,10 @@ final class OnlineLogic
         );
     }
 
-    /** 在线会话数（工作台 / 顶栏可用） */
+    /** 在线用户数（去重：同一账号多端登录只算 1 个；工作台卡片用） */
     public static function count(): int
     {
-        return OnlineSession::count();
+        return OnlineSession::countUsers();
     }
 
     /**
