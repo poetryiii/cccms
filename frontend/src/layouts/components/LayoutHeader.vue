@@ -24,34 +24,51 @@
     </div>
 
     <div class="header-right">
-      <!-- 快捷导航：搜索菜单并跳转（Ctrl/⌘ + K） -->
+      <!-- 1. 快捷导航：搜索菜单并跳转（Ctrl/⌘ + K） -->
       <el-tooltip :content="t('layout.quickNavHotkey')" placement="bottom">
         <el-button text circle @click="openSearch">
           <el-icon :size="17"><Search /></el-icon>
         </el-button>
       </el-tooltip>
 
-      <!-- 关闭多标签页时标签栏不存在，刷新入口回落到顶栏 -->
-      <el-tooltip v-if="!appStore.tagsView" :content="t('layout.refreshPage')" placement="bottom">
-        <el-button text circle @click="refreshPage">
-          <el-icon :size="17"><RefreshRight /></el-icon>
-        </el-button>
-      </el-tooltip>
+      <!-- 2. 语言切换 -->
+      <el-dropdown trigger="click" @command="onLocaleCommand">
+        <button type="button" class="header-locale">
+          <span>{{ currentLocale === 'zh-CN' ? '中' : 'EN' }}</span>
+          <el-icon :size="12"><ArrowDown /></el-icon>
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item
+              v-for="item in SUPPORTED_LOCALES"
+              :key="item.value"
+              :command="item.value"
+              :disabled="item.value === currentLocale"
+            >
+              <span class="header-menu-label">{{ item.label }}</span>
+              <el-icon v-if="item.value === currentLocale"><Check /></el-icon>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
 
-      <!-- 明暗切换已并入「主题设置」抽屉里的「主题模式」，这里不再重复放一个图标 -->
-      <el-tooltip :content="t('layout.themeSetting')" placement="bottom">
-        <el-button text circle @click="settingsVisible = true">
-          <el-icon :size="17"><Setting /></el-icon>
-        </el-button>
-      </el-tooltip>
-
+      <!-- 3. 全屏 -->
       <el-tooltip :content="t('layout.fullscreen')" placement="bottom">
         <el-button text circle @click="toggleFullscreen">
           <el-icon :size="17"><FullScreen /></el-icon>
         </el-button>
       </el-tooltip>
 
-      <!-- 全局导出任务中心：各模块的异步导出统一在这里看进度并下载 -->
+      <!-- 4. 消息通知 -->
+      <el-tooltip :content="t('layout.notice')" placement="bottom">
+        <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0">
+          <el-button text circle @click="openNoticeDrawer">
+            <el-icon :size="17"><Bell /></el-icon>
+          </el-button>
+        </el-badge>
+      </el-tooltip>
+
+      <!-- 5. 全局导出任务中心：各模块的异步导出统一在这里看进度并下载 -->
       <el-tooltip :content="t('export.title')" placement="bottom">
         <el-badge :value="exportTaskStore.unfinished" :max="99" :hidden="exportTaskStore.unfinished === 0">
           <el-button text circle @click="exportTaskStore.open()">
@@ -60,17 +77,43 @@
         </el-badge>
       </el-tooltip>
 
-      <!--
-        消息未读数 / 我的消息 / 系统同步 / 租户切换都收进用户下拉：
-        未读数贴在头像上，其余作为菜单项，顶栏只留「快捷导航 / 设置 / 全屏」三个高频图标。
-      -->
+      <!-- 6. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
+      <el-dropdown v-if="canRefresh" trigger="click" @command="onRefreshCommand">
+        <el-button text circle :loading="refreshing">
+          <el-icon :size="17"><Refresh /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item v-for="scope in refreshScopes" :key="scope" :command="scope" :disabled="refreshing">
+              {{ refreshLabel(scope) }}
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
+      <!-- 7. 切换租户（租户是硬边界，跨租户只能显式切换；仅平台超管可见） -->
+      <el-dropdown v-if="userStore.superAdmin" trigger="click" @command="onTenantCommand">
+        <el-button text circle>
+          <el-icon :size="17"><Switch /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item disabled divided>
+              {{ t('tenant.currentTenant') }}：{{ currentTenantName }}
+            </el-dropdown-item>
+            <el-dropdown-item v-for="item in tenantChoices" :key="item.id" :command="item.id" :disabled="item.current">
+              {{ item.name }}
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+
+      <!-- 8. 用户名 -->
       <el-dropdown trigger="click" @command="onUserCommand">
         <div class="header-user">
-          <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0" class="header-user-badge">
-            <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
-              {{ avatarText }}
-            </el-avatar>
-          </el-badge>
+          <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
+            {{ avatarText }}
+          </el-avatar>
           <span class="header-user-name">{{ userStore.nickname || t('layout.notLoggedIn') }}</span>
           <el-icon :size="12"><ArrowDown /></el-icon>
         </div>
@@ -85,52 +128,10 @@
                 }}
               </span>
             </el-dropdown-item>
-
-            <el-dropdown-item command="notice" divided>
-              <el-icon><Bell /></el-icon>
-              <span class="header-menu-label">{{ t('layout.notice') }}</span>
-              <span v-if="noticeStore.unread > 0" class="header-menu-count">
-                {{ noticeStore.unread > 99 ? '99+' : noticeStore.unread }}
-              </span>
-            </el-dropdown-item>
-            <el-dropdown-item command="profile">
+            <el-dropdown-item command="profile" divided>
               <el-icon><User /></el-icon>
               {{ t('layout.profile') }}
             </el-dropdown-item>
-
-            <!-- 系统同步 / 清理缓存：等价于 menu-sync + perm-scan + 清缓存，不用再登服务器执行 -->
-            <template v-if="canRefresh">
-              <el-dropdown-item disabled divided class="header-menu-group">
-                {{ t('layout.refreshGroup') }}
-              </el-dropdown-item>
-              <el-dropdown-item
-                v-for="scope in refreshScopes"
-                :key="scope"
-                :command="`refresh:${scope}`"
-                :disabled="refreshing"
-              >
-                {{ refreshLabel(scope) }}
-              </el-dropdown-item>
-            </template>
-
-            <!-- 租户是硬边界，跨租户只能显式切换。仅平台超管可见，故与普通账号无关 -->
-            <template v-if="userStore.superAdmin">
-              <el-dropdown-item disabled divided class="header-menu-group">
-                {{ t('tenant.switchTenant') }}
-              </el-dropdown-item>
-              <el-dropdown-item disabled>
-                <span class="header-user-role">{{ t('tenant.currentTenant') }}：{{ currentTenantName }}</span>
-              </el-dropdown-item>
-              <el-dropdown-item
-                v-for="item in tenantChoices"
-                :key="item.id"
-                :command="`tenant:${item.id}`"
-                :disabled="item.current"
-              >
-                {{ item.name }}
-              </el-dropdown-item>
-            </template>
-
             <el-dropdown-item command="logout" divided>
               <el-icon><SwitchButton /></el-icon>
               {{ t('layout.logout') }}
@@ -138,6 +139,13 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
+
+      <!-- 9. 设置 -->
+      <el-tooltip :content="t('layout.themeSetting')" placement="bottom">
+        <el-button text circle @click="settingsVisible = true">
+          <el-icon :size="17"><Setting /></el-icon>
+        </el-button>
+      </el-tooltip>
     </div>
 
     <ArtSettingsDrawer v-model="settingsVisible" />
@@ -320,15 +328,17 @@ import {
   ArrowDown,
   Bell,
   Bottom,
+  Check,
   Download,
   Expand,
   Fold,
   FullScreen,
-  RefreshRight,
+  Refresh,
   Search,
   Setting,
   Star,
   StarFilled,
+  Switch,
   SwitchButton,
   Top,
   User,
@@ -336,17 +346,17 @@ import {
 import ArtSettingsDrawer from '@/components/core/ArtSettingsDrawer.vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import ExportTaskDrawer from '@/components/ExportTaskDrawer.vue'
-import { reloadMenus, resetAfterLogout } from '@/router'
+import { reloadMenus, resetAfterLogout, syncDocumentTitle } from '@/router'
 import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
 import { tenantOptions, type TenantOption } from '@/api/tenant'
 import type { NoticeRow } from '@/api/notice'
 import type { MenuNode } from '@/api/types'
-import { useAppStore } from '@/stores/app'
+import { currentLocale, setLocale, SUPPORTED_LOCALES } from '@/locales'
 import { translateTitle } from '@/locales/title'
 import { useMenuStore } from '@/stores/menu'
 import { useNoticeStore } from '@/stores/notice'
 import { useExportTaskStore } from '@/stores/exportTask'
-import { HOME_PATH, useWorktabStore } from '@/stores/worktab'
+import { HOME_PATH } from '@/stores/worktab'
 import { useUserStore } from '@/stores/user'
 import { sanitizeHtml } from '@/utils/richText'
 
@@ -357,11 +367,9 @@ const { t } = useI18n({ useScope: 'global' })
 
 const route = useRoute()
 const router = useRouter()
-const appStore = useAppStore()
 const menuStore = useMenuStore()
 const noticeStore = useNoticeStore()
 const exportTaskStore = useExportTaskStore()
-const worktab = useWorktabStore()
 const userStore = useUserStore()
 
 const settingsVisible = ref(false)
@@ -426,11 +434,6 @@ const avatarText = computed(() => (userStore.nickname || 'U').charAt(0).toUpperC
 
 function toggleCollapse(): void {
   emit('update:collapsed', !props.collapsed)
-}
-
-/** 仅在「关闭多标签页」时使用：刷新入口正常在标签栏右侧 */
-function refreshPage(): void {
-  void worktab.refreshActive()
 }
 
 async function toggleFullscreen(): Promise<void> {
@@ -639,26 +642,27 @@ async function onRefreshCommand(command: string | number | object): Promise<void
 }
 
 /**
- * 用户下拉的统一入口。
+ * 语言切换：即时生效并持久化（与设置抽屉里的语言选择同一套逻辑）。
  *
- * 消息 / 个人中心 / 系统刷新 / 租户切换都挂在同一个下拉里，命令用前缀区分：
- * `refresh:` 与 `tenant:` 分别转发给各自的处理函数。
+ * 前端语言包靠响应式自动生效；菜单标题与浏览器标签标题是「后端已翻好、前端缓存了成品」
+ * 的数据，需主动重新拉取 / 重算，否则停留在切换前的语言。
+ */
+function onLocaleCommand(command: string | number | object): void {
+  const locale = String(command)
+  if (locale === currentLocale.value) {
+    return
+  }
+  setLocale(locale)
+  void reloadMenus()
+  syncDocumentTitle(String(route.meta.title ?? ''))
+}
+
+/**
+ * 用户名下拉：只剩个人中心与登出（消息 / 系统刷新 / 租户切换已拆成顶栏独立入口）。
  */
 async function onUserCommand(command: string | number | object): Promise<void> {
   const cmd = String(command)
 
-  if (cmd === 'notice') {
-    openNoticeDrawer()
-    return
-  }
-  if (cmd.startsWith('refresh:')) {
-    await onRefreshCommand(cmd.slice('refresh:'.length))
-    return
-  }
-  if (cmd.startsWith('tenant:')) {
-    await onTenantCommand(Number(cmd.slice('tenant:'.length)))
-    return
-  }
   if (cmd === 'profile') {
     router.push('/profile')
     return
@@ -724,11 +728,26 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   background: var(--art-hover-bg);
 }
 
-/* 未读数是核心提示，贴在头像上（下拉收起时也看得见） */
-.header-user-badge {
+/* 语言切换按钮（顶栏第 2 位，显示当前语言缩写） */
+.header-locale {
   display: inline-flex;
+  gap: 2px;
   align-items: center;
-  line-height: 1;
+  height: 36px;
+  padding: 0 8px;
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--art-main);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--art-radius) - 2px);
+  outline: none;
+  transition: background 0.15s ease;
+}
+
+.header-locale:hover {
+  background: var(--art-hover-bg);
 }
 
 .header-user-avatar {
@@ -750,27 +769,9 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   color: var(--art-muted);
 }
 
-/* ---- 用户下拉里的分组标题与计数 ---- */
+/* 下拉菜单项里的占位：让右侧的图标（如语言当前项的勾选）贴右 */
 .header-menu-label {
   flex: 1;
-}
-
-.header-menu-count {
-  flex-shrink: 0;
-  min-width: 18px;
-  padding: 0 5px;
-  margin-left: auto;
-  font-size: 11px;
-  line-height: 16px;
-  color: #fff;
-  text-align: center;
-  background: var(--art-danger);
-  border-radius: 9px;
-}
-
-.header-menu-group {
-  font-size: 12px;
-  color: var(--art-muted);
 }
 
 /* ---- 快捷导航 ---- */
