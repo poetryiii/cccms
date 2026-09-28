@@ -38,6 +38,7 @@ class UpgradeCommand extends Command
             ->addOption('source', 's', InputOption::VALUE_REQUIRED, '同步源 key（如 gitee / github），默认取配置')
             ->addOption('force', 'f', InputOption::VALUE_NONE, '本地也改过的冲突文件同样覆盖（先备份）')
             ->addOption('prune', null, InputOption::VALUE_NONE, '删除上游已移除且本地未改动的文件（先备份）')
+            ->addOption('force-all', null, InputOption::VALUE_NONE, '强制对齐上游：覆盖所有本地改动（含纯本地定制与本地删除），并删除上游已移除的文件（全部先备份）')
             ->addOption('tags', null, InputOption::VALUE_NONE, '列出远端可用版本')
             ->addOption('status', null, InputOption::VALUE_NONE, '只输出状态摘要（供脚本 / 监控消费）')
             ->addOption('json', null, InputOption::VALUE_NONE, '以 JSON 输出')
@@ -71,6 +72,7 @@ class UpgradeCommand extends Command
                 $fetch,
                 (bool)$input->getOption('force'),
                 (bool)$input->getOption('prune'),
+                (bool)$input->getOption('force-all'),
                 $json,
                 $source
             );
@@ -159,6 +161,7 @@ class UpgradeCommand extends Command
         bool $fetch,
         bool $force,
         bool $prune,
+        bool $forceAll,
         bool $json,
         ?string $source
     ): int {
@@ -167,8 +170,9 @@ class UpgradeCommand extends Command
         // 没有任何可写入项时不必落盘，直接报告
         $actionable = $plan['summary'][Upgrader::SAFE]
             + $plan['summary'][Upgrader::NEW]
-            + ($force ? $plan['summary'][Upgrader::CONFLICT] : 0)
-            + ($prune ? $plan['summary'][Upgrader::REMOVED] : 0);
+            + (($force || $forceAll) ? $plan['summary'][Upgrader::CONFLICT] : 0)
+            + ($forceAll ? $plan['summary'][Upgrader::LOCAL] + $plan['summary'][Upgrader::DELETED] : 0)
+            + (($prune || $forceAll) ? $plan['summary'][Upgrader::REMOVED] : 0);
 
         if ($actionable === 0) {
             if ($json) {
@@ -184,7 +188,7 @@ class UpgradeCommand extends Command
             return $plan['summary'][Upgrader::CONFLICT] > 0 ? Command::FAILURE : Command::SUCCESS;
         }
 
-        $result = Upgrader::apply($plan, $force, $prune);
+        $result = Upgrader::apply($plan, $force, $prune, $forceAll);
 
         if ($json) {
             $output->writeln((string)json_encode([

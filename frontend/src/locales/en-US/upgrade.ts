@@ -40,6 +40,9 @@ export default {
   run: 'Upgrade now',
   forceLabel: 'Also overwrite {count} conflicting file(s) (changed locally too; backed up before overwriting)',
   forceHint: 'When unchecked these files are skipped and the local version is kept',
+  forceAllLabel:
+    'Force-align to upstream (overwrite {local} local customization(s), restore {deleted} locally-deleted file(s), remove {removed} upstream-removed file(s))',
+  forceAllHint: 'For "downstream is far behind and should match upstream"; every change is backed up first',
   lastRun: 'Last upgrade: {written} written, {removed} removed, {backed} backed up',
   backupDir: 'Backup directory: {path}',
   skipped: 'Skipped: {count} conflicting file(s)',
@@ -73,6 +76,8 @@ export default {
   runConfirmWrite: '{count} file(s) will be written / overwritten',
   runConfirmWriteRemove: '{write} file(s) will be written / overwritten and {remove} removed',
   runConfirmConflict: '{count} of them are conflicting files that were also changed locally',
+  runConfirmForceAll:
+    '"Force-align" is checked: local customizations and locally-deleted files will also be overwritten / restored.',
   runConfirmBackup: 'Files are backed up automatically before overwriting; local-only files are unaffected.',
   runSuccess: 'Upgrade completed',
 }

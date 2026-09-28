@@ -131,6 +131,13 @@ export function upgradeInit(source: string, ref?: string) {
   ) as unknown as Promise<UpgradeInitResult>
 }
 
-export function upgradeRun(payload: { source: string; ref?: string; force?: boolean; prune?: boolean }) {
+export function upgradeRun(payload: {
+  source: string
+  ref?: string
+  force?: boolean
+  prune?: boolean
+  /** 强制对齐上游：覆盖本地定制 / 恢复本地删除 / 删除上游已移除 */
+  force_all?: boolean
+}) {
   return instance.post('/upgrade/run', payload, SLOW) as unknown as Promise<UpgradeRunResult>
 }

@@ -66,7 +66,8 @@ class UpgradeController extends BaseController
             $request->post('ref') ?: null,
             // 前端传的是 JSON 布尔，但保险起见按字符串解析（避免 'false' 被当成 true）
             filter_var($request->post('force', false), FILTER_VALIDATE_BOOL),
-            filter_var($request->post('prune', false), FILTER_VALIDATE_BOOL)
+            filter_var($request->post('prune', false), FILTER_VALIDATE_BOOL),
+            filter_var($request->post('force_all', false), FILTER_VALIDATE_BOOL)
         );
 
         $message = $result['written'] > 0 || $result['removed'] > 0

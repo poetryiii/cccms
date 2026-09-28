@@ -137,6 +137,19 @@
               <span class="force-hint">{{ t('upgrade.forceHint') }}</span>
             </div>
 
+            <div v-if="plan && (plan.summary.local || plan.summary.deleted || plan.summary.removed)" class="force-row">
+              <el-checkbox v-model="forceAll">
+                {{
+                  t('upgrade.forceAllLabel', {
+                    local: plan.summary.local || 0,
+                    deleted: plan.summary.deleted || 0,
+                    removed: plan.summary.removed || 0,
+                  })
+                }}
+              </el-checkbox>
+              <span class="force-hint">{{ t('upgrade.forceAllHint') }}</span>
+            </div>
+
             <el-alert
               v-if="runResult"
               class="result"
@@ -278,6 +291,7 @@ const source = ref('')
 const TRACK_VALUE = '__track__'
 const targetRef = ref(TRACK_VALUE)
 const force = ref(false)
+const forceAll = ref(false)
 const tab = ref('files')
 const kindFilter = ref<'changed' | 'all' | 'kept'>('changed')
 
@@ -359,6 +373,7 @@ async function onCheck(): Promise<void> {
   try {
     plan.value = await upgradeCheck(source.value, effectiveRef())
     force.value = false
+    forceAll.value = false
   } finally {
     checking.value = false
   }
@@ -398,8 +413,13 @@ async function onRun(): Promise<void> {
     return
   }
 
-  const willWrite = (current.summary.safe || 0) + (current.summary.new || 0) + (force.value ? current.pending : 0)
-  const willRemove = current.summary.removed || 0
+  // 强制对齐时：覆盖范围扩到「本地定制」+「本地删除」，删除范围扩到「上游已移除」
+  const willWrite =
+    (current.summary.safe || 0) +
+    (current.summary.new || 0) +
+    (force.value || forceAll.value ? current.pending : 0) +
+    (forceAll.value ? (current.summary.local || 0) + (current.summary.deleted || 0) : 0)
+  const willRemove = (current.summary.removed || 0) && forceAll.value ? current.summary.removed : 0
 
   await ElMessageBox.confirm(
     [
@@ -408,6 +428,7 @@ async function onRun(): Promise<void> {
         ? t('upgrade.runConfirmWriteRemove', { write: willWrite, remove: willRemove })
         : t('upgrade.runConfirmWrite', { count: willWrite }),
       force.value && current.pending ? t('upgrade.runConfirmConflict', { count: current.pending }) : '',
+      forceAll.value ? t('upgrade.runConfirmForceAll') : '',
       t('upgrade.runConfirmBackup'),
     ]
       .filter(Boolean)
@@ -423,6 +444,7 @@ async function onRun(): Promise<void> {
       ref: effectiveRef(),
       force: force.value,
       prune: false,
+      force_all: forceAll.value,
     })
     ElMessage.success(t('upgrade.runSuccess'))
     await loadOverview()

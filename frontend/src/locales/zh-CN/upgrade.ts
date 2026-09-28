@@ -38,6 +38,8 @@ export default {
   run: '立即升级',
   forceLabel: '同时覆盖 {count} 个冲突文件（本地也改过，覆盖前会自动备份）',
   forceHint: '不勾选时这些文件会被跳过，保持本地版本',
+  forceAllLabel: '强制对齐上游（覆盖 {local} 个本地定制、恢复 {deleted} 个本地删除、删除 {removed} 个上游已移除）',
+  forceAllHint: '适合「下游落后太多、整体对齐上游」；所有改动都会先备份',
   lastRun: '上次升级：写入 {written}，删除 {removed}，备份 {backed}',
   backupDir: '备份目录：{path}',
   skipped: '跳过：{count} 个冲突文件',
@@ -70,6 +72,7 @@ export default {
   runConfirmWrite: '将写入 / 覆盖 {count} 个文件',
   runConfirmWriteRemove: '将写入 / 覆盖 {write} 个文件，删除 {remove} 个',
   runConfirmConflict: '其中 {count} 个是本地也改过的冲突文件',
+  runConfirmForceAll: '已勾选「强制对齐上游」：本地定制与本地删除的文件也会被覆盖 / 恢复。',
   runConfirmBackup: '覆盖前会自动备份，本地独有文件不受影响。',
   runSuccess: '升级完成',
 }

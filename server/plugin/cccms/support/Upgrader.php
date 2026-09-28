@@ -889,10 +889,15 @@ final class Upgrader
     /**
      * 执行计划：写入 / 覆盖 / 删除，并更新基线。
      *
+     * `$force` 覆盖「两边都改过」的冲突文件；`$prune` 删除「上游已移除且本地未改」的文件；
+     * `$forceAll` 是**最强档**：在 `$force` + `$prune` 之上，连「纯本地定制」(`local`) 也覆盖、
+     * 「本地删掉的」(`deleted`) 也恢复 —— 适合「下游落后太多，直接整体对齐上游」的场景。
+     * 所有覆盖 / 删除都会先按原相对路径备份。
+     *
      * @param  array<string,mixed> $plan  plan() 的返回值
      * @return array{written:int,removed:int,backed:int,skipped:array<int,string>,backupDir:string,report:string}
      */
-    public static function apply(array $plan, bool $force = false, bool $prune = false): array
+    public static function apply(array $plan, bool $force = false, bool $prune = false, bool $forceAll = false): array
     {
         $repo   = (string)($plan['repo'] ?? '');
         if ($repo === '' || !is_dir($repo)) {
@@ -910,12 +915,13 @@ final class Upgrader
         foreach ($items as $path => $kind) {
             $absolute = self::path($path);
 
-            $overwrite = $kind === self::SAFE || $kind === self::NEW || $kind === self::CONFLICT;
+            $overwrite = $kind === self::SAFE
+                || $kind === self::NEW
+                || ($kind === self::CONFLICT && ($force || $forceAll))
+                || ($kind === self::LOCAL && $forceAll)
+                || ($kind === self::DELETED && $forceAll);
+
             if ($overwrite) {
-                if ($kind === self::CONFLICT && !$force) {
-                    $skipped[] = $path;
-                    continue;
-                }
                 $backed += self::backup($absolute, $backup, $path) ? 1 : 0;
                 self::copy($repo . '/' . $path, $absolute);
                 $written++;
@@ -923,7 +929,7 @@ final class Upgrader
             }
 
             if ($kind === self::REMOVED) {
-                if (!$prune) {
+                if (!$prune && !$forceAll) {
                     $skipped[] = $path;
                     continue;
                 }

@@ -92,10 +92,10 @@ final class UpgradeLogic
      *
      * @return array<string,mixed>
      */
-    public static function run(string $source, ?string $ref, bool $force, bool $prune): array
+    public static function run(string $source, ?string $ref, bool $force, bool $prune, bool $forceAll = false): array
     {
         $plan   = Upgrader::plan($ref, true, $source);
-        $result = Upgrader::apply($plan, $force, $prune);
+        $result = Upgrader::apply($plan, $force, $prune, $forceAll);
 
         $maintenance      = null;
         $maintenanceError = '';
