@@ -4,33 +4,62 @@
     :class="{ 'is-collapsed': collapsed, 'is-mobile': mobile, 'is-open': mobile && !collapsed }"
     :style="{ width: mobile ? '230px' : sidebarWidth }"
   >
-    <!-- 用户卡片（顶部）：头像（点击进个人中心）+ 主题/语言/清缓存/登出 -->
+    <!-- 用户卡片（顶部）：头像行（头像 + 信息 + 注销登录）+ 图标行（切换平台 / 主题 / 语言 / 缓存） -->
     <div class="sidebar-user">
-      <div class="sidebar-user-profile" @click="goProfile">
-        <el-avatar :size="36" :src="userStore.profile?.avatar || undefined" class="sidebar-user-avatar">
-          {{ avatarText }}
-        </el-avatar>
-        <div v-show="!collapsed || mobile" class="sidebar-user-info">
-          <span class="sidebar-user-name">{{ userStore.nickname || t('layout.notLoggedIn') }}</span>
-          <span class="sidebar-user-role">
-            {{
-              userStore.superAdmin
-                ? t('layout.superAdmin')
-                : (userStore.profile?.roles || []).join(' / ') || t('layout.normalUser')
-            }}
-          </span>
+      <div class="sidebar-user-head">
+        <div class="sidebar-user-profile" @click="goProfile">
+          <el-avatar :size="36" :src="userStore.profile?.avatar || undefined" class="sidebar-user-avatar">
+            {{ avatarText }}
+          </el-avatar>
+          <div v-show="!collapsed || mobile" class="sidebar-user-info">
+            <span class="sidebar-user-name">{{ userStore.nickname || t('layout.notLoggedIn') }}</span>
+            <span class="sidebar-user-role">
+              {{
+                userStore.superAdmin
+                  ? t('layout.superAdmin')
+                  : (userStore.profile?.roles || []).join(' / ') || t('layout.normalUser')
+              }}
+            </span>
+          </div>
         </div>
+
+        <!-- 注销登录：与头像并排、靠右 -->
+        <el-tooltip :content="t('layout.logout')" placement="bottom">
+          <button type="button" class="sidebar-user-action" @click="onLogout">
+            <i class="ri-logout-box-r-line" />
+          </button>
+        </el-tooltip>
       </div>
 
       <div class="sidebar-user-actions">
-        <!-- 切换主题模式（亮/暗） -->
+        <!-- 1. 切换平台（仅平台超管可见） -->
+        <el-dropdown v-if="userStore.superAdmin" trigger="click" placement="bottom" @command="onTenantCommand">
+          <button type="button" class="sidebar-user-action">
+            <i class="ri-swap-line" />
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item disabled> {{ t('tenant.currentTenant') }}：{{ currentTenantName }} </el-dropdown-item>
+              <el-dropdown-item
+                v-for="item in tenantChoices"
+                :key="item.id"
+                :command="item.id"
+                :disabled="item.current"
+              >
+                {{ item.name }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+
+        <!-- 2. 切换主题模式（亮/暗） -->
         <el-tooltip :content="t('setting.mode')" placement="bottom">
           <button type="button" class="sidebar-user-action" @click="setting.toggleDark()">
             <i :class="setting.isDark ? 'ri-sun-line' : 'ri-moon-line'" />
           </button>
         </el-tooltip>
 
-        <!-- 切换语言 -->
+        <!-- 3. 切换语言 -->
         <el-dropdown trigger="click" @command="onLocaleCommand">
           <button type="button" class="sidebar-user-action">
             <i class="ri-translate-2" />
@@ -50,7 +79,7 @@
           </template>
         </el-dropdown>
 
-        <!-- 系统刷新（整体同步 / 菜单同步 / 权限同步 / 清理缓存） -->
+        <!-- 4. 清除缓存（系统刷新：整体同步 / 菜单同步 / 权限同步 / 清理缓存） -->
         <el-dropdown v-if="canRefresh" trigger="click" placement="bottom" @command="onRefreshCommand">
           <button type="button" class="sidebar-user-action" :disabled="refreshing">
             <i class="ri-refresh-line" :class="{ 'is-spinning': refreshing }" />
@@ -63,13 +92,6 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-
-        <!-- 注销登录 -->
-        <el-tooltip :content="t('layout.logout')" placement="bottom">
-          <button type="button" class="sidebar-user-action" @click="onLogout">
-            <i class="ri-logout-box-r-line" />
-          </button>
-        </el-tooltip>
       </div>
     </div>
 
@@ -85,25 +107,6 @@
         <SidebarSubmenu :menus="menuStore.menus" />
       </el-menu>
     </el-scrollbar>
-
-    <!-- 切换租户（超管专属；租户是硬边界，跨租户只能显式切换） -->
-    <div v-if="userStore.superAdmin && (!collapsed || mobile)" class="sidebar-tenant">
-      <el-dropdown trigger="click" placement="top" @command="onTenantCommand">
-        <div class="sidebar-tenant-trigger">
-          <i class="ri-swap-line" />
-          <span class="sidebar-tenant-name">{{ currentTenantName }}</span>
-          <i class="ri-arrow-down-s-line" />
-        </div>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item disabled> {{ t('tenant.currentTenant') }}：{{ currentTenantName }} </el-dropdown-item>
-            <el-dropdown-item v-for="item in tenantChoices" :key="item.id" :command="item.id" :disabled="item.current">
-              {{ item.name }}
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-    </div>
 
     <!-- 备案号 / 版权来自后台配置 -->
     <footer v-if="(!collapsed || mobile) && (appStore.icp || appStore.copyright)" class="sidebar-footer">
@@ -369,19 +372,29 @@ async function onLogout(): Promise<void> {
   min-height: 0;
 }
 
-/* ---- 用户卡片（头像 + 四个功能图标） ---- */
+/* ---- 用户卡片（头像行 + 图标行） ---- */
 .sidebar-user {
   flex-shrink: 0;
   padding: 12px 10px;
   border-bottom: 1px solid var(--art-card-border);
 }
 
+/* 头像行：头像 + 信息靠左，注销登录靠右 */
+.sidebar-user-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
 .sidebar-user-profile {
   display: flex;
+  flex: 1;
   gap: 10px;
   align-items: center;
+  min-width: 0;
   padding: 4px 6px;
-  margin-bottom: 10px;
   cursor: pointer;
   border-radius: calc(var(--art-radius) - 2px);
   transition: background 0.15s ease;
@@ -466,8 +479,14 @@ async function onLogout(): Promise<void> {
   flex: 1;
 }
 
-/* 桌面折叠：头像居中、信息隐藏、四个图标竖排 */
+/* 桌面折叠：头像行竖排（头像 + 注销居中），图标行竖排 */
+.sidebar.is-collapsed:not(.is-mobile) .sidebar-user-head {
+  flex-direction: column;
+  gap: 4px;
+}
+
 .sidebar.is-collapsed:not(.is-mobile) .sidebar-user-profile {
+  flex: none;
   justify-content: center;
   padding: 4px 0;
 }
@@ -475,39 +494,6 @@ async function onLogout(): Promise<void> {
 .sidebar.is-collapsed:not(.is-mobile) .sidebar-user-actions {
   flex-direction: column;
   gap: 4px;
-}
-
-/* ---- 底部切换租户（超管专属） ---- */
-.sidebar-tenant {
-  flex-shrink: 0;
-  padding: 8px 10px;
-  border-top: 1px solid var(--art-card-border);
-}
-
-.sidebar-tenant-trigger {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: center;
-  height: 34px;
-  padding: 0 8px;
-  font-size: 13px;
-  color: var(--art-main);
-  cursor: pointer;
-  border-radius: calc(var(--art-radius) - 2px);
-  transition: background 0.15s ease;
-}
-
-.sidebar-tenant-trigger:hover {
-  background: var(--art-hover-bg);
-}
-
-.sidebar-tenant-name {
-  flex: 1;
-  overflow: hidden;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sidebar-footer {
