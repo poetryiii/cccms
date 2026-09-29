@@ -119,20 +119,6 @@
                       style="max-width: 560px"
                     />
 
-                    <!-- 水印内容：常用变量标签，点一下插入到光标处（写法随界面语言：中文 `{用户名}` / 英文 `{username}`） -->
-                    <div v-if="item.name === 'watermark.content'" class="cfg-vars">
-                      <span class="cfg-vars-label">{{ t('config.wmVarHint') }}</span>
-                      <button
-                        v-for="v in WATERMARK_VARS"
-                        :key="v.en"
-                        type="button"
-                        class="cfg-var"
-                        @click="insertWatermarkVar(item.name, watermarkVarToken(v, currentLocale))"
-                      >
-                        {{ watermarkVarToken(v, currentLocale) }}
-                      </button>
-                    </div>
-
                     <el-input
                       v-else-if="item.type === 'password'"
                       v-model="values[item.name]"
@@ -148,6 +134,23 @@
                       :placeholder="t('config.inputPlaceholder')"
                       style="max-width: 420px"
                     />
+
+                    <!--
+                      水印内容：常用变量标签，点一下插入到光标处（写法随界面语言：中文 `{用户名}` / 英文 `{username}`）。
+                      ⚠️ 必须放在上面那条 v-if / v-else-if 链**之外**：插在链中间会截断条件链，
+                      使 `v-else` 对其它类型也命中，多渲染一个默认输入框（两个框绑定同一个值，输入会同步）。
+                    -->
+                    <div v-if="item.name === 'watermark.content'" class="cfg-vars">
+                      <span class="cfg-vars-label">{{ t('config.wmVarHint') }}</span>
+                      <el-check-tag
+                        v-for="v in WATERMARK_VARS"
+                        :key="v.en"
+                        checked
+                        @change="insertWatermarkVar(item.name, watermarkVarToken(v, currentLocale))"
+                      >
+                        {{ watermarkVarToken(v, currentLocale) }}
+                      </el-check-tag>
+                    </div>
 
                     <div v-if="item.remark" class="cfg-remark">{{ item.remark }}</div>
                   </div>
@@ -626,20 +629,8 @@ onUnmounted(() => {
   color: var(--art-muted);
 }
 
-.cfg-var {
-  padding: 2px 8px;
+/* 变量是代码写法，用等宽字体更清楚（尺寸交给 el-check-tag 自身） */
+.cfg-vars :deep(.el-check-tag) {
   font-family: Consolas, Monaco, monospace;
-  font-size: 12px;
-  color: var(--el-color-primary);
-  cursor: pointer;
-  background: var(--el-color-primary-light-9);
-  border: 1px solid transparent;
-  border-radius: 4px;
-  transition: all 0.15s ease;
-}
-
-.cfg-var:hover {
-  color: #fff;
-  background: var(--el-color-primary);
 }
 </style>
