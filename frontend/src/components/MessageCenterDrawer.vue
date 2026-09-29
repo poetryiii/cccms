@@ -2,6 +2,7 @@
   <el-drawer
     :model-value="exportStore.visible"
     :title="t('layout.messageCenter')"
+    :with-header="false"
     size="560px"
     append-to-body
     @close="exportStore.close()"
