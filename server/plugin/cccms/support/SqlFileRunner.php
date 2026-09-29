@@ -70,11 +70,33 @@ final class SqlFileRunner
         return $files;
     }
 
-    /** 由 schema 文件路径推断插件名 */
+    /**
+     * 业务插件的 seed 文件（排除 cccms 自身：它的种子数据由安装流程负责）。
+     *
+     * 与 schema.sql 走同一执行器（幂等约定一致：INSERT IGNORE /
+     * INSERT ... SELECT ... WHERE NOT EXISTS），由 db-upgrade 在 schema 之后执行，
+     * 供插件登记定时任务、配置项、数据权限受控表等种子数据。
+     *
+     * @return array<int,string>
+     */
+    public static function pluginSeedFiles(): array
+    {
+        $files = [];
+        foreach (glob(base_path() . '/plugin/*/db/seed.sql') ?: [] as $file) {
+            if (str_contains(str_replace('\\', '/', $file), '/plugin/cccms/')) {
+                continue;
+            }
+            $files[] = $file;
+        }
+
+        return $files;
+    }
+
+    /** 由 schema / seed 文件路径推断插件名 */
     public static function pluginNameOf(string $file): string
     {
         $normalized = str_replace('\\', '/', $file);
-        if (preg_match('#/plugin/([^/]+)/db/schema\.sql$#', $normalized, $m) === 1) {
+        if (preg_match('#/plugin/([^/]+)/db/(schema|seed)\.sql$#', $normalized, $m) === 1) {
             return $m[1];
         }
 

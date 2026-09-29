@@ -715,6 +715,24 @@ SQL,
             $output->writeln("<info>业务插件表结构：共执行 {$pluginStatements} 条语句</info>");
         }
 
+        // 业务插件种子数据：执行 plugin/*/db/seed.sql（幂等；cccms 自身的 seed 由安装流程负责）。
+        // 插件登记定时任务 / 配置项等初始化数据放这里（约定见 docs/08 后端开发规范）。
+        $pluginSeeds = 0;
+        foreach (SqlFileRunner::pluginSeedFiles() as $file) {
+            $plugin = SqlFileRunner::pluginNameOf($file);
+            try {
+                $n = SqlFileRunner::run($file);
+                $pluginSeeds += $n;
+                $output->writeln("  <info>插件 seed</info> {$plugin}（{$n} 条）");
+            } catch (\Throwable $e) {
+                $output->writeln("  <error>插件 seed 失败</error> {$plugin}：{$e->getMessage()}");
+                return Command::FAILURE;
+            }
+        }
+        if ($pluginSeeds > 0) {
+            $output->writeln("<info>业务插件种子数据：共执行 {$pluginSeeds} 条语句</info>");
+        }
+
         return Command::SUCCESS;
     }
 
