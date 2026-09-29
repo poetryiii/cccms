@@ -180,7 +180,7 @@ const captchaImage = ref('')
 const captchaId = ref('')
 const formRef = ref<FormInstance>()
 
-const form = reactive({ username: 'admin', password: '', captcha: '' })
+const form = reactive({ username: '', password: '', captcha: '' })
 
 // 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
 const rules = computed<FormRules>(() => ({
