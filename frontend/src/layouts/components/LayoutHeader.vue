@@ -42,7 +42,7 @@
       <el-tooltip :content="t('layout.notice')" placement="bottom">
         <el-badge :value="messageBadge" :max="99" :hidden="messageBadge === 0">
           <el-button text circle @click="exportTaskStore.open('notice')">
-            <el-icon :size="17"><i class="ri-notification-3-line" /></el-icon>
+            <el-icon :size="17"><i class="ri-notification-line" /></el-icon>
           </el-button>
         </el-badge>
       </el-tooltip>
