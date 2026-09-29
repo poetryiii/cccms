@@ -129,6 +129,16 @@ html.dark .el-table {
   margin-left: 6px;
 }
 
+/*
+ * 圆形图标按钮（`circle` 的图标按钮，顶栏等）不要 Element Plus 默认的
+ * 「相邻按钮 12px 左边距」——它由 EP 内置的 `.el-button+.el-button{margin-left:12px}`
+ * （theme-chalk/src/button.scss 的 `& + &`）施加，会让图标之间间距忽大忽小。
+ * 图标按钮统一靠容器 `gap` 排布，这里把相邻圆形图标按钮的左边距清零。
+ */
+.el-button.is-circle + .el-button.is-circle {
+  margin-left: 0;
+}
+
 /* 消息与通知的圆角跟随主题 */
 .el-message,
 .el-notification {
