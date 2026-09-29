@@ -50,12 +50,19 @@
           </template>
         </el-dropdown>
 
-        <!-- 清除缓存 -->
-        <el-tooltip :content="t('layout.syncCacheItem')" placement="bottom">
-          <button type="button" class="sidebar-user-action" :disabled="clearing" @click="clearCache">
-            <i class="ri-brush-line" />
+        <!-- 系统刷新（整体同步 / 菜单同步 / 权限同步 / 清理缓存） -->
+        <el-dropdown v-if="canRefresh" trigger="click" placement="bottom" @command="onRefreshCommand">
+          <button type="button" class="sidebar-user-action" :disabled="refreshing">
+            <i class="ri-refresh-line" :class="{ 'is-spinning': refreshing }" />
           </button>
-        </el-tooltip>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="scope in refreshScopes" :key="scope" :command="scope" :disabled="refreshing">
+                {{ refreshLabel(scope) }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
         <!-- 注销登录 -->
         <el-tooltip :content="t('layout.logout')" placement="bottom">
@@ -79,6 +86,25 @@
       </el-menu>
     </el-scrollbar>
 
+    <!-- 切换租户（超管专属；租户是硬边界，跨租户只能显式切换） -->
+    <div v-if="userStore.superAdmin && (!collapsed || mobile)" class="sidebar-tenant">
+      <el-dropdown trigger="click" placement="top" @command="onTenantCommand">
+        <div class="sidebar-tenant-trigger">
+          <i class="ri-swap-line" />
+          <span class="sidebar-tenant-name">{{ currentTenantName }}</span>
+          <i class="ri-arrow-down-s-line" />
+        </div>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item disabled> {{ t('tenant.currentTenant') }}：{{ currentTenantName }} </el-dropdown-item>
+            <el-dropdown-item v-for="item in tenantChoices" :key="item.id" :command="item.id" :disabled="item.current">
+              {{ item.name }}
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </div>
+
     <!-- 备案号 / 版权来自后台配置 -->
     <footer v-if="(!collapsed || mobile) && (appStore.icp || appStore.copyright)" class="sidebar-footer">
       <div v-if="appStore.copyright" class="sidebar-footer-line">{{ appStore.copyright }}</div>
@@ -95,7 +121,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import SidebarSubmenu from './SidebarSubmenu.vue'
 import { currentLocale, setLocale, SUPPORTED_LOCALES } from '@/locales'
 import { reloadMenus, resetAfterLogout, syncDocumentTitle } from '@/router'
-import { systemRefresh } from '@/api/system'
+import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
+import { tenantOptions, type TenantOption } from '@/api/tenant'
 import { useAppStore } from '@/stores/app'
 import { useMenuStore } from '@/stores/menu'
 import { useNoticeStore } from '@/stores/notice'
@@ -157,7 +184,10 @@ function syncOpenMenus(): void {
 
 watch(activeMenu, syncOpenMenus)
 watch(() => menuStore.menus, syncOpenMenus)
-onMounted(syncOpenMenus)
+onMounted(() => {
+  syncOpenMenus()
+  void loadTenantChoices()
+})
 
 function onSelect(index: string): void {
   if (index.startsWith('/') && index !== route.path) {
@@ -184,16 +214,109 @@ function onLocaleCommand(command: string | number | object): void {
   syncDocumentTitle(String(route.meta.title ?? ''))
 }
 
-const clearing = ref(false)
-/** 清理缓存（等价 systemRefresh('cache')） */
-async function clearCache(): Promise<void> {
-  clearing.value = true
-  try {
-    await systemRefresh('cache')
-    ElMessage.success(t('layout.refreshCacheDone'))
-  } finally {
-    clearing.value = false
+/* ---- 系统刷新（整体 / 菜单 / 权限 / 缓存；等价 menu-sync + perm-scan + 清缓存） ---- */
+const refreshing = ref(false)
+
+/** 下拉项与后端 RefreshScope 一一对应（含原「清理缓存」） */
+const refreshScopes: RefreshScope[] = ['all', 'menu', 'perm', 'cache']
+
+/** 无 `cccms:config:refresh` 的账号看不到入口（接口侧同样会拦截） */
+const canRefresh = computed(() => userStore.hasAuth('cccms:config:refresh'))
+
+function refreshLabel(scope: string): string {
+  const labels: Record<string, string> = {
+    all: t('layout.syncAll'),
+    menu: t('layout.syncMenu'),
+    perm: t('layout.syncPerm'),
+    cache: t('layout.syncCacheItem'),
   }
+  return labels[scope] ?? t('common.refresh')
+}
+
+function describeRefresh(result: RefreshResult): string {
+  const parts: string[] = []
+  if (result.menu) {
+    parts.push(
+      t('layout.refreshMenu', {
+        created: result.menu.created,
+        updated: result.menu.updated,
+        removed: result.menu.removed,
+      }),
+    )
+  }
+  if (result.perm) {
+    parts.push(t('layout.refreshPerm', { created: result.perm.created, skipped: result.perm.skipped }))
+  }
+  if (result.cache) {
+    parts.push(t('layout.refreshCacheDone'))
+  }
+  return parts.join('；') || t('layout.refreshNoChange')
+}
+
+async function onRefreshCommand(command: string | number | object): Promise<void> {
+  const scope = String(command) as RefreshScope
+
+  if (scope === 'all') {
+    try {
+      await ElMessageBox.confirm(t('layout.refreshAllConfirm'), t('layout.refreshAllTitle'), { type: 'warning' })
+    } catch {
+      return
+    }
+  }
+
+  refreshing.value = true
+  try {
+    const result = await systemRefresh(scope)
+    ElMessage.success(t('layout.refreshDone', { name: refreshLabel(scope), detail: describeRefresh(result) }))
+
+    // 菜单 / 按钮节点变了 → 重挂动态路由 + 刷新权限，侧边栏立即生效
+    if (scope === 'menu' || scope === 'perm' || scope === 'all') {
+      await reloadMenus()
+    }
+  } finally {
+    refreshing.value = false
+  }
+}
+
+/* ---- 切换租户（超管专属） ---- */
+const tenantChoices = ref<TenantOption[]>([])
+
+/** 当前生效租户名：优先取候选里的名字，拉取失败时回落到「当前租户」 */
+const currentTenantName = computed(() => {
+  const hit = tenantChoices.value.find((item) => item.id === userStore.tenantId)
+  return hit?.name || t('tenant.currentTenant')
+})
+
+async function loadTenantChoices(): Promise<void> {
+  if (!userStore.superAdmin) {
+    return
+  }
+  try {
+    tenantChoices.value = await tenantOptions()
+  } catch {
+    // 拦截器已提示，少一个入口不影响其它功能
+  }
+}
+
+async function onTenantCommand(command: string | number | object): Promise<void> {
+  const id = Number(command)
+  if (!Number.isInteger(id) || id === userStore.tenantId) {
+    return
+  }
+
+  const name = tenantChoices.value.find((item) => item.id === id)?.name ?? ''
+  try {
+    await ElMessageBox.confirm(t('tenant.switchConfirm', { name }), t('tenant.switchTitle'), { type: 'warning' })
+  } catch {
+    return
+  }
+
+  await userStore.switchTenant(id)
+  ElMessage.success(t('tenant.switchSuccess', { name }))
+
+  // 页面上的每一份数据都属于切换前的租户，且 `keep_alive` 的页面还会被缓存复用，
+  // 只有整体重载才能保证不残留旧租户数据（令牌在 localStorage，重载不会丢登录态）。
+  window.location.reload()
 }
 
 /** 注销登录：作废令牌 + 清理各 store + 跳登录页 */
@@ -328,6 +451,17 @@ async function onLogout(): Promise<void> {
   opacity: 0.5;
 }
 
+/* 刷新进行中：图标旋转反馈 */
+.sidebar-user-action .is-spinning {
+  animation: sidebar-spin 1s linear infinite;
+}
+
+@keyframes sidebar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .sidebar-locale-label {
   flex: 1;
 }
@@ -341,6 +475,39 @@ async function onLogout(): Promise<void> {
 .sidebar.is-collapsed:not(.is-mobile) .sidebar-user-actions {
   flex-direction: column;
   gap: 4px;
+}
+
+/* ---- 底部切换租户（超管专属） ---- */
+.sidebar-tenant {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--art-card-border);
+}
+
+.sidebar-tenant-trigger {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--art-main);
+  cursor: pointer;
+  border-radius: calc(var(--art-radius) - 2px);
+  transition: background 0.15s ease;
+}
+
+.sidebar-tenant-trigger:hover {
+  background: var(--art-hover-bg);
+}
+
+.sidebar-tenant-name {
+  flex: 1;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-footer {

@@ -47,38 +47,7 @@
         </el-badge>
       </el-tooltip>
 
-      <!-- 4. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
-      <el-dropdown v-if="canRefresh" trigger="click" @command="onRefreshCommand">
-        <span class="header-action" :class="{ 'is-loading': refreshing }">
-          <el-icon :size="17"><i class="ri-refresh-line" /></el-icon>
-        </span>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item v-for="scope in refreshScopes" :key="scope" :command="scope" :disabled="refreshing">
-              {{ refreshLabel(scope) }}
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <!-- 6. 切换租户（租户是硬边界，跨租户只能显式切换；仅平台超管可见） -->
-      <el-dropdown v-if="userStore.superAdmin" trigger="click" @command="onTenantCommand">
-        <span class="header-action">
-          <el-icon :size="17"><i class="ri-swap-line" /></el-icon>
-        </span>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item disabled divided>
-              {{ t('tenant.currentTenant') }}：{{ currentTenantName }}
-            </el-dropdown-item>
-            <el-dropdown-item v-for="item in tenantChoices" :key="item.id" :command="item.id" :disabled="item.current">
-              {{ item.name }}
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <!-- 7. 设置 -->
+      <!-- 4. 设置 -->
       <el-tooltip :content="t('layout.themeSetting')" placement="bottom">
         <el-button text circle @click="settingsVisible = true">
           <el-icon :size="17"><i class="ri-settings-3-line" /></el-icon>
@@ -205,20 +174,15 @@
 import { computed, onBeforeUnmount, onMounted, nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import ArtSettingsDrawer from '@/components/core/ArtSettingsDrawer.vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import MessageCenterDrawer from '@/components/MessageCenterDrawer.vue'
-import { reloadMenus } from '@/router'
-import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
-import { tenantOptions, type TenantOption } from '@/api/tenant'
 import type { MenuNode } from '@/api/types'
 import { translateTitle } from '@/locales/title'
 import { useMenuStore } from '@/stores/menu'
 import { useNoticeStore } from '@/stores/notice'
 import { useExportTaskStore } from '@/stores/exportTask'
 import { HOME_PATH } from '@/stores/worktab'
-import { useUserStore } from '@/stores/user'
 
 const props = defineProps<{ collapsed: boolean }>()
 const emit = defineEmits<{ 'update:collapsed': [value: boolean] }>()
@@ -230,7 +194,6 @@ const router = useRouter()
 const menuStore = useMenuStore()
 const noticeStore = useNoticeStore()
 const exportTaskStore = useExportTaskStore()
-const userStore = useUserStore()
 
 const settingsVisible = ref(false)
 
@@ -353,124 +316,16 @@ onMounted(() => {
   window.addEventListener('keydown', onHotkey)
   void noticeStore.refreshUnread()
   void exportTaskStore.load({ silent: true })
-  void loadTenantChoices()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onHotkey)
 })
 
-/* ---- 租户切换（超管专属） ---- */
-const tenantChoices = ref<TenantOption[]>([])
-
-/** 当前生效租户名：优先取候选里的名字，拉取失败时回落到「当前租户」 */
-const currentTenantName = computed(() => {
-  const hit = tenantChoices.value.find((item) => item.id === userStore.tenantId)
-  return hit?.name || t('tenant.currentTenant')
-})
-
-async function loadTenantChoices(): Promise<void> {
-  if (!userStore.superAdmin) {
-    return
-  }
-  try {
-    tenantChoices.value = await tenantOptions()
-  } catch {
-    // 拦截器已提示，顶栏少一个入口不影响其它功能
-  }
-}
-
-async function onTenantCommand(command: string | number | object): Promise<void> {
-  const id = Number(command)
-  if (!Number.isInteger(id) || id === userStore.tenantId) {
-    return
-  }
-
-  const name = tenantChoices.value.find((item) => item.id === id)?.name ?? ''
-  try {
-    await ElMessageBox.confirm(t('tenant.switchConfirm', { name }), t('tenant.switchTitle'), { type: 'warning' })
-  } catch {
-    return
-  }
-
-  await userStore.switchTenant(id)
-  ElMessage.success(t('tenant.switchSuccess', { name }))
-
-  // 页面上的每一份数据都属于切换前的租户，且 `keep_alive` 的页面还会被缓存复用，
-  // 只有整体重载才能保证不残留旧租户数据（令牌在 localStorage，重载不会丢登录态）。
-  window.location.reload()
-}
-
 /* ---- 消息 + 导出任务合并抽屉 ---- */
 
 /** 合并角标：未读消息 + 未完成导出任务，任一有值就提示 */
 const messageBadge = computed(() => noticeStore.unread + exportTaskStore.unfinished)
-
-/* ---- 系统同步 / 清理缓存（收进用户下拉） ---- */
-const refreshing = ref(false)
-
-/** 下拉里的刷新项：全部 / 菜单 / 按钮权限（「清理缓存」已移到侧边栏头像下方，与后端 RefreshScope 对应） */
-const refreshScopes: RefreshScope[] = ['all', 'menu', 'perm']
-
-/** 无 `cccms:config:refresh` 的账号看不到整组入口（接口侧同样会拦截） */
-const canRefresh = computed(() => userStore.hasAuth('cccms:config:refresh'))
-
-function refreshLabel(scope: string): string {
-  const labels: Record<string, string> = {
-    all: t('layout.syncAll'),
-    menu: t('layout.syncMenu'),
-    perm: t('layout.syncPerm'),
-    cache: t('layout.syncCacheItem'),
-  }
-  return labels[scope] ?? t('common.refresh')
-}
-
-function describeRefresh(result: RefreshResult): string {
-  const parts: string[] = []
-  if (result.menu) {
-    parts.push(
-      t('layout.refreshMenu', {
-        created: result.menu.created,
-        updated: result.menu.updated,
-        removed: result.menu.removed,
-      }),
-    )
-  }
-  if (result.perm) {
-    parts.push(t('layout.refreshPerm', { created: result.perm.created, skipped: result.perm.skipped }))
-  }
-  if (result.cache) {
-    parts.push(t('layout.refreshCacheDone'))
-  }
-  return parts.join('；') || t('layout.refreshNoChange')
-}
-
-async function onRefreshCommand(command: string | number | object): Promise<void> {
-  const scope = String(command) as RefreshScope
-
-  if (scope === 'all') {
-    try {
-      await ElMessageBox.confirm(t('layout.refreshAllConfirm'), t('layout.refreshAllTitle'), {
-        type: 'warning',
-      })
-    } catch {
-      return
-    }
-  }
-
-  refreshing.value = true
-  try {
-    const result = await systemRefresh(scope)
-    ElMessage.success(t('layout.refreshDone', { name: refreshLabel(scope), detail: describeRefresh(result) }))
-
-    // 菜单 / 按钮节点变了 → 重挂动态路由 + 刷新权限，侧边栏立即生效
-    if (scope === 'menu' || scope === 'perm' || scope === 'all') {
-      await reloadMenus()
-    }
-  } finally {
-    refreshing.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -490,30 +345,6 @@ async function onRefreshCommand(command: string | number | object): Promise<void
   display: flex;
   gap: 4px;
   align-items: center;
-}
-
-/* 顶栏下拉的触发按钮：用原生 span 而非 el-button，
-   规避 el-button 作为 el-dropdown trigger 时的点击透传兼容问题 */
-.header-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  color: var(--art-main);
-  cursor: pointer;
-  border-radius: 50%;
-  outline: none;
-  transition: background-color 0.15s ease;
-}
-
-.header-action:hover {
-  background-color: var(--art-hover-bg);
-}
-
-.header-action.is-loading {
-  pointer-events: none;
-  opacity: 0.6;
 }
 
 .header-breadcrumb {
