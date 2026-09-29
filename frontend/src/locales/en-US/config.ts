@@ -18,6 +18,7 @@ export default {
   empty: 'No configuration items',
   selectPlaceholder: 'Please select',
   inputPlaceholder: 'Please enter',
+  wmVarHint: 'Variables (click to insert):',
   passwordPlaceholder: 'Leave blank to keep unchanged (stored encrypted)',
   discarded: 'Unsaved changes discarded',
   savedCount: 'Saved {count} item(s)',

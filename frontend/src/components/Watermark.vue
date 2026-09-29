@@ -5,6 +5,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { renderWatermarkText } from '@/utils/watermark'
 import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
 
@@ -14,11 +15,11 @@ import { useUserStore } from '@/stores/user'
  * 实现方式：用 canvas 画一张「单个水印 + 间距」的平铺图，转成 dataURL 交给
  * `background-repeat: repeat` 铺满整个视口 —— 比按屏幕尺寸铺 N 个 DOM 节点更省。
  *
- * 支持的内容变量（大小写不敏感）：
- *   - `{username}` 当前用户昵称（无昵称时回落账号）
- *   - `{user_id}`  当前用户 ID
- *   - `{time}`     当前时间 `YYYY-MM-DD HH:mm`（按分钟自动刷新）
- *   - `{newline}`  换行（字面量 `\n` 同样按换行处理；也可直接回车换行）
+ * 内容变量由 `utils/watermark.ts` 统一处理，**中英文写法都识别**（大小写不敏感）：
+ *   - `{username}` / `{用户名}`  当前用户昵称（无昵称时回落账号）
+ *   - `{user_id}`  / `{用户ID}`  当前用户 ID
+ *   - `{time}`     / `{时间}`    当前时间 `YYYY-MM-DD HH:mm`（按分钟自动刷新）
+ *   - `{newline}`  / `{换行}`    换行（字面量 `\n` 同样按换行处理；也可直接回车换行）
  *
  * 只读取后台下发的渲染参数；用户名 / ID 由前端按当前登录用户代入，后端不下发隐私数据。
  */
@@ -46,17 +47,13 @@ function timeText(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** 把配置的内容模板渲染成若干行文本（变量替换 + 换行拆分） */
+/** 把配置的内容模板渲染成若干行文本（变量替换 + 换行拆分；中英文变量名都识别） */
 function renderLines(): string[] {
-  const replaced = (cfg.value.content || '')
-    // 字面量 \n 与 {newline} 都当作换行
-    .replace(/\\n/g, '\n')
-    .replace(/\{newline\}/gi, '\n')
-    .replace(/\{time\}/gi, timeText())
-    .replace(/\{username\}/gi, userStore.nickname || '')
-    .replace(/\{user_id\}/gi, String(userStore.profile?.id ?? ''))
-
-  return replaced.split(/\r?\n/)
+  return renderWatermarkText(cfg.value.content || '', {
+    username: userStore.nickname || '',
+    userId: String(userStore.profile?.id ?? ''),
+    time: timeText(),
+  }).split(/\r?\n/)
 }
 
 /** 画平铺图：先量文字，再算旋转后的包围盒，平铺块取「包围盒与配置间距的较大值」，保证不裁切 */

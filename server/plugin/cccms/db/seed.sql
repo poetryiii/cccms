@@ -185,7 +185,7 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 
 -- 水印（登录后的前台页面叠加，防截图外泄；登录页不在 BasicLayout 内，不叠加）
 ('watermark.enabled',           '启用水印',        'switch',       '0',                            NULL, '水印', 1, 1, '开启后全站页面叠加水印（登录前的页面不叠加）', NOW(), NOW()),
-('watermark.content',           '水印内容',        'textarea',     '{username}{newline}{time}',    NULL, '水印', 2, 1, '支持变量：{username} 用户名、{user_id} 用户ID、{time} 当前时间、{newline} 换行；也可直接回车换行', NOW(), NOW()),
+('watermark.content',           '水印内容',        'textarea',     '{username}{newline}{time}',    NULL, '水印', 2, 1, '支持变量（点下方标签插入）：用户名 {用户名}/{username}、用户ID {用户ID}/{user_id}、时间 {时间}/{time}、换行 {换行}/{newline}；中英文写法都识别，也可直接回车换行', NOW(), NOW()),
 ('watermark.opacity',           '不透明度',        'input-number', '12',                           NULL, '水印', 3, 1, '单位 %，建议 5-20', NOW(), NOW()),
 ('watermark.angle',             '倾斜角度',        'input-number', '-22',                          NULL, '水印', 4, 1, '单位度，负值向左倾斜', NOW(), NOW()),
 ('watermark.font_size',         '字号',            'input-number', '14',                           NULL, '水印', 5, 1, '单位 px', NOW(), NOW()),

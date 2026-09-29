@@ -112,11 +112,26 @@
 
                     <el-input
                       v-else-if="item.type === 'textarea'"
+                      :ref="(el: unknown) => setTextareaRef(item.name, el)"
                       v-model="values[item.name]"
                       type="textarea"
                       :autosize="{ minRows: 2, maxRows: 6 }"
                       style="max-width: 560px"
                     />
+
+                    <!-- 水印内容：常用变量标签，点一下插入到光标处（写法随界面语言：中文 `{用户名}` / 英文 `{username}`） -->
+                    <div v-if="item.name === 'watermark.content'" class="cfg-vars">
+                      <span class="cfg-vars-label">{{ t('config.wmVarHint') }}</span>
+                      <button
+                        v-for="v in WATERMARK_VARS"
+                        :key="v.en"
+                        type="button"
+                        class="cfg-var"
+                        @click="insertWatermarkVar(item.name, watermarkVarToken(v, currentLocale))"
+                      >
+                        {{ watermarkVarToken(v, currentLocale) }}
+                      </button>
+                    </div>
 
                     <el-input
                       v-else-if="item.type === 'password'"
@@ -149,11 +164,13 @@
 <script setup lang="ts">
 defineOptions({ name: 'cccms:config' })
 
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { configList, configSave, type ConfigItem, type ConfigOption } from '@/api/config'
+import { currentLocale } from '@/locales'
+import { WATERMARK_VARS, watermarkVarToken } from '@/utils/watermark'
 
 const { t } = useI18n({ useScope: 'global' })
 
@@ -348,6 +365,37 @@ async function copyKey(name: string): Promise<void> {
     ElMessage.success(t('config.copied', { name }))
   } catch {
     ElMessage.warning(t('config.copyFailed'))
+  }
+}
+
+/* ---------- 水印内容：常用变量标签 ---------- */
+
+/** textarea 的组件实例（按配置名索引）：点变量标签时要往光标处插入 */
+const textareaRefs = new Map<string, { textarea?: HTMLTextAreaElement }>()
+
+function setTextareaRef(name: string, el: unknown): void {
+  if (el) {
+    textareaRefs.set(name, el as { textarea?: HTMLTextAreaElement })
+  } else {
+    textareaRefs.delete(name)
+  }
+}
+
+/** 把变量占位符插入到水印内容的**光标处**（未聚焦 / 无光标时追加到末尾） */
+function insertWatermarkVar(name: string, token: string): void {
+  const current = String(values[name] ?? '')
+  const el = textareaRefs.get(name)?.textarea
+  const start = el?.selectionStart ?? current.length
+  const end = el?.selectionEnd ?? current.length
+
+  values[name] = current.slice(0, start) + token + current.slice(end)
+
+  if (el) {
+    void nextTick(() => {
+      el.focus()
+      const pos = start + token.length
+      el.setSelectionRange(pos, pos)
+    })
   }
 }
 
@@ -562,5 +610,36 @@ onUnmounted(() => {
 
 .cfg :deep(.el-form-item) {
   margin-bottom: 20px;
+}
+
+/* ---- 水印内容的常用变量标签 ---- */
+.cfg-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.cfg-vars-label {
+  font-size: 12px;
+  color: var(--art-muted);
+}
+
+.cfg-var {
+  padding: 2px 8px;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.cfg-var:hover {
+  color: #fff;
+  background: var(--el-color-primary);
 }
 </style>

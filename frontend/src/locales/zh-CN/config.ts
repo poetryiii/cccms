@@ -17,6 +17,7 @@ export default {
   empty: '暂无配置项',
   selectPlaceholder: '请选择',
   inputPlaceholder: '请输入',
+  wmVarHint: '常用变量（点击插入）：',
   passwordPlaceholder: '留空表示不修改（敏感项加密存储）',
   discarded: '已放弃未保存的修改',
   savedCount: '已保存 {count} 项',

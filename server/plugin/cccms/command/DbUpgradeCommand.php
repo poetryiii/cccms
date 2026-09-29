@@ -326,7 +326,8 @@ SQL,
         ],
         'watermark.content' => [
             '水印内容', 'textarea', '{username}{newline}{time}', '水印', 2,
-            '支持变量：{username} 用户名、{user_id} 用户ID、{time} 当前时间、{newline} 换行；也可直接回车换行',
+            '支持变量（点下方标签插入）：用户名 {用户名}/{username}、用户ID {用户ID}/{user_id}、'
+            . '时间 {时间}/{time}、换行 {换行}/{newline}；中英文写法都识别，也可直接回车换行',
         ],
         'watermark.opacity' => ['不透明度', 'input-number', '12', '水印', 3, '单位 %，建议 5-20'],
         'watermark.angle' => ['倾斜角度', 'input-number', '-22', '水印', 4, '单位度，负值向左倾斜'],
