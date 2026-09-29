@@ -146,6 +146,7 @@
                         v-for="v in WATERMARK_VARS"
                         :key="v.en"
                         checked
+                        type="info"
                         @change="insertWatermarkVar(item.name, watermarkVarToken(v, currentLocale))"
                       >
                         {{ watermarkVarToken(v, currentLocale) }}
@@ -627,10 +628,5 @@ onUnmounted(() => {
 .cfg-vars-label {
   font-size: 12px;
   color: var(--art-muted);
-}
-
-/* 变量是代码写法，用等宽字体更清楚（尺寸交给 el-check-tag 自身） */
-.cfg-vars :deep(.el-check-tag) {
-  font-family: Consolas, Monaco, monospace;
 }
 </style>
