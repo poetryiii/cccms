@@ -105,7 +105,7 @@
                     <el-input-number
                       v-else-if="item.type === 'input-number'"
                       v-model="values[item.name]"
-                      :min="0"
+                      :min="numberMin(item)"
                       controls-position="right"
                       style="width: 200px"
                     />
@@ -183,6 +183,16 @@ function normalize(item: ConfigItem): unknown {
     return Number.isFinite(num) ? num : 0
   }
   return raw
+}
+
+/**
+ * input-number 的下限。
+ *
+ * 绝大多数配置（分页条数、次数、时长…）不允许负数，统一 0；
+ * 但「倾斜角度」这类配置需要负值（水印向左倾斜），故按配置名放行。
+ */
+function numberMin(item: ConfigItem): number {
+  return item.name.includes('angle') ? -180 : 0
 }
 
 function parseOptions(item: ConfigItem): ConfigOption[] {

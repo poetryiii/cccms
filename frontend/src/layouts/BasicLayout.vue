@@ -8,6 +8,8 @@
       <LayoutTagbar v-if="appStore.tagsView" />
       <LayoutContent />
     </div>
+    <!-- 全局水印（后台「配置管理 → 水印」开启后叠加，不拦截交互） -->
+    <Watermark />
   </div>
 </template>
 
@@ -15,6 +17,7 @@
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMediaQuery } from '@vueuse/core'
+import Watermark from '@/components/Watermark.vue'
 import LayoutSidebar from './components/LayoutSidebar.vue'
 import LayoutHeader from './components/LayoutHeader.vue'
 import LayoutTagbar from './components/LayoutTagbar.vue'

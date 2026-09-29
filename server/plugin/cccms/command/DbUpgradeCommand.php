@@ -319,6 +319,21 @@ SQL,
             '访问域名', 'input', '', '上传', 19,
             '空间绑定的测试域名或自定义域名（必填，七牛不提供默认 URL 拼装）',
         ],
+        // 全局水印（登录后的前台页面叠加；登录页不在 BasicLayout 内，不叠加）
+        'watermark.enabled' => [
+            '启用水印', 'switch', '0', '水印', 1,
+            '开启后全站页面叠加水印（登录前的页面不叠加）',
+        ],
+        'watermark.content' => [
+            '水印内容', 'textarea', '{username}{newline}{time}', '水印', 2,
+            '支持变量：{username} 用户名、{user_id} 用户ID、{time} 当前时间、{newline} 换行；也可直接回车换行',
+        ],
+        'watermark.opacity' => ['不透明度', 'input-number', '12', '水印', 3, '单位 %，建议 5-20'],
+        'watermark.angle' => ['倾斜角度', 'input-number', '-22', '水印', 4, '单位度，负值向左倾斜'],
+        'watermark.font_size' => ['字号', 'input-number', '14', '水印', 5, '单位 px'],
+        'watermark.color' => ['颜色', 'input', '#8c8c8c', '水印', 6, '十六进制色值，如 #8c8c8c；暗色主题建议用浅色'],
+        'watermark.gap_x' => ['水平间距', 'input-number', '180', '水印', 7, '单位 px，相邻水印中心的水平间距'],
+        'watermark.gap_y' => ['垂直间距', 'input-number', '140', '水印', 8, '单位 px，相邻水印中心的垂直间距'],
     ];
 
     /**

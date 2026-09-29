@@ -96,6 +96,15 @@ return [
     'log.slow_threshold' => 'Slow request threshold',
     'export.keep_minutes' => 'Export file retention (minutes)',
 
+    'watermark.enabled'   => 'Enable watermark',
+    'watermark.content'   => 'Watermark text',
+    'watermark.opacity'   => 'Opacity',
+    'watermark.angle'     => 'Rotation',
+    'watermark.font_size' => 'Font size',
+    'watermark.color'     => 'Color',
+    'watermark.gap_x'     => 'Horizontal gap',
+    'watermark.gap_y'     => 'Vertical gap',
+
     // ---- group labels ----
     'group.系统' => 'System',
     'group.界面' => 'Interface',
@@ -104,6 +113,7 @@ return [
     'group.日志' => 'Logs',
     'group.邮箱' => 'Email',
     'group.短信' => 'SMS',
+    'group.水印' => 'Watermark',
 
     // ---- option labels ----
     'option.light'  => 'Light',

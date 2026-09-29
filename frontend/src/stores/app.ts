@@ -1,17 +1,30 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { configUi, type AppSecurityConfig, type AppUiConfig } from '@/api/config'
+import { configUi, type AppSecurityConfig, type AppUiConfig, type AppWatermarkConfig } from '@/api/config'
 import { applyDefaultLocale, hasLocalePref } from '@/locales'
 import { useSettingStore } from './setting'
 
 /** 安全相关公开开关的兜底值（渠道为空 = 登录页不展示找回入口） */
 const FALLBACK_SECURITY: AppSecurityConfig = { reset_channels: [] }
 
+/** 全局水印的兜底值（后台未配置时与后端默认值保持一致，默认关闭） */
+const FALLBACK_WATERMARK: AppWatermarkConfig = {
+  enabled: false,
+  content: '{username}{newline}{time}',
+  opacity: 12,
+  angle: -22,
+  font_size: 14,
+  color: '#8c8c8c',
+  gap_x: 180,
+  gap_y: 140,
+}
+
 /** 取不到后台配置时的兜底值（保证界面永远能正常渲染） */
 const FALLBACK: AppUiConfig = {
   system: { name: 'CCCMS', logo: '', icp: '', copyright: '', maintenance: false, notice: '' },
   ui: { theme_mode: 'light', theme_primary: '#2b6cff', page_size: 15, tags_view: true, container_width: 0 },
   security: FALLBACK_SECURITY,
+  watermark: FALLBACK_WATERMARK,
   locale: 'zh-CN',
   locales: ['zh-CN', 'en-US'],
 }
@@ -27,13 +40,14 @@ const DEFAULT_LOGO = '/logo.png'
  * 品牌与 UI 默认值（来自 sys_config 的 system.* / ui.* 分组）。
  *
  * 启动时拉一次，用于：系统名称、Logo、备案号、版权、维护公告、
- * 默认主题（新用户）、默认分页条数、多标签页开关。
+ * 默认主题（新用户）、默认分页条数、多标签页开关、全局水印。
  */
 export const useAppStore = defineStore('app', () => {
   const config = ref<AppUiConfig>({
     system: { ...FALLBACK.system },
     ui: { ...FALLBACK.ui },
     security: { ...FALLBACK_SECURITY },
+    watermark: { ...FALLBACK_WATERMARK },
     locale: FALLBACK.locale,
     locales: FALLBACK.locales,
   })
@@ -53,6 +67,9 @@ export const useAppStore = defineStore('app', () => {
   /** 可用找回渠道：为空时登录页不展示「忘记密码」入口（后端 security.reset_channel=off） */
   const resetChannels = computed<string[]>(() => config.value.security?.reset_channels ?? [])
 
+  /** 全局水印参数（后台「配置管理 → 水印」） */
+  const watermark = computed<AppWatermarkConfig>(() => config.value.watermark ?? FALLBACK_WATERMARK)
+
   async function load(): Promise<void> {
     try {
       const res = await configUi()
@@ -61,6 +78,7 @@ export const useAppStore = defineStore('app', () => {
           system: { ...FALLBACK.system, ...(res.system ?? {}) },
           ui: { ...FALLBACK.ui, ...(res.ui ?? {}) },
           security: { ...FALLBACK_SECURITY, ...(res.security ?? {}) },
+          watermark: { ...FALLBACK_WATERMARK, ...(res.watermark ?? {}) },
           locale: res.locale || FALLBACK.locale,
           locales: res.locales?.length ? res.locales : FALLBACK.locales,
         }
@@ -89,6 +107,7 @@ export const useAppStore = defineStore('app', () => {
     pageSize,
     tagsView,
     resetChannels,
+    watermark,
     load,
   }
 })

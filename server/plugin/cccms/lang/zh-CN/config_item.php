@@ -92,6 +92,15 @@ return [
     'log.slow_threshold' => '慢接口告警阈值',
     'export.keep_minutes' => '导出文件保留时长',
 
+    'watermark.enabled'   => '启用水印',
+    'watermark.content'   => '水印内容',
+    'watermark.opacity'   => '不透明度',
+    'watermark.angle'     => '倾斜角度',
+    'watermark.font_size' => '字号',
+    'watermark.color'     => '颜色',
+    'watermark.gap_x'     => '水平间距',
+    'watermark.gap_y'     => '垂直间距',
+
     // ---- 分组展示名 ----
     'group.系统' => '系统',
     'group.界面' => '界面',
@@ -100,6 +109,7 @@ return [
     'group.日志' => '日志',
     'group.邮箱' => '邮箱',
     'group.短信' => '短信',
+    'group.水印' => '水印',
 
     // ---- 选项标签 ----
     'option.light'  => '亮色',

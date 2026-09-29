@@ -85,10 +85,15 @@ final class ConfigLogic
     /**
      * 登录页 / 前端初始化需要的公开配置。
      *
-     * 这是**白名单**：只有品牌信息、UI 默认值与找回密码渠道开关，不含上传等敏感项。
-     * 登录页在拿到 token 之前就要用系统名称 / Logo / 主题色，所以走 #[NoLogin]。
+     * 这是**白名单**：只有品牌信息、UI 默认值、找回密码渠道开关与全局水印参数，
+     * 不含上传等敏感项。登录页在拿到 token 之前就要用系统名称 / Logo / 主题色，所以走 #[NoLogin]。
      *
-     * @return array{system:array<string,mixed>,ui:array<string,mixed>,security:array<string,mixed>}
+     * @return array{
+     *     system:array<string,mixed>,
+     *     ui:array<string,mixed>,
+     *     security:array<string,mixed>,
+     *     watermark:array<string,mixed>
+     * }
      */
     public static function ui(): array
     {
@@ -112,6 +117,18 @@ final class ConfigLogic
             // 只下发渠道名，不下发任何密钥类配置。
             'security' => [
                 'reset_channels' => PasswordReset::channels(),
+            ],
+            // 全局水印：登录后的前台页面由前端叠加渲染（登录页不在 BasicLayout 内，不渲染）。
+            // 只下发渲染参数；用户名 / 用户 ID 等由前端按当前登录用户自行代入，不下发隐私数据。
+            'watermark' => [
+                'enabled'   => SysConfig::getBool('watermark.enabled'),
+                'content'   => SysConfig::getString('watermark.content', '{username}{newline}{time}'),
+                'opacity'   => SysConfig::getInt('watermark.opacity', 12),
+                'angle'     => SysConfig::getInt('watermark.angle', -22),
+                'font_size' => SysConfig::getInt('watermark.font_size', 14),
+                'color'     => SysConfig::getString('watermark.color', '#8c8c8c'),
+                'gap_x'     => SysConfig::getInt('watermark.gap_x', 180),
+                'gap_y'     => SysConfig::getInt('watermark.gap_y', 140),
             ],
         ];
     }

@@ -52,11 +52,32 @@ export interface AppSecurityConfig {
   reset_channels: string[]
 }
 
+/** 全局水印渲染参数（后台「配置管理 → 水印」） */
+export interface AppWatermarkConfig {
+  enabled: boolean
+  /** 水印内容，支持变量 `{username}` `{user_id}` `{time}` `{newline}` */
+  content: string
+  /** 不透明度，0-100（%） */
+  opacity: number
+  /** 倾斜角度（度），负值向左倾斜 */
+  angle: number
+  /** 字号（px） */
+  font_size: number
+  /** 颜色（十六进制） */
+  color: string
+  /** 相邻水印中心的水平间距（px） */
+  gap_x: number
+  /** 相邻水印中心的垂直间距（px） */
+  gap_y: number
+}
+
 export interface AppUiConfig {
   system: AppSystemConfig
   ui: AppUiDefaults
   /** 安全相关公开开关（不含任何密钥） */
   security?: AppSecurityConfig
+  /** 全局水印参数 */
+  watermark?: AppWatermarkConfig
   /** 后台默认语言（本机无语言偏好时应用） */
   locale?: string
   /** 后端支持的可用语言列表 */

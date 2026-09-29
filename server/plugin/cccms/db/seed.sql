@@ -181,4 +181,14 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 ('sms.method',                  '请求方法',        'select',       'POST',                         '[{"label":"POST","value":"POST"},{"label":"GET","value":"GET"}]', '短信', 4, 1, 'GET 时参数拼到 query，POST 时作为 JSON 请求体发送', NOW(), NOW()),
 ('sms.params',                  '参数模板',        'textarea',     '{"mobile":"{mobile}","code":"{code}","sign":"{sign}"}', NULL, '短信', 5, 1, 'JSON 对象；值里的 {mobile}/{code}/{sign} 会被替换为该次发送的实际值', NOW(), NOW()),
 ('sms.headers',                 '请求头',          'textarea',     '{}',                           NULL, '短信', 6, 1, 'JSON 对象，如 {"Authorization":"Bearer xxx"}；POST 未指定 Content-Type 时默认 application/json', NOW(), NOW()),
-('sms.sign_name',               '短信签名',        'input',        '',                             NULL, '短信', 7, 1, '短信签名，替换参数模板里的 {sign}', NOW(), NOW());
+('sms.sign_name',               '短信签名',        'input',        '',                             NULL, '短信', 7, 1, '短信签名，替换参数模板里的 {sign}', NOW(), NOW()),
+
+-- 水印（登录后的前台页面叠加，防截图外泄；登录页不在 BasicLayout 内，不叠加）
+('watermark.enabled',           '启用水印',        'switch',       '0',                            NULL, '水印', 1, 1, '开启后全站页面叠加水印（登录前的页面不叠加）', NOW(), NOW()),
+('watermark.content',           '水印内容',        'textarea',     '{username}{newline}{time}',    NULL, '水印', 2, 1, '支持变量：{username} 用户名、{user_id} 用户ID、{time} 当前时间、{newline} 换行；也可直接回车换行', NOW(), NOW()),
+('watermark.opacity',           '不透明度',        'input-number', '12',                           NULL, '水印', 3, 1, '单位 %，建议 5-20', NOW(), NOW()),
+('watermark.angle',             '倾斜角度',        'input-number', '-22',                          NULL, '水印', 4, 1, '单位度，负值向左倾斜', NOW(), NOW()),
+('watermark.font_size',         '字号',            'input-number', '14',                           NULL, '水印', 5, 1, '单位 px', NOW(), NOW()),
+('watermark.color',             '颜色',            'input',        '#8c8c8c',                      NULL, '水印', 6, 1, '十六进制色值，如 #8c8c8c；暗色主题建议用浅色', NOW(), NOW()),
+('watermark.gap_x',             '水平间距',        'input-number', '180',                          NULL, '水印', 7, 1, '单位 px，相邻水印中心的水平间距', NOW(), NOW()),
+('watermark.gap_y',             '垂直间距',        'input-number', '140',                          NULL, '水印', 8, 1, '单位 px，相邻水印中心的垂直间距', NOW(), NOW());
