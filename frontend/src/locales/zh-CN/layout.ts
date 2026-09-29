@@ -31,6 +31,7 @@ export default {
   favoriteEmpty: '暂无收藏，点右侧星标即可添加',
   favoriteMoveUp: '上移',
   favoriteMoveDown: '下移',
+  messageCenter: '消息中心',
   noticeEmpty: '暂无消息',
   noticeAllRead: '全部已读',
   noticeAllReadSuccess: '已全部标记为已读',

@@ -31,6 +31,7 @@ export default {
   favoriteEmpty: 'No favorites yet — click the star on the right to add one',
   favoriteMoveUp: 'Move up',
   favoriteMoveDown: 'Move down',
+  messageCenter: 'Message Center',
   noticeEmpty: 'No messages',
   noticeAllRead: 'Mark all as read',
   noticeAllReadSuccess: 'All messages marked as read',

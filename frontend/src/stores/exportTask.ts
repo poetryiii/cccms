@@ -8,17 +8,22 @@ const UNFINISHED = [0, 1] as const
 /** 未完成任务变化时轮询列表的间隔（毫秒） */
 const POLL_INTERVAL = 15000
 
+/** 消息中心抽屉的 tab：我的消息 / 导出任务 */
+export type MessageCenterTab = 'notice' | 'export'
+
 /**
- * 全局导出任务中心。
+ * 全局导出任务中心 + 顶栏「消息 / 导出任务」合并抽屉的开合状态。
  *
- * 顶栏常驻「导出任务」图标 + 未完成角标，各页面发起导出后统一把任务投递到这里；
+ * 角标读 `unfinished`，抽屉里的「导出任务」tab 读 `items`；各页面发起导出后
+ * 调 `open('export')` 即可打开抽屉并定位到导出任务 tab。
  * 只有存在未完成任务时才轮询（完成后自动停），避免空转查询。
  */
 export const useExportTaskStore = defineStore('exportTask', () => {
   const items = ref<ExportTaskRow[]>([])
-  const visible = ref(false)
   const loading = ref(false)
   const unfinished = ref(0)
+  const visible = ref(false)
+  const activeTab = ref<MessageCenterTab>('notice')
 
   let timer: number | null = null
 
@@ -44,9 +49,10 @@ export const useExportTaskStore = defineStore('exportTask', () => {
     syncPolling()
   }
 
-  /** 打开抽屉并刷新列表 */
-  function open(): void {
+  /** 打开消息中心抽屉并定位到指定 tab（默认导出任务），同时刷新列表 */
+  function open(tab: MessageCenterTab = 'export'): void {
     visible.value = true
+    activeTab.value = tab
     void load()
   }
 
@@ -85,7 +91,8 @@ export const useExportTaskStore = defineStore('exportTask', () => {
     items.value = []
     unfinished.value = 0
     visible.value = false
+    activeTab.value = 'notice'
   }
 
-  return { items, visible, loading, unfinished, load, open, close, reset }
+  return { items, loading, unfinished, visible, activeTab, load, open, close, reset }
 })

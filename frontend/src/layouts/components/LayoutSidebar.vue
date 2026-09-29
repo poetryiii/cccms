@@ -2,28 +2,9 @@
   <aside
     class="sidebar"
     :class="{ 'is-collapsed': collapsed, 'is-mobile': mobile, 'is-open': mobile && !collapsed }"
-    :style="{ width: mobile ? '220px' : sidebarWidth }"
+    :style="{ width: mobile ? '230px' : sidebarWidth }"
   >
-    <div class="sidebar-logo" @click="goHome">
-      <img v-if="appStore.logo" class="sidebar-logo-img" :src="appStore.logo" alt="logo" />
-      <div v-else class="sidebar-logo-mark">{{ brandInitial }}</div>
-      <span v-show="!collapsed || mobile" class="sidebar-logo-text">{{ appStore.systemName }}</span>
-    </div>
-
-    <el-scrollbar class="sidebar-body">
-      <el-menu
-        ref="menuRef"
-        :default-active="activeMenu"
-        :collapse="!mobile && collapsed"
-        :collapse-transition="false"
-        unique-opened
-        @select="onSelect"
-      >
-        <SidebarSubmenu :menus="menuStore.menus" />
-      </el-menu>
-    </el-scrollbar>
-
-    <!-- 用户卡片：头像（点击进个人中心）+ 主题/语言/清缓存/登出 -->
+    <!-- 用户卡片（顶部）：头像（点击进个人中心）+ 主题/语言/清缓存/登出 -->
     <div class="sidebar-user">
       <div class="sidebar-user-profile" @click="goProfile">
         <el-avatar :size="36" :src="userStore.profile?.avatar || undefined" class="sidebar-user-avatar">
@@ -43,7 +24,7 @@
 
       <div class="sidebar-user-actions">
         <!-- 切换主题模式（亮/暗） -->
-        <el-tooltip :content="t('setting.mode')" placement="top">
+        <el-tooltip :content="t('setting.mode')" placement="bottom">
           <button type="button" class="sidebar-user-action" @click="setting.toggleDark()">
             <i :class="setting.isDark ? 'ri-sun-line' : 'ri-moon-line'" />
           </button>
@@ -70,20 +51,33 @@
         </el-dropdown>
 
         <!-- 清除缓存 -->
-        <el-tooltip :content="t('layout.syncCacheItem')" placement="top">
+        <el-tooltip :content="t('layout.syncCacheItem')" placement="bottom">
           <button type="button" class="sidebar-user-action" :disabled="clearing" @click="clearCache">
             <i class="ri-brush-line" />
           </button>
         </el-tooltip>
 
         <!-- 注销登录 -->
-        <el-tooltip :content="t('layout.logout')" placement="top">
+        <el-tooltip :content="t('layout.logout')" placement="bottom">
           <button type="button" class="sidebar-user-action" @click="onLogout">
             <i class="ri-logout-box-r-line" />
           </button>
         </el-tooltip>
       </div>
     </div>
+
+    <el-scrollbar class="sidebar-body">
+      <el-menu
+        ref="menuRef"
+        :default-active="activeMenu"
+        :collapse="!mobile && collapsed"
+        :collapse-transition="false"
+        unique-opened
+        @select="onSelect"
+      >
+        <SidebarSubmenu :menus="menuStore.menus" />
+      </el-menu>
+    </el-scrollbar>
 
     <!-- 备案号 / 版权来自后台配置 -->
     <footer v-if="(!collapsed || mobile) && (appStore.icp || appStore.copyright)" class="sidebar-footer">
@@ -103,7 +97,6 @@ import { currentLocale, setLocale, SUPPORTED_LOCALES } from '@/locales'
 import { reloadMenus, resetAfterLogout, syncDocumentTitle } from '@/router'
 import { systemRefresh } from '@/api/system'
 import { useAppStore } from '@/stores/app'
-import { HOME_PATH } from '@/stores/worktab'
 import { useMenuStore } from '@/stores/menu'
 import { useNoticeStore } from '@/stores/notice'
 import { useExportTaskStore } from '@/stores/exportTask'
@@ -126,8 +119,6 @@ const setting = useSettingStore()
 const noticeStore = useNoticeStore()
 const exportTaskStore = useExportTaskStore()
 
-const brandInitial = computed(() => (appStore.systemName || 'C').charAt(0).toUpperCase())
-
 /**
  * el-menu 通过 expose 暴露了 open(index)，内部会用正确的 indexPath 展开整条链，
  * 因此这里只需要传「目录 id」。注意 index 必须是已注册的子菜单，否则会抛错。
@@ -135,7 +126,7 @@ const brandInitial = computed(() => (appStore.systemName || 'C').charAt(0).toUpp
 const menuRef = ref()
 
 const activeMenu = computed(() => route.path)
-const sidebarWidth = computed(() => `${props.collapsed ? 64 : 220}px`)
+const sidebarWidth = computed(() => `${props.collapsed ? 64 : 230}px`)
 
 /** 回溯出当前路径的所有祖先目录 id */
 function findChain(menus: MenuNode[], path: string, chain: string[]): string[] | null {
@@ -172,10 +163,6 @@ function onSelect(index: string): void {
   if (index.startsWith('/') && index !== route.path) {
     router.push(index)
   }
-}
-
-function goHome(): void {
-  router.push(HOME_PATH)
 }
 
 /* ---- 用户卡片 ---- */
@@ -254,52 +241,6 @@ async function onLogout(): Promise<void> {
   transform: translateX(0);
 }
 
-.sidebar-logo {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-  align-items: center;
-  /* 盾牌 + 系统名整体居中（折叠时只剩盾牌，也是居中的） */
-  justify-content: center;
-  height: var(--art-header-height);
-  padding: 0 16px;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-/* 兜底字母标：尺寸与 logo 图保持一致 */
-.sidebar-logo-mark {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fff;
-  background: var(--art-primary);
-  border-radius: 6px;
-}
-
-.sidebar-logo-text {
-  font-size: 16px;
-  font-weight: 700;
-  /* 字距会在末尾多出一格，用负 margin 抵掉，居中的才是视觉中心 */
-  margin-right: -1px;
-  letter-spacing: 1px;
-  color: var(--art-main);
-  white-space: nowrap;
-}
-
-.sidebar-logo-img {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
-  border-radius: 6px;
-}
-
 .sidebar-body {
   flex: 1;
   min-height: 0;
@@ -309,7 +250,7 @@ async function onLogout(): Promise<void> {
 .sidebar-user {
   flex-shrink: 0;
   padding: 12px 10px;
-  border-top: 1px solid var(--art-card-border);
+  border-bottom: 1px solid var(--art-card-border);
 }
 
 .sidebar-user-profile {
