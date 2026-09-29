@@ -31,34 +31,32 @@
         </el-button>
       </el-tooltip>
 
-      <!-- 2. 语言切换 -->
-      <el-dropdown trigger="click" @command="onLocaleCommand">
-        <span class="header-action">
-          <el-icon :size="17"><i class="ri-translate-2" /></el-icon>
-        </span>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item
-              v-for="item in SUPPORTED_LOCALES"
-              :key="item.value"
-              :command="item.value"
-              :disabled="item.value === currentLocale"
-            >
-              <span class="header-menu-label">{{ item.label }}</span>
-              <el-icon v-if="item.value === currentLocale"><i class="ri-check-line" /></el-icon>
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <!-- 3. 全屏 -->
+      <!-- 2. 全屏 -->
       <el-tooltip :content="t('layout.fullscreen')" placement="bottom">
         <el-button text circle @click="toggleFullscreen">
           <el-icon :size="17"><i class="ri-fullscreen-line" /></el-icon>
         </el-button>
       </el-tooltip>
 
-      <!-- 4. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
+      <!-- 3. 消息通知 -->
+      <el-tooltip :content="t('layout.notice')" placement="bottom">
+        <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0">
+          <el-button text circle @click="openNoticeDrawer">
+            <el-icon :size="17"><i class="ri-notification-3-line" /></el-icon>
+          </el-button>
+        </el-badge>
+      </el-tooltip>
+
+      <!-- 4. 导出任务中心 -->
+      <el-tooltip :content="t('export.title')" placement="bottom">
+        <el-badge :value="exportTaskStore.unfinished" :max="99" :hidden="exportTaskStore.unfinished === 0">
+          <el-button text circle @click="exportTaskStore.open()">
+            <el-icon :size="17"><i class="ri-download-2-line" /></el-icon>
+          </el-button>
+        </el-badge>
+      </el-tooltip>
+
+      <!-- 5. 系统刷新：菜单 / 按钮节点 / 缓存的同步入口（等价 menu-sync + perm-scan + 清缓存） -->
       <el-dropdown v-if="canRefresh" trigger="click" @command="onRefreshCommand">
         <span class="header-action" :class="{ 'is-loading': refreshing }">
           <el-icon :size="17"><i class="ri-refresh-line" /></el-icon>
@@ -72,7 +70,7 @@
         </template>
       </el-dropdown>
 
-      <!-- 7. 切换租户（租户是硬边界，跨租户只能显式切换；仅平台超管可见） -->
+      <!-- 6. 切换租户（租户是硬边界，跨租户只能显式切换；仅平台超管可见） -->
       <el-dropdown v-if="userStore.superAdmin" trigger="click" @command="onTenantCommand">
         <span class="header-action">
           <el-icon :size="17"><i class="ri-swap-line" /></el-icon>
@@ -89,55 +87,7 @@
         </template>
       </el-dropdown>
 
-      <!-- 8. 用户名 -->
-      <el-dropdown trigger="click" @command="onUserCommand">
-        <div class="header-user">
-          <el-badge :value="noticeStore.unread" :max="99" :hidden="noticeStore.unread === 0" class="header-user-badge">
-            <el-avatar :size="28" class="header-user-avatar" :src="userStore.profile?.avatar || undefined">
-              {{ avatarText }}
-            </el-avatar>
-          </el-badge>
-          <span class="header-user-name">{{ userStore.nickname || t('layout.notLoggedIn') }}</span>
-          <el-icon :size="12"><i class="ri-arrow-down-s-line" /></el-icon>
-        </div>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item disabled>
-              <span class="header-user-role">
-                {{
-                  userStore.superAdmin
-                    ? t('layout.superAdmin')
-                    : (userStore.profile?.roles || []).join(' / ') || t('layout.normalUser')
-                }}
-              </span>
-            </el-dropdown-item>
-            <el-dropdown-item command="notice" divided>
-              <el-icon><i class="ri-notification-3-line" /></el-icon>
-              <span class="header-menu-label">{{ t('layout.notice') }}</span>
-              <span v-if="noticeStore.unread > 0" class="header-menu-count">
-                {{ noticeStore.unread > 99 ? '99+' : noticeStore.unread }}
-              </span>
-            </el-dropdown-item>
-            <el-dropdown-item command="export">
-              <el-icon><i class="ri-download-2-line" /></el-icon>
-              <span class="header-menu-label">{{ t('export.title') }}</span>
-              <span v-if="exportTaskStore.unfinished > 0" class="header-menu-count">
-                {{ exportTaskStore.unfinished > 99 ? '99+' : exportTaskStore.unfinished }}
-              </span>
-            </el-dropdown-item>
-            <el-dropdown-item command="profile" divided>
-              <el-icon><i class="ri-user-line" /></el-icon>
-              {{ t('layout.profile') }}
-            </el-dropdown-item>
-            <el-dropdown-item command="logout" divided>
-              <el-icon><i class="ri-logout-box-r-line" /></el-icon>
-              {{ t('layout.logout') }}
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <!-- 9. 设置 -->
+      <!-- 7. 设置 -->
       <el-tooltip :content="t('layout.themeSetting')" placement="bottom">
         <el-button text circle @click="settingsVisible = true">
           <el-icon :size="17"><i class="ri-settings-3-line" /></el-icon>
@@ -325,12 +275,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ArtSettingsDrawer from '@/components/core/ArtSettingsDrawer.vue'
 import ArtIcon from '@/components/core/ArtIcon.vue'
 import ExportTaskDrawer from '@/components/ExportTaskDrawer.vue'
-import { reloadMenus, resetAfterLogout, syncDocumentTitle } from '@/router'
+import { reloadMenus } from '@/router'
 import { systemRefresh, type RefreshResult, type RefreshScope } from '@/api/system'
 import { tenantOptions, type TenantOption } from '@/api/tenant'
 import type { NoticeRow } from '@/api/notice'
 import type { MenuNode } from '@/api/types'
-import { currentLocale, setLocale, SUPPORTED_LOCALES } from '@/locales'
 import { translateTitle } from '@/locales/title'
 import { useMenuStore } from '@/stores/menu'
 import { useNoticeStore } from '@/stores/notice'
@@ -408,8 +357,6 @@ const crumbs = computed<Crumb[]>(() => {
       .map((r) => ({ path: r.path, title: translateTitle(r.meta.title), linkable: true }))
   )
 })
-
-const avatarText = computed(() => (userStore.nickname || 'U').charAt(0).toUpperCase())
 
 function toggleCollapse(): void {
   emit('update:collapsed', !props.collapsed)
@@ -619,59 +566,6 @@ async function onRefreshCommand(command: string | number | object): Promise<void
     refreshing.value = false
   }
 }
-
-/**
- * 语言切换：即时生效并持久化（与设置抽屉里的语言选择同一套逻辑）。
- *
- * 前端语言包靠响应式自动生效；菜单标题与浏览器标签标题是「后端已翻好、前端缓存了成品」
- * 的数据，需主动重新拉取 / 重算，否则停留在切换前的语言。
- */
-function onLocaleCommand(command: string | number | object): void {
-  const locale = String(command)
-  if (locale === currentLocale.value) {
-    return
-  }
-  setLocale(locale)
-  void reloadMenus()
-  syncDocumentTitle(String(route.meta.title ?? ''))
-}
-
-/**
- * 用户名下拉：消息 / 导出任务 / 个人中心 / 登出。
- */
-async function onUserCommand(command: string | number | object): Promise<void> {
-  const cmd = String(command)
-
-  if (cmd === 'notice') {
-    openNoticeDrawer()
-    return
-  }
-  if (cmd === 'export') {
-    exportTaskStore.open()
-    return
-  }
-  if (cmd === 'profile') {
-    router.push('/profile')
-    return
-  }
-  if (cmd !== 'logout') {
-    return
-  }
-  try {
-    await ElMessageBox.confirm(t('layout.logoutConfirm'), t('layout.logout'), {
-      type: 'warning',
-      confirmButtonText: t('layout.logoutConfirmBtn'),
-      cancelButtonText: t('common.cancel'),
-    })
-  } catch {
-    return
-  }
-  await userStore.logout()
-  noticeStore.reset()
-  exportTaskStore.reset()
-  resetAfterLogout()
-  router.push('/login')
-}
 </script>
 
 <style scoped>
@@ -727,76 +621,6 @@ async function onUserCommand(command: string | number | object): Promise<void> {
   .header-breadcrumb {
     display: none;
   }
-}
-
-.header-user {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  height: 36px;
-  padding: 0 10px;
-  margin-left: 4px;
-  cursor: pointer;
-  border-radius: calc(var(--art-radius) - 2px);
-  outline: none;
-  transition: background 0.15s ease;
-}
-
-.header-user:hover {
-  background: var(--art-hover-bg);
-}
-
-/* 未读消息徽标贴在头像上（下拉收起时也看得见） */
-.header-user-badge {
-  display: inline-flex;
-  align-items: center;
-  line-height: 1;
-}
-
-.header-user-avatar {
-  font-size: 13px;
-  background: var(--art-primary);
-}
-
-.header-user-name {
-  max-width: 120px;
-  overflow: hidden;
-  font-size: 14px;
-  color: var(--art-main);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 移动端：用户名只展示头像，隐藏用户名文字与下拉箭头 */
-@media (max-width: 900px) {
-  .header-user-name,
-  .header-user > .el-icon {
-    display: none;
-  }
-}
-
-.header-user-role {
-  font-size: 12px;
-  color: var(--art-muted);
-}
-
-/* 下拉菜单项里的占位：让右侧的图标（如语言当前项的勾选）贴右 */
-.header-menu-label {
-  flex: 1;
-}
-
-/* 下拉菜单项右侧的未读 / 未完成计数徽标 */
-.header-menu-count {
-  flex-shrink: 0;
-  min-width: 18px;
-  padding: 0 5px;
-  margin-left: auto;
-  font-size: 11px;
-  line-height: 16px;
-  color: #fff;
-  text-align: center;
-  background: var(--art-danger);
-  border-radius: 9px;
 }
 
 /* ---- 快捷导航 ---- */
