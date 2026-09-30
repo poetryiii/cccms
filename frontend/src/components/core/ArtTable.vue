@@ -6,8 +6,13 @@
       两边天然联动（列头改了，这里的值跟着变；这里查询了，列头图标也会高亮）。
       条件多时折叠，只显示前几项，点「展开」看全部。
     -->
-    <el-card v-if="searchColumns.length" class="art-table-search" shadow="never">
-      <el-form class="art-table-search-form" :inline="true" @submit.prevent>
+    <el-card v-if="searchColumns.length || $slots['search-extra']" class="art-table-search" shadow="never">
+      <!--
+        页面自定义搜索项（如层级切换）通过 #search-extra 注入，排在自动生成的搜索项前面；
+        没有 filter 列配置的页面也能用这张搜索卡承载自己的搜索 UI。
+      -->
+      <slot name="search-extra" />
+      <el-form v-if="searchColumns.length" class="art-table-search-form" :inline="true" @submit.prevent>
         <el-form-item
           v-for="(col, index) in searchColumns"
           v-show="searchExpanded || index < SEARCH_COLLAPSE_LIMIT"
@@ -48,7 +53,7 @@
           />
         </el-form-item>
       </el-form>
-      <div class="art-table-search-actions">
+      <div v-if="searchColumns.length" class="art-table-search-actions">
         <el-button type="primary" :icon="Search" @click="submitSearch">
           {{ t('common.search') }}
         </el-button>
