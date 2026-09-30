@@ -31,7 +31,24 @@ vi.mock('@/router', () => ({
   resetAfterLogout: mocks.resetAfterLogout,
 }))
 
-import instance, { downloadFile, http } from '@/api/request'
+/**
+ * jsdom 的 Blob 未实现 text()（生产浏览器 2020+ 都有），拦截器要靠它读 blob 错误体里的 JSON。
+ * 这里用 FileReader 补一个最小实现，仅测试环境生效。
+ */
+if (typeof Blob !== 'undefined' && typeof FileReader !== 'undefined' && typeof Blob.prototype.text !== 'function') {
+  Object.defineProperty(Blob.prototype, 'text', {
+    value: function text(this: Blob): Promise<string> {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result ?? ''))
+        reader.onerror = () => reject(reader.error)
+        reader.readAsText(this)
+      })
+    },
+  })
+}
+
+import instance, { downloadFile, downloadFileByPost, http } from '@/api/request'
 import { getToken } from '@/utils/auth'
 
 type AdapterConfig = InternalAxiosRequestConfig & { responseType?: string }
@@ -253,5 +270,27 @@ describe('downloadFile', () => {
     await downloadFile('/log/export', undefined, 'fallback.csv')
 
     expect(downloadedName).toBe('fallback.csv')
+  })
+
+  it('POST blob 错误：响应体是 Blob 时解析出后端 message 再提示', async () => {
+    mockAdapterFailure(422, new Blob([JSON.stringify({ code: 1, message: '所选登录账号下没有广告账户' })]))
+
+    await expect(
+      downloadFileByPost('/oceanengine/delivery_link/exportTemplate', { main_list: [], file_name: '模板' }),
+    ).rejects.toBeTruthy()
+
+    await vi.waitFor(() => {
+      expect(mocks.messageError).toHaveBeenCalledWith('所选登录账号下没有广告账户')
+    })
+  })
+
+  it('POST blob 错误：响应体不是合法 JSON 时提示通用错误', async () => {
+    mockAdapterFailure(500, new Blob(['<html>oops</html>']))
+
+    await expect(downloadFileByPost('/x')).rejects.toBeTruthy()
+
+    await vi.waitFor(() => {
+      expect(mocks.messageError).toHaveBeenCalledWith('t:common.requestError')
+    })
   })
 })

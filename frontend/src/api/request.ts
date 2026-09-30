@@ -99,6 +99,21 @@ instance.interceptors.response.use(
           }, 800)
         })
       }
+    } else if (status && error?.config?.responseType === 'blob' && error?.response?.data instanceof Blob) {
+      // blob 下载类请求（导出文件）的错误响应体也是 Blob，读不出后端 message：
+      // 异步解析出 JSON 里的 message 再提示（如「所选登录账号下没有广告账户」），
+      // 而不是只给一句笼统的「请求错误(422)」
+      error.response.data
+        .text()
+        .then((text: string) => {
+          try {
+            const parsed = JSON.parse(text) as { message?: string }
+            ElMessage.error(parsed.message || t('common.requestError', { status }))
+          } catch {
+            ElMessage.error(t('common.requestError', { status }))
+          }
+        })
+        .catch(() => ElMessage.error(t('common.requestError', { status })))
     } else if (status) {
       ElMessage.error(message || t('common.requestError', { status }))
     } else {
@@ -132,6 +147,19 @@ function filenameFromDisposition(disposition: string): string {
   return plain?.[1] ? plain[1].trim() : ''
 }
 
+/** 触发 blob 下载：文件名取 Content-Disposition，拿不到时用 fallbackName */
+function triggerBlobDownload(response: AxiosResponse<Blob>, fallbackName: string): void {
+  const name = filenameFromDisposition(String(response.headers['content-disposition'] ?? '')) || fallbackName
+  const objectUrl = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 /**
  * 下载后端返回的文件（CSV 导出）。
  *
@@ -144,16 +172,25 @@ export async function downloadFile(
   fallbackName = 'export.csv',
 ): Promise<void> {
   const response = (await instance.get(url, { params, responseType: 'blob' })) as unknown as AxiosResponse<Blob>
+  triggerBlobDownload(response, fallbackName)
+}
 
-  const name = filenameFromDisposition(String(response.headers['content-disposition'] ?? '')) || fallbackName
-  const objectUrl = URL.createObjectURL(response.data)
-  const link = document.createElement('a')
-  link.href = objectUrl
-  link.download = name
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(objectUrl)
+/**
+ * POST 版文件下载（导出模板等需要带 body 参数的接口）。
+ *
+ * 返回后端 `X-Export-Rows` 响应头里的导出行数（拿不到返回 null），
+ * 调用方可据此提示「导出成功，共 N 条」。
+ */
+export async function downloadFileByPost(
+  url: string,
+  data?: unknown,
+  fallbackName = 'export.xlsx',
+): Promise<number | null> {
+  const response = (await instance.post(url, data, { responseType: 'blob' })) as unknown as AxiosResponse<Blob>
+  triggerBlobDownload(response, fallbackName)
+
+  const total = Number(response.headers['x-export-rows'] ?? '')
+  return total > 0 ? total : null
 }
 
 export default instance

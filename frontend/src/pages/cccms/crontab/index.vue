@@ -123,35 +123,61 @@
     </el-dialog>
 
     <!-- 执行日志 -->
-    <el-drawer v-model="logVisible" :title="t('crontab.logsTitle', { name: currentTask.name })" size="760px">
-      <el-table v-loading="logLoading" :data="logs" row-key="id" stripe border max-height="480">
-        <el-table-column prop="run_time" :label="t('crontab.logTime')" width="170" />
-        <el-table-column :label="t('crontab.logResult')" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag :type="logStatusMeta(row.status).type" effect="light" size="small">
-              {{ t(logStatusMeta(row.status).labelKey) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('crontab.logSource')" width="90" align="center">
-          <template #default="{ row }">
-            {{ sourceLabel(row.source) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="cost" :label="t('crontab.logCost')" width="100" align="right" />
-        <el-table-column prop="output" :label="t('crontab.logOutput')" min-width="200" show-overflow-tooltip />
-      </el-table>
+    <el-drawer v-model="logVisible" :title="t('crontab.logsTitle', { name: currentTask.name })" size="880px">
+      <!-- 按列表页表格的方式组织：工具条 + 撑满的表格 + 底部固定分页（而不是塞进 drawer footer） -->
+      <div class="log-panel">
+        <div class="log-toolbar">
+          <el-select
+            v-model="logStatus"
+            clearable
+            :placeholder="t('crontab.allPlaceholder')"
+            style="width: 140px"
+            @change="onLogFilterChange"
+          >
+            <el-option :label="t('crontab.logSuccess')" :value="1" />
+            <el-option :label="t('crontab.logFailed')" :value="0" />
+            <el-option :label="t('crontab.logSkipped')" :value="2" />
+            <el-option :label="t('crontab.logTimeout')" :value="3" />
+          </el-select>
 
-      <template #footer>
-        <el-pagination
-          :current-page="logPage"
-          :page-size="logLimit"
-          :total="logTotal"
-          layout="total, prev, pager, next"
-          background
-          @current-change="onLogPageChange"
-        />
-      </template>
+          <el-button text circle :title="t('table.refresh')" @click="loadLogs">
+            <i class="ri-refresh-line" />
+          </el-button>
+        </div>
+
+        <div class="log-table-wrap">
+          <el-table v-loading="logLoading" :data="logs" row-key="id" stripe border height="100%">
+            <el-table-column prop="run_time" :label="t('crontab.logTime')" width="170" />
+            <el-table-column :label="t('crontab.logResult')" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag :type="logStatusMeta(row.status).type" effect="light" size="small">
+                  {{ t(logStatusMeta(row.status).labelKey) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('crontab.logSource')" width="90" align="center">
+              <template #default="{ row }">
+                {{ sourceLabel(row.source) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="cost" :label="t('crontab.logCost')" width="100" align="right" />
+            <el-table-column prop="output" :label="t('crontab.logOutput')" min-width="200" show-overflow-tooltip />
+          </el-table>
+        </div>
+
+        <div class="log-pager">
+          <el-pagination
+            :current-page="logPage"
+            :page-size="logLimit"
+            :total="logTotal"
+            :page-sizes="LOG_PAGE_SIZES"
+            :layout="logPagerLayout"
+            background
+            @current-change="onLogPageChange"
+            @size-change="onLogLimitChange"
+          />
+        </div>
+      </div>
     </el-drawer>
   </div>
 </template>
@@ -160,6 +186,7 @@
 defineOptions({ name: 'cccms:crontab' })
 
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import ArtTable from '@/components/core/ArtTable.vue'
@@ -333,19 +360,31 @@ async function onRun(record: CrontabRow): Promise<void> {
   }
 }
 
-/* ---- 日志 ---- */
+/* ---- 执行日志 ---- */
+/** 与列表页表格一致的可选每页条数 */
+const LOG_PAGE_SIZES = [10, 15, 30, 50, 100]
+
 const logVisible = ref(false)
 const logLoading = ref(false)
 const logs = ref<CrontabLogRow[]>([])
 const logPage = ref(1)
 const logLimit = ref(10)
 const logTotal = ref(0)
+/** 结果筛选：'' = 全部 */
+const logStatus = ref<number | ''>('')
 const currentTask = reactive({ id: 0, name: '' })
+
+/** 窄屏收起「每页条数 / 跳页」（与 ArtTable 的分页器口径一致） */
+const isNarrow = useMediaQuery('(max-width: 768px)')
+const logPagerLayout = computed(() =>
+  isNarrow.value ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper',
+)
 
 function openLogs(record: CrontabRow): void {
   currentTask.id = record.id
   currentTask.name = record.name
   logPage.value = 1
+  logStatus.value = ''
   logVisible.value = true
   void loadLogs()
 }
@@ -357,6 +396,7 @@ async function loadLogs(): Promise<void> {
       crontab_id: currentTask.id,
       page: logPage.value,
       limit: logLimit.value,
+      ...(logStatus.value === '' ? {} : { status: logStatus.value }),
     })
     logs.value = res.list
     logTotal.value = res.total
@@ -367,6 +407,19 @@ async function loadLogs(): Promise<void> {
 
 function onLogPageChange(value: number): void {
   logPage.value = value
+  void loadLogs()
+}
+
+/** 改每页条数：回到第 1 页重新拉（否则可能落在空白页） */
+function onLogLimitChange(value: number): void {
+  logLimit.value = value
+  logPage.value = 1
+  void loadLogs()
+}
+
+/** 切换结果筛选：回到第 1 页重新拉 */
+function onLogFilterChange(): void {
+  logPage.value = 1
   void loadLogs()
 }
 
@@ -415,5 +468,34 @@ onMounted(async () => {
   margin-left: 8px;
   font-size: 12px;
   color: var(--art-muted);
+}
+
+/* ---- 执行日志抽屉：工具条 + 撑满表格 + 底部固定分页 ---- */
+.log-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.log-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.log-table-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.log-pager {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  padding-top: 12px;
 }
 </style>
