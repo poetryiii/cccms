@@ -35,7 +35,15 @@ final class UpgradeLogic
             'git_available'  => Upgrader::gitAvailable(),
             'initialized'    => Upgrader::initialized(),
             'current'        => Upgrader::current(),
-            'sources'        => Upgrader::sources(),
+            // URL 里可能带令牌（Gitee 私有仓库 / 公开仓库都要求认证），回给页面的一律打码
+            'sources'        => array_map(
+                static function (array $source): array {
+                    $source['url'] = Upgrader::maskCredentials($source['url']);
+
+                    return $source;
+                },
+                Upgrader::sources()
+            ),
             'default_source' => Upgrader::defaultSource(),
             'track'          => (string)$settings['track'],
             'default_base'   => (string)$settings['base'],

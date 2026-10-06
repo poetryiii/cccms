@@ -26,7 +26,7 @@ return [
         ],
     ],
 
-    // 默认同步源（上面 remotes 的 key）
+    // 默认同步源（上面 remotes 的 key）。公开仓库可匿名拉取，默认取国内镜像
     'default_source' => getenv('CCCMS_UPGRADE_SOURCE') ?: 'gitee',
 
     // 跟踪目标：分支名 / tag / commit。页面与命令都可以临时指定其它版本

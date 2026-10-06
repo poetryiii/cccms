@@ -351,13 +351,8 @@ final class Upgrader
             2 => ['pipe', 'w'],
         ];
 
-        // 服务器上（webman worker / php-fpm）没有终端可供 git 索要凭据：不禁用提示时，git 会去读
-        // 终端，抛出 "could not read Username ... No such device or address" —— 一个几乎无法定位的
-        // 错误；禁用后它会明确失败并说明「terminal prompts disabled」，配套提示见 authHint()。
-        //
-        // 用 putenv 注到本进程（子进程自然继承），而不是 proc_open 的第 5 个参数：后者要先取出父进程
-        // 环境再整体回传，一旦 getenv() 取不到就既不生效、又不敢覆盖（传空数组反而会清掉 PATH / HOME）。
-        // putenv 被 disable_functions 禁用时函数不存在，这里直接跳过，不影响主流程。
+        // 无终端环境下禁用 git 的交互提示，免得它去读终端、报出「No such device or address」
+        // 这种无法定位的错误；用 putenv 注到本进程（子进程继承），不依赖 getenv() 是否可用。
         if (function_exists('putenv')) {
             putenv('GIT_TERMINAL_PROMPT=0');
             putenv('GCM_INTERACTIVE=never');
@@ -408,7 +403,7 @@ final class Upgrader
         }
 
         if ($fetch) {
-            [$code, , $err] = self::git(['-C', $repo, 'fetch', '--quiet', '--tags', '--force', 'origin']);
+            [$code, , $err] = self::git(['fetch', '--quiet', '--tags', '--force', 'origin'], $repo);
             if ($code !== 0) {
                 // 目录还在但结构已坏（例如手动删了一半）→ 重建后再用
                 self::createRepo($repo, $url, $source);
@@ -431,7 +426,7 @@ final class Upgrader
         [$code, , $err] = self::git(['clone', '--quiet', $remote, $repo]);
         if ($code !== 0) {
             throw new ApiException(
-                '拉取上游仓库失败：' . trim($err ?: 'clone 退出码 ' . $code)
+                '拉取上游仓库失败：' . self::maskCredentials(trim($err ?: 'clone 退出码 ' . $code))
                     . self::authHint($err, $source) . self::selfCheck($remote),
                 500
             );
@@ -439,12 +434,28 @@ final class Upgrader
     }
 
     /**
-     * 认证类失败的补充提示。
+     * 去掉 URL 里的凭据：`https://user:token@host/...` → `https://***@host/...`。
      *
-     * git 拿不到凭据时会尝试读取终端（`/dev/tty`），在没有终端的服务器上就表现为
-     * `could not read Username ... No such device or address` —— 使用者几乎无法据此定位。
-     * 命中这类输出时补一句「该源要求登录 + 怎么配」。
+     * 接口响应 / 异常信息里回显 URL 前都要过这一层，避免令牌泄露（不误伤 `git@host:path`）。
      */
+    public static function maskCredentials(string $text): string
+    {
+        return self::replaceCredentials($text, '***');
+    }
+
+    /** 去掉 URL 里的凭据（探测「匿名可达性」时用） */
+    private static function stripCredentials(string $url): string
+    {
+        return self::replaceCredentials($url, '');
+    }
+
+    /** 替换 URL 的 userinfo 段（`://` 之后、`@` 之前），不会误伤 `git@host:path` 这类写法 */
+    private static function replaceCredentials(string $text, string $replacement): string
+    {
+        return (string)preg_replace('~(?<=://)[^/@\s]+(?=@)~', $replacement, $text);
+    }
+
+    /** 认证类失败的补充提示：说明该源怎么配凭据（私有仓库/需登录的源） */
     private static function authHint(string $err, string $source = ''): string
     {
         $needle = '/could not read Username|terminal prompts disabled|Authentication failed|'
@@ -459,16 +470,11 @@ final class Upgrader
 
         return '（该同步源' . $name . '要求登录：在 server/.env 里给 '
             . ($envKey !== '' ? $envKey : '该源') . ' 配置带令牌的 URL'
-            . '（形如 https://<账号>:<令牌>@gitee.com/<owner>/<repo>.git，示例见 .env.example），'
+            . '（形如 https://<账号>:<令牌>@gitee.com/<owner>/<repo>.git），'
             . '或改用 SSH 部署公钥，或在页面上切换其它同步源）';
     }
 
-    /**
-     * 失败自检：把「这台机器到同步源的真实状况」写进报错里。
-     *
-     * 只在失败路径上调用（多一次本机 HTTP 请求 + 一次 `git --version`），为的是让报错自带结论，
-     * 而不是让使用者自己登录服务器敲命令。正常同步完全不走这里。
-     */
+    /** 失败自检：把「本机到同步源的真实状况」写进报错（只在失败路径调用，正常同步不走） */
     private static function selfCheck(string $url): string
     {
         $parts = [];
@@ -489,10 +495,9 @@ final class Upgrader
     }
 
     /**
-     * 探一次同步源的 HTTP 状态（只读，不写）。
+     * 探一次同步源的 HTTP 状态（只读）：匿名 / 带凭据各一次。
      *
-     * 这是判断「到底谁的问题」的关键：`200` = 本机可以匿名访问，那认证失败来自本机 git 的
-     * 凭据 / 代理设置；`401` = 该地址本身需要认证（私有仓库）；`403` / `404` / 无响应同理可读。
+     * 用来区分「地址需要认证」「凭据被拒」「本机 IP 被挡」「网络不通」四类问题。
      */
     private static function probeStatus(string $url): string
     {
@@ -503,6 +508,34 @@ final class Upgrader
             return '';
         }
 
+        // 探两次：不带凭据 / 带凭据。两者合起来才能区分问题类型 ——
+        //   匿名 401 + 带凭据 200 → 正常；匿名 401 + 带凭据 403 → 凭据被拒（令牌 / 账号 / 权限）；
+        //   两者都 403 → 本机 IP 被挡；都拿不到 → 网络 / 代理问题。
+        $plain  = self::endpointStatus(self::stripCredentials($url));
+        $authed = self::endpointStatus($url);
+
+        if ($plain === '' || $authed === '') {
+            return '访问该地址无响应（网络 / 代理问题？）';
+        }
+
+        if ($plain === $authed) {
+            return '访问该地址返回 HTTP ' . $plain
+                . (self::stripCredentials($url) !== $url ? '（匿名与带凭据结果一致，凭据未被接受）' : '');
+        }
+
+        $text = '访问该地址匿名 HTTP ' . $plain . '、带凭据 HTTP ' . $authed;
+
+        // 这组组合的含义很明确：登录成功了，但**这个仓库不给该账号访问**
+        if ($plain === '401' && $authed === '403') {
+            $text .= '（已登录但无该仓库权限：仓库可能是私有、账号未完成实名认证，或该账号不是仓库成员）';
+        }
+
+        return $text;
+    }
+
+    /** 请求同步源的 git 端点，返回状态码（拿不到返回空串） */
+    private static function endpointStatus(string $url): string
+    {
         $context = stream_context_create([
             'http' => ['method' => 'GET', 'timeout' => 5, 'ignore_errors' => true],
         ]);
@@ -517,7 +550,7 @@ final class Upgrader
             }
         }
 
-        return $status === '' ? '访问该地址无响应（网络 / 代理问题？）' : '访问该地址返回 HTTP ' . $status;
+        return $status;
     }
 
     /** 当前 git 版本号（取不到返回空串） */
@@ -529,6 +562,24 @@ final class Upgrader
         }
 
         return $match[1];
+    }
+
+    /**
+     * git 版本过旧导致「不认某个选项」时的补充提示。
+     *
+     * 这类报错的原文是 `Unknown option: xxx` 加一大段 usage，使用者看不出根因是「git 太老」
+     * （例如 1.8.5 之前的 git 不支持 `-C <dir>`，1.7.x 也不认 GIT_TERMINAL_PROMPT）。
+     */
+    private static function legacyHint(string $err): string
+    {
+        if (stripos($err, 'unknown option') === false && stripos($err, 'usage: git') === false) {
+            return '';
+        }
+
+        $version = self::gitVersion();
+
+        return '（当前 git' . ($version !== '' ? ' ' . $version : '版本偏旧') . ' 不支持该命令所需的选项，'
+            . '请升级 git 到 1.8.5 以上（建议 2.x）后重试）';
     }
 
     /**
@@ -569,19 +620,22 @@ final class Upgrader
     {
         $ref = self::freshRef($repo, $ref);
 
-        [$code, , $err] = self::git(['-C', $repo, 'reset', '--hard', '--quiet', $ref]);
+        [$code, , $err] = self::git(['reset', '--hard', '--quiet', $ref], $repo);
 
         if ($code !== 0) {
             // 目标可能是刚发布的 tag：补一次 fetch 再试
-            self::git(['-C', $repo, 'fetch', '--quiet', '--tags', '--force', 'origin']);
-            [$code, , $err] = self::git(['-C', $repo, 'reset', '--hard', '--quiet', $ref]);
+            self::git(['fetch', '--quiet', '--tags', '--force', 'origin'], $repo);
+            [$code, , $err] = self::git(['reset', '--hard', '--quiet', $ref], $repo);
         }
 
         if ($code !== 0) {
-            throw new ApiException("切换上游版本失败（{$ref}）：" . trim($err), 500);
+            throw new ApiException(
+                "切换上游版本失败（{$ref}）：" . self::maskCredentials(trim($err)) . self::legacyHint($err),
+                500
+            );
         }
 
-        [$ok, $out] = self::git(['-C', $repo, 'rev-parse', 'HEAD']);
+        [$ok, $out] = self::git(['rev-parse', 'HEAD'], $repo);
 
         return $ok === 0 ? trim($out) : '';
     }
@@ -593,7 +647,7 @@ final class Upgrader
             return '';
         }
 
-        [$code, $out] = self::git(['-C', $repo, 'rev-parse', '--verify', '--quiet', $ref]);
+        [$code, $out] = self::git(['rev-parse', '--verify', '--quiet', $ref], $repo);
 
         return $code === 0 ? trim($out) : '';
     }
@@ -610,12 +664,12 @@ final class Upgrader
         }
 
         [$code, $out] = self::git([
-            '-C', $repo, 'log', '--no-merges',
+            'log', '--no-merges',
             '--date=format:%Y-%m-%d %H:%M',
             '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%s',
             '-n', (string)$limit,
             $from . '..' . $to,
-        ]);
+        ], $repo);
         if ($code !== 0) {
             return [];
         }
@@ -654,7 +708,7 @@ final class Upgrader
             return [];
         }
 
-        [$code, $out] = self::git(['-C', $repo, 'diff', '--numstat', '--no-renames', '-z', $from, $to]);
+        [$code, $out] = self::git(['diff', '--numstat', '--no-renames', '-z', $from, $to], $repo);
         if ($code !== 0) {
             return [];
         }
@@ -690,9 +744,12 @@ final class Upgrader
      */
     private static function upstreamFiles(string $repo): array
     {
-        [$code, $out, $err] = self::git(['-C', $repo, 'ls-tree', '-r', '-z', '--name-only', 'HEAD']);
+        [$code, $out, $err] = self::git(['ls-tree', '-r', '-z', '--name-only', 'HEAD'], $repo);
         if ($code !== 0) {
-            throw new ApiException('读取上游文件清单失败：' . trim($err), 500);
+            throw new ApiException(
+                '读取上游文件清单失败：' . self::maskCredentials(trim($err)) . self::legacyHint($err),
+                500
+            );
         }
 
         $files = [];
@@ -1141,7 +1198,8 @@ final class Upgrader
         [$code, $out, $err] = self::git(['ls-remote', '--tags', '--refs', $url]);
         if ($code !== 0) {
             throw new ApiException(
-                '读取远端版本失败：' . trim($err) . self::authHint($err, $source) . self::selfCheck($url),
+                '读取远端版本失败：' . self::maskCredentials(trim($err))
+                    . self::authHint($err, $source) . self::selfCheck($url),
                 500
             );
         }
