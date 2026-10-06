@@ -34,7 +34,8 @@ export function fileMove(ids: number[], categoryId: number) {
   return http.post<{ count: number }>('/file/move', { ids, category_id: categoryId })
 }
 
-export const FILE_UPLOAD_URL = `${import.meta.env.VITE_API_BASE || '/api'}/file/upload`
+// ?? 而非 ||：空串是合法值（生产无前缀），用 || 会退化成 //file/upload
+export const FILE_UPLOAD_URL = `${import.meta.env.VITE_API_BASE ?? '/api'}/file/upload`
 
 /** 单请求直传（≤ 单文件上限时使用） */
 export function fileUpload(form: FormData) {

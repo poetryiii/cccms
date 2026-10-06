@@ -17,8 +17,10 @@ interface TrackedConfig {
 
 let progressSeq = 0
 
+// 注意用 ?? 而不是 ||：生产把 VITE_API_BASE 配成空串（同域直连后端、无前缀）时，
+// || 会把空串误判为"未配置"而回退到 /api，线上就会请求 /api/xxx 导致 404。
 const instance: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '/api',
+  baseURL: import.meta.env.VITE_API_BASE ?? '/api',
   timeout: 15000,
 })
 

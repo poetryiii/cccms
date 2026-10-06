@@ -30,11 +30,15 @@ const FALLBACK: AppUiConfig = {
 }
 
 /**
- * 内置 Logo：`frontend/public/logo.png`，构建时随 dist 拷到站点根目录。
+ * 内置 Logo：`frontend/public/logo.png`，构建时随 dist 拷贝到产物根目录。
  *
  * 后台 `system.logo` 留空时用它 —— 所以默认就有 Logo，不必先去配置管理里填 URL。
+ *
+ * 用**相对路径**（与 index.html 里的 `./logo.png` 同口径）：前端可能被部署在子目录下
+ * （例如 `public/dist/` → 访问 /dist/index.html），写死 `/logo.png` 会指向站点根而 404。
+ * 相对路径按文档 URL 解析，放根目录（/logo.png）和放子目录（/dist/logo.png）都对。
  */
-const DEFAULT_LOGO = '/logo.png'
+const DEFAULT_LOGO = './logo.png'
 
 /**
  * 品牌与 UI 默认值（来自 sys_config 的 system.* / ui.* 分组）。
