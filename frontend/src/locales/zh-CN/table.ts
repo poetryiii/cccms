@@ -33,6 +33,7 @@ export default {
   restore: '还原',
   forceDelete: '彻底删除',
   empty: '暂无数据',
+  summary: '汇总',
   savedScheme: '已保存筛选方案「{name}」',
   clearedMemory: '已清除本页筛选记忆',
 }

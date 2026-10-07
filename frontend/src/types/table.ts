@@ -44,6 +44,13 @@ export interface ArtTableColumn {
   sortable?: boolean | 'custom'
   /** 具名插槽名：<template #xxx="{ row, value }">，不写则直接显示字段值 */
   slot?: string
+  /**
+   * 单元格格式化（与 el-table 的 formatter 同签名）。
+   *
+   * 展示口径（两位小数、百分号、千分位…）放在列定义里，比给每列写一个插槽省事，
+   * 也不会出现「这一列格式化了、那一列忘了」。
+   */
+  formatter?: (row: Record<string, any>, column: unknown, cellValue: unknown, index: number) => string
   /** 锁定可见（如操作列、选择列） */
   lockVisible?: boolean
   showOverflowTooltip?: boolean

@@ -33,6 +33,7 @@ export default {
   restore: 'Restore',
   forceDelete: 'Delete permanently',
   empty: 'No data',
+  summary: 'Summary',
   savedScheme: 'Filter scheme "{name}" saved',
   clearedMemory: 'Filter memory for this page cleared',
 }

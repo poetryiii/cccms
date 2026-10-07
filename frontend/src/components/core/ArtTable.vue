@@ -205,6 +205,10 @@
           :height="height"
           :default-expand-all="tree"
           :tree-props="{ children: 'children' }"
+          :default-sort="defaultSort"
+          :show-summary="summaryMethod !== undefined"
+          :summary-method="summaryMethod"
+          :sum-text="summaryText || t('table.summary')"
           stripe
           border
           highlight-current-row
@@ -390,6 +394,23 @@ const props = withDefaults(
      * 适合单页行数达到数千以上的列表；普通分页列表无需开启。
      */
     virtual?: boolean
+    /**
+     * 初始排序（配合列的 `sortable: 'custom'` 做服务端排序）。
+     *
+     * 只决定**表头箭头的初始状态**，数据顺序完全由接口决定 —— 前端不排序，
+     * 因为分页在服务端，前端只能对当前页排序（看着像对的，翻页就露馅）。
+     * 表头列变化时表格会重新挂载（见 el-table 的 `columnKey`），所以切层级后能重新生效。
+     */
+    defaultSort?: { prop: string; order: 'ascending' | 'descending' }
+    /**
+     * 底部汇总行：返回每个单元格要显示的内容（与 el-table 的 summary-method 同签名）。
+     *
+     * **汇总数据必须来自后端**：分页在服务端，前端只能统计当前页 —— 那是个「看着对」的错数。
+     * 不传就不渲染汇总行（后端拿不到全量汇总时正好用它关掉）。
+     */
+    summaryMethod?: (param: { columns: any[]; data: any[] }) => string[]
+    /** 汇总行第一个单元格的文案 */
+    summaryText?: string
   }>(),
   {
     loading: false,
@@ -403,6 +424,8 @@ const props = withDefaults(
     storageKey: '',
     recycle: false,
     virtual: false,
+    summaryMethod: undefined,
+    summaryText: '',
   },
 )
 
@@ -868,6 +891,9 @@ function columnProps(col: ArtTableColumn): Record<string, unknown> {
   }
   if (col.sortable !== undefined) {
     out.sortable = col.sortable
+  }
+  if (col.formatter !== undefined) {
+    out.formatter = col.formatter
   }
   // 列筛选（枚举 / 文本）统一由 #header 插槽自绘，不使用 el-table 原生 filters
   return out
