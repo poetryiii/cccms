@@ -48,15 +48,20 @@
       </template>
 
       <template #status="{ row }">
-        <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
-          {{ row.status === 1 ? t('crontab.enabled') : t('crontab.disabled') }}
-        </el-tag>
-        <el-tag v-if="row.running === 1" type="warning" effect="dark" size="small" class="status-extra">
-          {{ t('crontab.running') }}
-        </el-tag>
-        <el-tag v-else-if="row.retry_left > 0" type="danger" effect="plain" size="small" class="status-extra">
-          {{ t('crontab.retryPending', { count: row.retry_left }) }}
-        </el-tag>
+        <span class="status-cell">
+          <!-- 运行中优先：正在跑时只显示「运行中」，不再叠加「启用/停用」 -->
+          <el-tag v-if="row.running === 1" type="warning" effect="dark" size="small">
+            {{ t('crontab.running') }}
+          </el-tag>
+          <template v-else>
+            <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
+              {{ row.status === 1 ? t('crontab.enabled') : t('crontab.disabled') }}
+            </el-tag>
+            <el-tag v-if="row.retry_left > 0" type="danger" effect="plain" size="small">
+              {{ t('crontab.retryPending', { count: row.retry_left }) }}
+            </el-tag>
+          </template>
+        </span>
       </template>
 
       <template #action="{ row }">
@@ -254,7 +259,7 @@ const columns = computed<ArtTableColumn[]>(() => [
   {
     prop: 'status',
     label: t('crontab.statusLabel'),
-    width: 100,
+    width: 150,
     align: 'center',
     slot: 'status',
     filter: {
@@ -503,8 +508,11 @@ onMounted(async () => {
   color: var(--art-muted);
 }
 
-.status-extra {
-  margin-left: 4px;
+.status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .form-tip {
