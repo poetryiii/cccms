@@ -58,7 +58,17 @@ final class CrontabRunner
                 $output = $instance->run(is_array($params) ? $params : []);
             } catch (Throwable $e) {
                 $status = 0;
-                $output = $e->getMessage();
+                /*
+                 * 只回显 getMessage() 常常定位不到位置：PHP 自身的错误（warning 被转成异常）
+                 * 的 message 是一句固定文本，例如 "Array to string conversion"，
+                 * 光看它不知道是哪一行把数组当字符串用了。因此补上 file:line，
+                 * 完整堆栈另写框架日志（避免把绝对路径与调用链塞进任务日志表）。
+                 */
+                $output = $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine();
+                Log::error(
+                    'crontab: task ' . $target . ' failed: ' . $e->getMessage()
+                    . ' @ ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString()
+                );
             }
         }
 

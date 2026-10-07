@@ -254,7 +254,7 @@ const columns = computed<ArtTableColumn[]>(() => [
   {
     prop: 'status',
     label: t('crontab.statusLabel'),
-    width: 90,
+    width: 100,
     align: 'center',
     slot: 'status',
     filter: {
