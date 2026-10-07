@@ -114,6 +114,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useCronDescription } from '@/composables/useCronDescription'
 import {
   buildFromCycle,
   detectCycle,
@@ -124,6 +125,7 @@ import {
 } from '@/utils/cron'
 
 const { t } = useI18n({ useScope: 'global' })
+const { describe } = useCronDescription()
 
 /**
  * Cron 表达式可视化编辑器（宝塔面板风格）。
@@ -132,7 +134,7 @@ const { t } = useI18n({ useScope: 'global' })
  * 每天 / 每周 / 每月），再补具体时间（几点几分 / 几号 / 星期几）。
  * 真的需要复杂规则（如每周一三五）时，切「自定义表达式」直接写六段。
  *
- * 底部固定回显：生成的表达式 + 中文说明 + 最近 3 次运行时间。
+ * 底部固定回显：生成的表达式 + 说明（与任务列表同源）+ 最近 3 次运行时间。
  * 编辑老任务 / 点预设时会反向识别成对应周期（能识别的才切，其余进「自定义」）。
  */
 
@@ -184,32 +186,11 @@ const built = computed(() => (state.cycle === 'custom' ? expression.value : buil
 
 /* ---- 说明与预览 ---- */
 
-const pad = (v: number): string => String(v).padStart(2, '0')
-
-const description = computed(() => {
-  const time = `${pad(state.hour)}:${pad(state.minute)}:${pad(state.second)}`
-  switch (state.cycle) {
-    case 'every_second':
-      return t('crontab.editor.descEverySecond')
-    case 'every_n_seconds':
-      return t('crontab.editor.descEveryNSeconds', { n: state.n })
-    case 'every_n_minutes':
-      return t('crontab.editor.descEveryNMinutes', { n: state.n })
-    case 'every_n_hours':
-      return t('crontab.editor.descEveryNHours', { n: state.n })
-    case 'daily':
-      return t('crontab.editor.descDaily', { time })
-    case 'weekly':
-      return t('crontab.editor.descWeekly', { week: WEEK_LABELS.value[state.week], time })
-    case 'monthly':
-      return t('crontab.editor.descMonthly', { day: state.day, time })
-    case 'custom':
-      return t('crontab.editor.descCustom')
-    default:
-      // 兜底：cycle 是联合类型，理论上不会走到这里
-      return ''
-  }
-})
+/**
+ * 说明与任务列表**完全同源**：都调 `describeCron()` + `useCronDescription()`，
+ * 直接看表达式本身（而不是编辑器自己的周期状态），因此手写自定义表达式时也能给出准确说明。
+ */
+const description = computed(() => describe(expression.value))
 
 const previews = computed(() => {
   try {

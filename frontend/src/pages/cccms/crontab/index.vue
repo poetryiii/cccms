@@ -42,6 +42,11 @@
         <el-tag effect="plain" size="small">{{ row.expression }}</el-tag>
       </template>
 
+      <!-- 表达式说明：与 CronEditor 同源（describeCron + useCronDescription），认不出来显示「自定义表达式」 -->
+      <template #desc="{ row }">
+        <span class="desc-cell">{{ describe(row.expression) }}</span>
+      </template>
+
       <template #status="{ row }">
         <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
           {{ row.status === 1 ? t('crontab.enabled') : t('crontab.disabled') }}
@@ -204,6 +209,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import ArtTable from '@/components/core/ArtTable.vue'
 import CronEditor from '@/components/core/CronEditor.vue'
 import RecycleToggle from '@/components/core/RecycleToggle.vue'
+import { useCronDescription } from '@/composables/useCronDescription'
 import { useRecycle } from '@/composables/useRecycle'
 import { useTable } from '@/composables/useTable'
 import {
@@ -242,6 +248,8 @@ const columns = computed<ArtTableColumn[]>(() => [
   // 分组列的自定义插槽：分组名可点击，点一下筛选该分组，再点取消筛选
   { prop: 'group_name', label: t('crontab.groupLabel'), width: 130, slot: 'group_name', filter: { type: 'text' } },
   { prop: 'expression', label: t('crontab.expressionColumnLabel'), width: 160, align: 'center', slot: 'expression' },
+  // 表达式说明（与 CronEditor 共用 describeCron，避免两处口径漂移）
+  { prop: 'desc', label: t('crontab.descColumnLabel'), minWidth: 180, slot: 'desc' },
   { prop: 'target', label: t('crontab.targetColumnLabel'), minWidth: 210 },
   {
     prop: 'status',
@@ -293,6 +301,11 @@ function onGroupClick(group: string): void {
 function groupTip(group: string): string {
   return query.group_name === group ? t('crontab.groupFilterClearTip') : t('crontab.groupFilterTip')
 }
+
+/* ---- 表达式说明 ---- */
+
+// 与 CronEditor 完全同源：判定 + 文案映射都在 composable 里，这里只调用
+const { describe } = useCronDescription()
 
 const targets = ref<TaskTarget[]>([])
 const running = ref(0)

@@ -9,6 +9,9 @@ export default {
   blockedTitle: '仅限本地开发环境，已禁用在线升级',
   blockedDesc:
     '{reason}。线上是「已构建」形态：前端产物在 public 下、docs 等目录并不存在，与仓库的目录结构并不一致 —— 此时按仓库相对路径覆盖，会写出线上本不该有的文件、也覆盖不到线上真正要用的那份代码，轻则代码被改坏，重则系统不可用，因此这里连同升级操作一起拦截。线上请走发布流程更新代码；本地开发环境需同时满足「打开 upgrade.enable」与「仓库根存在 frontend/package.json」。',
+  switchOffTitle: '上游同步已关闭',
+  switchOffDesc:
+    '{reason}。这是总开关，默认关闭：本地开发环境需要它时，在 server/.env 里加上 CCCMS_UPGRADE_ENABLE=true（或把 plugin/cccms/config/upgrade.php 的 enable 改为 true），然后 reload / 重启后端进程即可。',
   noGitTitle: '未检测到 git',
   noGitDesc: '服务器上找不到 git 可执行文件，请在 plugin/cccms/config/upgrade.php 的 git 项里填写绝对路径。',
 

@@ -888,33 +888,44 @@ final class Upgrader
     /**
      * 当前运行环境与是否允许在线升级（页面用它渲染提醒，接口/命令用它拦截）。
      *
-     * 两道门槛都过才允许：总开关开启 **且** 目录自检确认是本地开发环境。
+     * 两道门槛都过才允许：目录自检确认是本地开发环境 **且** 总开关开启。
+     * `blocked_by` 说明是哪一道没过 —— 页面对两者的提示完全不同（一个是"怎么打开"，
+     * 一个是"线上禁止使用"），不能混着说。
      *
-     * @return array{key:string,allowed:bool,reason:string,marker:string}
+     * @return array{key:string,allowed:bool,blocked_by:string,reason:string,marker:string}
      */
     public static function environment(): array
     {
         $dev = self::isDevLayout();
 
-        if (!(bool)self::settings()['enable']) {
-            return [
-                'key'     => $dev ? 'dev' : 'production',
-                'allowed' => false,
-                'reason'  => '上游同步已关闭（plugin.cccms.upgrade.enable = false）',
-                'marker'  => self::DEV_MARKER,
-            ];
-        }
-
+        // 非开发环境是硬拦截，与总开关无关，优先报
         if (!$dev) {
             return [
-                'key'     => 'production',
-                'allowed' => false,
-                'reason'  => '当前不是本地开发环境（未发现 ' . self::DEV_MARKER . '），已禁止在线升级',
-                'marker'  => self::DEV_MARKER,
+                'key'        => 'production',
+                'allowed'    => false,
+                'blocked_by' => 'environment',
+                'reason'     => '当前不是本地开发环境（未发现 ' . self::DEV_MARKER . '），已禁止在线升级',
+                'marker'     => self::DEV_MARKER,
             ];
         }
 
-        return ['key' => 'dev', 'allowed' => true, 'reason' => '', 'marker' => self::DEV_MARKER];
+        if (!(bool)self::settings()['enable']) {
+            return [
+                'key'        => 'dev',
+                'allowed'    => false,
+                'blocked_by' => 'switch',
+                'reason'     => '上游同步已关闭（plugin.cccms.upgrade.enable = false）',
+                'marker'     => self::DEV_MARKER,
+            ];
+        }
+
+        return [
+            'key'        => 'dev',
+            'allowed'    => true,
+            'blocked_by' => '',
+            'reason'     => '',
+            'marker'     => self::DEV_MARKER,
+        ];
     }
 
     /** 目录自检：仓库根是否存在开发态标记文件（带进程内缓存） */

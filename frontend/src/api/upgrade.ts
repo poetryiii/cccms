@@ -26,6 +26,8 @@ export interface UpgradeEnvironment {
   /** dev = 本地开发环境；production = 已构建的部署形态 */
   key: 'dev' | 'production'
   allowed: boolean
+  /** 是哪一道门槛没过：environment = 不是本地开发环境；switch = 总开关关闭 */
+  blocked_by: '' | 'environment' | 'switch'
   /** 被拦截的原因（后端给的中文说明） */
   reason: string
   /** 判定「开发环境」用的标记文件（相对仓库根） */

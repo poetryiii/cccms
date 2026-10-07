@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildFromCycle,
   CRON_RANGES,
+  describeCron,
   detectCycle,
+  formatCronClock,
   formatCronTime,
   nextRunTimes,
   type CronCycle,
@@ -127,5 +129,35 @@ describe('CRON_RANGES', () => {
       [1, 12],
       [0, 6],
     ])
+  })
+})
+
+describe('describeCron / formatCronClock', () => {
+  it('常见形态都能给出结构化说明', () => {
+    expect(describeCron('* * * * * *')).toEqual({ key: 'every_second' })
+    expect(describeCron('*/30 * * * * *')).toEqual({ key: 'every_n_seconds', n: 30 })
+    expect(describeCron('0 */30 * * * *')).toEqual({ key: 'every_n_minutes', n: 30 })
+    expect(describeCron('0 0 */5 * * *')).toEqual({ key: 'every_n_hours', n: 5 })
+    expect(describeCron('0 30 * * * *')).toEqual({ key: 'hourly', minute: 30 })
+    expect(describeCron('0 0 2 * * *')).toEqual({ key: 'daily', time: '02:00' })
+    expect(describeCron('5 30 2 * * 1')).toEqual({ key: 'weekly', week: 1, time: '02:30:05' })
+    expect(describeCron('0 0 9 * * 1-5')).toEqual({ key: 'workday', time: '09:00' })
+    expect(describeCron('0 0 4 1 * *')).toEqual({ key: 'monthly', day: 1, time: '04:00' })
+  })
+
+  it('认不出来的写法落到 custom（段数不对也算）', () => {
+    expect(describeCron('')).toEqual({ key: 'custom' })
+    expect(describeCron('0 0 2 * * * extra')).toEqual({ key: 'custom' })
+    expect(describeCron('1 2 3 4 5 6')).toEqual({ key: 'custom' })
+    // 日与周同时限定、列表写法都不做推断
+    expect(describeCron('0 0 0 15 * 1')).toEqual({ key: 'custom' })
+    expect(describeCron('0,30 * * * * *')).toEqual({ key: 'custom' })
+    // 秒不为 0 的「每小时」也当自定义，避免说得不准
+    expect(describeCron('30 30 * * * *')).toEqual({ key: 'custom' })
+  })
+
+  it('formatCronClock 秒为 0 时省略秒', () => {
+    expect(formatCronClock(2, 0, 0)).toBe('02:00')
+    expect(formatCronClock(2, 30, 5)).toBe('02:30:05')
   })
 })

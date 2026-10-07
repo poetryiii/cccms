@@ -10,6 +10,9 @@ export default {
   blockedTitle: 'Local development only — online upgrade is disabled',
   blockedDesc:
     '{reason}. Production is a built layout: frontend assets live under public/ and docs/ does not exist, so the tree does not match the repository — applying a repo-relative update would write files that should not be there and miss the files production actually needs, corrupting the code or taking the site down. Upgrading from here is therefore blocked. Use your release process for production; for local development, enable upgrade.enable and keep frontend/package.json in the project root.',
+  switchOffTitle: 'Upstream sync is turned off',
+  switchOffDesc:
+    '{reason}. This is the master switch and it defaults to off. To use it in a local development environment, add CCCMS_UPGRADE_ENABLE=true to server/.env (or set enable to true in plugin/cccms/config/upgrade.php) and reload/restart the backend process.',
   noGitTitle: 'git not detected',
   noGitDesc:
     'The git executable was not found on the server; set the absolute path for the git item in plugin/cccms/config/upgrade.php.',

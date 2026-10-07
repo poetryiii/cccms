@@ -1,14 +1,23 @@
 <template>
   <div class="art-scroll">
     <div class="art-page">
-      <!-- 非本地开发环境（或总开关关闭）：只提醒，所有升级操作在后端也会被拦截 -->
+      <!-- 线上（非本地开发环境）：只提醒，所有升级操作在后端也会被拦截 -->
       <el-alert
-        v-if="blocked"
+        v-if="blockedBy === 'environment'"
         type="error"
         :closable="false"
         show-icon
         :title="t('upgrade.blockedTitle')"
         :description="t('upgrade.blockedDesc', { reason: overview?.environment.reason })"
+      />
+      <!-- 本地开发环境但总开关关着：告诉怎么打开，不要吓人 -->
+      <el-alert
+        v-else-if="blockedBy === 'switch'"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('upgrade.switchOffTitle')"
+        :description="t('upgrade.switchOffDesc', { reason: overview?.environment.reason })"
       />
       <el-alert
         v-else-if="overview && !overview.git_available"
@@ -305,8 +314,11 @@ const checking = ref(false)
 const running = ref(false)
 const initing = ref(false)
 
-/** 非本地开发环境（或总开关关闭）：页面只提醒 + 禁用全部操作，后端同样会拦截 */
+/** 不允许执行（非本地开发环境，或总开关关闭）：页面只提醒 + 禁用全部操作，后端同样会拦截 */
 const blocked = computed(() => (overview.value ? !overview.value.environment.allowed : false))
+
+/** 被拦截的原因，决定提示哪种文案：environment = 线上禁用；switch = 总开关关闭 */
+const blockedBy = computed(() => overview.value?.environment.blocked_by || '')
 
 /** 会被上游改动的分类 */
 const CHANGED = ['safe', 'new', 'conflict', 'removed']

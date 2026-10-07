@@ -18,6 +18,7 @@ export default {
   enabled: 'Enabled',
   disabled: 'Disabled',
   expressionColumnLabel: 'Expression',
+  descColumnLabel: 'Schedule',
   targetColumnLabel: 'Target',
   lastRunLabel: 'Last run',
   nextRunLabel: 'Next run',
@@ -81,7 +82,7 @@ export default {
   saveSuccess: 'Saved successfully',
   deleteSuccess: 'Deleted successfully',
 
-  /* ---- Cron visual editor ---- */
+  /* ---- Cron text (shared by the visual editor and the task list) ---- */
   editor: {
     cycleEverySecond: 'Every second',
     cycleEveryNSeconds: 'Every N seconds',
@@ -112,6 +113,8 @@ export default {
     descWeekly: 'Runs every {week} at {time}',
     descMonthly: 'Runs every month on day {day} at {time}',
     descCustom: 'Custom expression (six fields: second minute hour day month week)',
+    descHourly: 'Runs every hour at minute {minute}',
+    descWorkday: 'Runs on weekdays (Mon-Fri) at {time}',
     weekSunday: 'Sunday',
     weekMonday: 'Monday',
     weekTuesday: 'Tuesday',

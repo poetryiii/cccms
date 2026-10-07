@@ -231,3 +231,88 @@ export function detectCycle(value: string): CronCycleState {
 
   return base
 }
+
+/* ---- 表达式 → 「人话」说明（CronEditor 与任务列表共用；文案由调用方按 key 翻译）---- */
+
+/**
+ * 说明结构。只覆盖常见形态，认不出来的一律落到 `custom`
+ * （列表回退成「自定义表达式」，编辑器本身就是自定义模式）。
+ */
+export type CronDescription =
+  | { key: 'every_second' }
+  | { key: 'every_n_seconds'; n: number }
+  | { key: 'every_n_minutes'; n: number }
+  | { key: 'every_n_hours'; n: number }
+  | { key: 'hourly'; minute: number }
+  | { key: 'daily'; time: string }
+  | { key: 'weekly'; week: number; time: string }
+  | { key: 'workday'; time: string }
+  | { key: 'monthly'; day: number; time: string }
+  | { key: 'custom' }
+
+/** `HH:mm`（秒不为 0 时带上秒，如 `02:30:05`） */
+export function formatCronClock(hour: number, minute: number, second: number): string {
+  const p = (n: number): string => String(n).padStart(2, '0')
+
+  return second === 0 ? `${p(hour)}:${p(minute)}` : `${p(hour)}:${p(minute)}:${p(second)}`
+}
+
+/** 六段表达式 → 说明结构；段数不对或写法认不出来都返回 `custom` */
+export function describeCron(expression: string): CronDescription {
+  const fields = expression.trim().split(/\s+/).filter(Boolean)
+  if (fields.length !== 6) {
+    return { key: 'custom' }
+  }
+
+  const [second, minute, hour, day, month, week] = fields
+  const isStar = (v: string): boolean => v === '*'
+  const isNum = (v: string): boolean => /^\d+$/.test(v)
+
+  if (fields.every(isStar)) {
+    return { key: 'every_second' }
+  }
+
+  // 每 N 秒 / 分 / 时：编辑器生成的就是这几种，直接复用识别结果
+  const cycle = detectCycle(expression)
+  switch (cycle.cycle) {
+    case 'every_n_seconds':
+      return { key: 'every_n_seconds', n: cycle.n }
+    case 'every_n_minutes':
+      return { key: 'every_n_minutes', n: cycle.n }
+    case 'every_n_hours':
+      return { key: 'every_n_hours', n: cycle.n }
+    default:
+      break
+  }
+
+  // 整分触发 + 固定分钟 → 每小时的第 m 分（秒不为 0 一律当自定义，避免说得不准）
+  if (second === '0' && isNum(minute) && isStar(hour) && isStar(day) && isStar(month) && isStar(week)) {
+    return { key: 'hourly', minute: Number(minute) }
+  }
+
+  if (!isNum(second) || !isNum(minute) || !isNum(hour)) {
+    return { key: 'custom' }
+  }
+
+  const time = formatCronClock(Number(hour), Number(minute), Number(second))
+
+  if (isStar(day) && isStar(month)) {
+    if (isStar(week)) {
+      return { key: 'daily', time }
+    }
+    if (isNum(week)) {
+      return { key: 'weekly', week: Number(week) % 7, time }
+    }
+    if (week === '1-5') {
+      return { key: 'workday', time }
+    }
+
+    return { key: 'custom' }
+  }
+
+  if (isStar(week) && isStar(month) && isNum(day)) {
+    return { key: 'monthly', day: Number(day), time }
+  }
+
+  return { key: 'custom' }
+}

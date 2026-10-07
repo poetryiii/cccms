@@ -17,6 +17,7 @@ export default {
   enabled: '启用',
   disabled: '停用',
   expressionColumnLabel: '表达式',
+  descColumnLabel: '执行说明',
   targetColumnLabel: '执行目标',
   lastRunLabel: '上次执行',
   nextRunLabel: '下次执行',
@@ -79,7 +80,7 @@ export default {
   saveSuccess: '保存成功',
   deleteSuccess: '删除成功',
 
-  /* ---- Cron 可视化编辑器 ---- */
+  /* ---- Cron 文案（可视化编辑器与任务列表共用）---- */
   editor: {
     cycleEverySecond: '每秒',
     cycleEveryNSeconds: '每 N 秒',
@@ -110,6 +111,8 @@ export default {
     descWeekly: '每{week} {time} 执行',
     descMonthly: '每月 {day} 号 {time} 执行',
     descCustom: '自定义表达式（六段：秒 分 时 日 月 周）',
+    descHourly: '每小时的第 {minute} 分钟执行',
+    descWorkday: '工作日（周一至周五）{time} 执行',
     weekSunday: '周日',
     weekMonday: '周一',
     weekTuesday: '周二',
