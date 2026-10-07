@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use plugin\cccms\support\RateLimiter;
+use plugin\cccms\support\SysConfig;
 
 return static function (): void {
     suite('接口限流（P1-2）');
@@ -37,6 +38,17 @@ return static function (): void {
 
         // 裸 '/' 与空串是兜底防护：不能把全站放行
         ok(!RateLimiter::matchesWhitelist('/anything', ['/', '']), '裸 / 或空串不得命中所有路径');
+    });
+
+    test('限流白名单输入：一行一条，兼容 CRLF / 空行 / 前后空白', function (): void {
+        same(
+            ['/oceanengine/consume/', '/auth', '/zgl/'],
+            SysConfig::splitLines("/oceanengine/consume/\r\n\r\n/auth\n  /zgl/  \n"),
+            '多行拆成一行一条，去掉空行与首尾空白'
+        );
+        same([], SysConfig::splitLines(''), '空串返回空列表');
+        same([], SysConfig::splitLines("  \n  \n"), '全空白返回空列表');
+        same(['/only'], SysConfig::splitLines('/only'), '单行无换行也照常返回');
     });
 
     test('窗口长度至少 1 秒（避免配成 0 导致每次请求自成窗口）', function (): void {

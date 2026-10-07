@@ -76,7 +76,7 @@ final class RateLimiter
         return preg_match(self::HEAVY_PATTERN, '/' . ltrim($path, '/')) === 1;
     }
 
-    /** 限流白名单配置键：逗号分隔的路径前缀，命中即放行、不计入限流 */
+    /** 限流白名单配置键：一行一条的路径前缀（textarea），命中即放行、不计入限流 */
     public const WHITELIST_CONFIG = 'security.rate_limit_whitelist';
 
     /**
@@ -88,7 +88,7 @@ final class RateLimiter
      */
     public static function isWhitelisted(string $path): bool
     {
-        return self::matchesWhitelist($path, SysConfig::getList(self::WHITELIST_CONFIG));
+        return self::matchesWhitelist($path, SysConfig::getLines(self::WHITELIST_CONFIG));
     }
 
     /**
@@ -97,7 +97,7 @@ final class RateLimiter
      * 按「路径段」匹配而非裸前缀：`/oceanengine/consume` 命中 `/oceanengine/consume`、
      * `/oceanengine/consume/sync`，但**不会**误伤 `/oceanengine/consumer`。
      *
-     * @param list<string> $prefixes 前缀列表（SysConfig::getList 已小写、去首部 .）
+     * @param list<string> $prefixes 前缀列表（SysConfig::getLines 已去空白 / 空行）
      */
     public static function matchesWhitelist(string $path, array $prefixes): bool
     {

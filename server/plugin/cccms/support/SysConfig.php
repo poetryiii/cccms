@@ -104,6 +104,29 @@ final class SysConfig
         return array_values(array_filter($items, static fn (string $v): bool => $v !== ''));
     }
 
+    /**
+     * 多行文本 → 字符串列表（一行一条，去掉空白与空行）。纯函数，便于单测。
+     *
+     * 与 getList 的区别：getList 按英文逗号拆（用于扩展名这类单行值），
+     * 这里按换行拆（用于白名单这类「一行一条」的路径/地址）。不转小写 ——
+     * 大小写归一由消费方决定（如 RateLimiter::matchesWhitelist 自行 strtolower）。
+     *
+     * @return list<string>
+     */
+    public static function splitLines(string $raw): array
+    {
+        $items = preg_split('/\r\n|\r|\n/', $raw) ?: [];
+        $items = array_map(static fn (string $v): string => trim($v), $items);
+
+        return array_values(array_filter($items, static fn (string $v): bool => $v !== ''));
+    }
+
+    /** 多行配置（textarea，一行一条，如 security.rate_limit_whitelist） */
+    public static function getLines(string $name): array
+    {
+        return self::splitLines(self::getString($name));
+    }
+
     /** 敏感配置的密文前缀（type=password 的配置值以 `enc:` + Cipher 密文存储） */
     public const SECRET_PREFIX = 'enc:';
 

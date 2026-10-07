@@ -17,7 +17,7 @@ use Webman\MiddlewareInterface;
  * 位置在 `CheckLogin` **之后**：计数键需要用户身份（未登录的 `/auth/login`、`/auth/captcha`
  * 天然拿不到，且登录已有独立的失败锁定，见 `LoginThrottle`）。
  *
- * 命中 `security.rate_limit_whitelist`（逗号分隔的路径前缀）直接放行、不计入限流 ——
+ * 命中 `security.rate_limit_whitelist`（一行一条的路径前缀）直接放行、不计入限流 ——
  * 给盯盘同步这类高频合法接口留个口子，其余接口照常限流。
  *
  * 超限时**直接返回响应**而不抛异常：`ApiException` 走 `ExceptionHandler` 渲染，

@@ -206,8 +206,8 @@ SQL,
             '单位秒，计数窗口长度',
         ],
         'security.rate_limit_whitelist' => [
-            '限流白名单', 'input', '/oceanengine/consume/', '安全', 20,
-            '逗号分隔的路径前缀，命中即不限流、不计入限流计数（如 /oceanengine/consume/ 表示该前缀下所有接口放行）',
+            '限流白名单', 'textarea', '/oceanengine/consume/', '安全', 20,
+            '一行一条的路径前缀，命中即不限流、不计入限流计数（如 /oceanengine/consume/ 表示该前缀下所有接口放行）',
         ],
         'security.password_max_length' => [
             '密码最大长度', 'input-number', '64', '安全', 7,
