@@ -17,6 +17,9 @@ use Webman\MiddlewareInterface;
  * 位置在 `CheckLogin` **之后**：计数键需要用户身份（未登录的 `/auth/login`、`/auth/captcha`
  * 天然拿不到，且登录已有独立的失败锁定，见 `LoginThrottle`）。
  *
+ * 命中 `security.rate_limit_whitelist`（逗号分隔的路径前缀）直接放行、不计入限流 ——
+ * 给盯盘同步这类高频合法接口留个口子，其余接口照常限流。
+ *
  * 超限时**直接返回响应**而不抛异常：`ApiException` 走 `ExceptionHandler` 渲染，
  * 拿不到地方挂 `Retry-After` 响应头；这里复用 `Result::fail()` 保证响应体结构与
  * 其它失败完全一致（Cors 在外层，`X-Trace-Id` 等响应头仍会补上）。
@@ -34,6 +37,12 @@ class RateLimit implements MiddlewareInterface
         }
 
         $path = '/' . ltrim($request->path(), '/');
+
+        // 白名单（如盯盘同步）：命中直接放行、不计入限流，见 RateLimiter::isWhitelisted
+        if (RateLimiter::isWhitelisted($path)) {
+            return $handler($request);
+        }
+
         $verdict = RateLimiter::hit($user->id . ':' . $path, RateLimiter::isHeavy($path));
 
         if ($verdict['allowed']) {

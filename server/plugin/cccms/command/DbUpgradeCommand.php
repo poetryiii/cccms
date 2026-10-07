@@ -205,6 +205,10 @@ SQL,
             '限流窗口', 'input-number', '60', '安全', 12,
             '单位秒，计数窗口长度',
         ],
+        'security.rate_limit_whitelist' => [
+            '限流白名单', 'input', '/oceanengine/consume/', '安全', 20,
+            '逗号分隔的路径前缀，命中即不限流、不计入限流计数（如 /oceanengine/consume/ 表示该前缀下所有接口放行）',
+        ],
         'security.password_max_length' => [
             '密码最大长度', 'input-number', '64', '安全', 7,
             '超长口令会放大 bcrypt 开销，构成低成本 DoS；0 表示不限制',

@@ -76,6 +76,46 @@ final class RateLimiter
         return preg_match(self::HEAVY_PATTERN, '/' . ltrim($path, '/')) === 1;
     }
 
+    /** 限流白名单配置键：逗号分隔的路径前缀，命中即放行、不计入限流 */
+    public const WHITELIST_CONFIG = 'security.rate_limit_whitelist';
+
+    /**
+     * 路径是否命中限流白名单。
+     *
+     * 前缀匹配、大小写不敏感：`/oceanengine/consume/` 表示该前缀下所有接口都不限流。
+     * 用于盯盘同步这类「高频但合法」的接口 —— 阈值是按普通操作定的，硬套上去会把
+     * 正常使用打成 429；其余接口仍按原阈值限流，防刷保护不丢。
+     */
+    public static function isWhitelisted(string $path): bool
+    {
+        return self::matchesWhitelist($path, SysConfig::getList(self::WHITELIST_CONFIG));
+    }
+
+    /**
+     * 白名单前缀匹配（纯函数，便于单测）。
+     *
+     * 按「路径段」匹配而非裸前缀：`/oceanengine/consume` 命中 `/oceanengine/consume`、
+     * `/oceanengine/consume/sync`，但**不会**误伤 `/oceanengine/consumer`。
+     *
+     * @param list<string> $prefixes 前缀列表（SysConfig::getList 已小写、去首部 .）
+     */
+    public static function matchesWhitelist(string $path, array $prefixes): bool
+    {
+        $path = strtolower('/' . ltrim($path, '/'));
+
+        foreach ($prefixes as $prefix) {
+            $prefix = rtrim('/' . ltrim(strtolower((string)$prefix), '/'), '/');
+            if ($prefix === '') {
+                continue; // 裸 '/' 或空串会命中所有路径，跳过以免把全站放行
+            }
+            if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** 阈值：重接口取 security.rate_limit_heavy_limit，其余取 security.rate_limit_limit；0 = 关闭 */
     public static function limitFor(bool $heavy): int
     {

@@ -24,6 +24,21 @@ return static function (): void {
         ok(!RateLimiter::exceeded(0, 60), '尚未计数不应判定超限');
     });
 
+    test('限流白名单：按路径段前缀匹配，大小写不敏感，不误伤同名前缀', function (): void {
+        $list = ['/oceanengine/consume/', '/auth'];
+
+        ok(RateLimiter::matchesWhitelist('/oceanengine/consume/sync', $list), '前缀下子路径应命中');
+        ok(RateLimiter::matchesWhitelist('/oceanengine/consume', $list), '前缀本身应命中');
+        ok(RateLimiter::matchesWhitelist('/OCEANENGINE/CONSUME/ad', $list), '大小写不敏感');
+        ok(RateLimiter::matchesWhitelist('/auth/login', $list), '无尾斜杠前缀也能按段匹配');
+        ok(!RateLimiter::matchesWhitelist('/oceanengine/consumer', $list), '不应误伤同名前缀 /oceanengine/consumer');
+        ok(!RateLimiter::matchesWhitelist('/other/route', $list), '无关路径不应命中');
+        ok(!RateLimiter::matchesWhitelist('/oceanengine/consume', []), '白名单为空不放行');
+
+        // 裸 '/' 与空串是兜底防护：不能把全站放行
+        ok(!RateLimiter::matchesWhitelist('/anything', ['/', '']), '裸 / 或空串不得命中所有路径');
+    });
+
     test('窗口长度至少 1 秒（避免配成 0 导致每次请求自成窗口）', function (): void {
         ok(RateLimiter::windowSeconds() >= 1, 'windowSeconds 应至少为 1');
     });

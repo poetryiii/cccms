@@ -119,6 +119,7 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 ('security.rate_limit_limit',  '普通接口次数',    'input-number', '60',                           NULL, '安全', 10, 1, '每用户每路由每分钟允许的调用次数；0 表示不限制', NOW(), NOW()),
 ('security.rate_limit_heavy_limit','重接口次数',   'input-number', '5',                            NULL, '安全', 11, 1, '导出/导入/代码生成等重接口每用户每路由每分钟次数；0 表示不限制', NOW(), NOW()),
 ('security.rate_limit_window', '限流窗口',        'input-number', '60',                           NULL, '安全', 12, 1, '单位秒，计数窗口长度', NOW(), NOW()),
+('security.rate_limit_whitelist','限流白名单',     'input',        '/oceanengine/consume/',         NULL, '安全', 20, 1, '逗号分隔的路径前缀，命中即不限流、不计入限流计数（如 /oceanengine/consume/ 表示该前缀下所有接口放行）', NOW(), NOW()),
 
 -- 上传
 ('upload.max_size',             '单文件上限',      'input-number', '10',                           NULL, '上传', 1, 1, '单位 MB；单请求直传的上限。大文件请走分片上传（前端自动切换）', NOW(), NOW()),
