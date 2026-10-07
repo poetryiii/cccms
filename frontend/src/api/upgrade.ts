@@ -17,6 +17,21 @@ export interface UpgradeSource {
   url: string
 }
 
+/**
+ * 运行环境与是否允许在线升级（后端 `Upgrader::environment()`）。
+ *
+ * `allowed` 为 false 时页面只做提醒，所有升级操作在后端也会被拦截。
+ */
+export interface UpgradeEnvironment {
+  /** dev = 本地开发环境；production = 已构建的部署形态 */
+  key: 'dev' | 'production'
+  allowed: boolean
+  /** 被拦截的原因（后端给的中文说明） */
+  reason: string
+  /** 判定「开发环境」用的标记文件（相对仓库根） */
+  marker: string
+}
+
 /** 当前版本（来自基线状态文件） */
 export interface UpgradeCurrent {
   initialized: boolean
@@ -29,6 +44,7 @@ export interface UpgradeCurrent {
 
 export interface UpgradeOverview {
   enabled: boolean
+  environment: UpgradeEnvironment
   git_available: boolean
   initialized: boolean
   current: UpgradeCurrent

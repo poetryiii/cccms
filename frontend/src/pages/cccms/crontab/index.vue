@@ -26,6 +26,18 @@
         <RecycleToggle :active="recycle" :label="t('crontab.recycleLabel')" @toggle="toggle" />
       </template>
 
+      <template #group_name="{ row }">
+        <el-tooltip v-if="row.group_name" :content="groupTip(row.group_name)" placement="top">
+          <span
+            class="group-cell"
+            :class="{ 'is-active': query.group_name === row.group_name }"
+            @click="onGroupClick(row.group_name)"
+            >{{ row.group_name }}</span
+          >
+        </el-tooltip>
+        <span v-else class="group-empty">—</span>
+      </template>
+
       <template #expression="{ row }">
         <el-tag effect="plain" size="small">{{ row.expression }}</el-tag>
       </template>
@@ -227,7 +239,8 @@ const { t } = useI18n({ useScope: 'global' })
 const columns = computed<ArtTableColumn[]>(() => [
   { prop: 'id', label: 'ID', width: 70 },
   { prop: 'name', label: t('crontab.nameLabel'), minWidth: 170, filter: { type: 'text' } },
-  { prop: 'group_name', label: t('crontab.groupLabel'), width: 110, filter: { type: 'text' } },
+  // 分组列的自定义插槽：分组名可点击，点一下筛选该分组，再点取消筛选
+  { prop: 'group_name', label: t('crontab.groupLabel'), width: 130, slot: 'group_name', filter: { type: 'text' } },
   { prop: 'expression', label: t('crontab.expressionColumnLabel'), width: 160, align: 'center', slot: 'expression' },
   { prop: 'target', label: t('crontab.targetColumnLabel'), minWidth: 210 },
   {
@@ -259,10 +272,27 @@ const { recycle, toggle, onRestore, onForceDelete } = useRecycle('crontab', {
   reload: () => load(),
 })
 
-const { list, loading, total, page, limit, load, onPageChange, onLimitChange } = useTable<CrontabRow, Query>({
+const { list, loading, total, page, limit, query, search, load, onPageChange, onLimitChange } = useTable<
+  CrontabRow,
+  Query
+>({
   api: (params) => crontabList({ ...params, trashed: recycle.value ? 1 : 0 }),
   initialQuery: { name: '', group_name: '', status: '', start: '', end: '', next_start: '', next_end: '' },
 })
+
+/** 分组名点击：未筛选该分组则筛选，已筛选则取消（与顶部「分组」搜索框共用同一个查询条件，天然联动） */
+function onGroupClick(group: string): void {
+  if (!group) {
+    return
+  }
+  query.group_name = query.group_name === group ? '' : group
+  search()
+}
+
+/** 分组名悬浮提示：按当前是否已筛选该分组给出不同文案 */
+function groupTip(group: string): string {
+  return query.group_name === group ? t('crontab.groupFilterClearTip') : t('crontab.groupFilterTip')
+}
 
 const targets = ref<TaskTarget[]>([])
 const running = ref(0)
@@ -467,6 +497,33 @@ onMounted(async () => {
 .form-tip {
   margin-left: 8px;
   font-size: 12px;
+  color: var(--art-muted);
+}
+
+/* ---- 分组列：分组名可点击筛选 ---- */
+.group-cell {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+
+.group-cell:hover {
+  background-color: var(--el-color-primary-light-9);
+}
+
+/* 已按该分组筛选：实心高亮，一眼看出当前生效的筛选 */
+.group-cell.is-active {
+  color: #fff;
+  background-color: var(--el-color-primary);
+}
+
+.group-empty {
   color: var(--art-muted);
 }
 

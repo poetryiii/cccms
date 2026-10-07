@@ -1,14 +1,14 @@
 <template>
   <div class="art-scroll">
     <div class="art-page">
-      <!-- 环境不可用 -->
+      <!-- 非本地开发环境（或总开关关闭）：只提醒，所有升级操作在后端也会被拦截 -->
       <el-alert
-        v-if="overview && !overview.enabled"
-        type="warning"
+        v-if="blocked"
+        type="error"
         :closable="false"
         show-icon
-        :title="t('upgrade.disabledTitle')"
-        :description="t('upgrade.disabledDesc')"
+        :title="t('upgrade.blockedTitle')"
+        :description="t('upgrade.blockedDesc', { reason: overview?.environment.reason })"
       />
       <el-alert
         v-else-if="overview && !overview.git_available"
@@ -89,7 +89,13 @@
         <!-- 未建立基线：引导 -->
         <el-card v-if="!overview.initialized" shadow="never" class="block">
           <el-empty :description="t('upgrade.emptyBaseline')">
-            <el-button v-auth="'cccms:upgrade:init'" type="primary" :loading="initing" @click="onInit">
+            <el-button
+              v-auth="'cccms:upgrade:init'"
+              type="primary"
+              :loading="initing"
+              :disabled="blocked"
+              @click="onInit"
+            >
               {{ t('upgrade.initNow') }}
             </el-button>
           </el-empty>
@@ -104,26 +110,26 @@
             <div class="toolbar">
               <div class="filters">
                 <span class="filter-label">{{ t('upgrade.sourceLabel') }}</span>
-                <el-select v-model="source" style="width: 190px" @change="onSourceChange">
+                <el-select v-model="source" style="width: 190px" :disabled="blocked" @change="onSourceChange">
                   <el-option v-for="s in overview.sources" :key="s.key" :label="s.label" :value="s.key" />
                 </el-select>
 
                 <span class="filter-label">{{ t('upgrade.targetRefLabel') }}</span>
-                <el-select v-model="targetRef" style="width: 190px" @change="onCheck">
+                <el-select v-model="targetRef" style="width: 190px" :disabled="blocked" @change="onCheck">
                   <el-option :label="t('upgrade.trackBranch', { name: overview.track })" :value="TRACK_VALUE" />
                   <el-option v-for="tag in tags" :key="tag" :label="tag" :value="tag" />
                 </el-select>
               </div>
 
               <div class="actions">
-                <el-button :loading="checking" @click="onCheck"
+                <el-button :loading="checking" :disabled="blocked" @click="onCheck"
                   ><template #icon><i class="ri-search-line" /></template> {{ t('upgrade.check') }}
                 </el-button>
                 <el-button
                   v-auth="'cccms:upgrade:run'"
                   type="primary"
                   :loading="running"
-                  :disabled="!plan"
+                  :disabled="blocked || !plan"
                   @click="onRun"
                   ><template #icon><i class="ri-refresh-line" /></template>
                   {{ t('upgrade.run') }}
@@ -299,6 +305,9 @@ const checking = ref(false)
 const running = ref(false)
 const initing = ref(false)
 
+/** 非本地开发环境（或总开关关闭）：页面只提醒 + 禁用全部操作，后端同样会拦截 */
+const blocked = computed(() => (overview.value ? !overview.value.environment.allowed : false))
+
 /** 会被上游改动的分类 */
 const CHANGED = ['safe', 'new', 'conflict', 'removed']
 /** 仅本地保留的分类 */
@@ -348,6 +357,11 @@ async function loadOverview(): Promise<void> {
 }
 
 async function loadTags(): Promise<void> {
+  if (blocked.value) {
+    tags.value = []
+    return
+  }
+
   try {
     const result = await upgradeTags(source.value)
     tags.value = result.tags
@@ -364,6 +378,10 @@ async function onSourceChange(): Promise<void> {
 }
 
 async function onCheck(): Promise<void> {
+  if (blocked.value) {
+    return
+  }
+
   if (!overview.value?.initialized) {
     await loadOverview()
     return
@@ -380,6 +398,10 @@ async function onCheck(): Promise<void> {
 }
 
 async function onInit(): Promise<void> {
+  if (blocked.value) {
+    return
+  }
+
   await ElMessageBox.confirm(
     t('upgrade.initConfirm', {
       source: sourceLabel.value,
@@ -409,7 +431,7 @@ async function onInit(): Promise<void> {
 
 async function onRun(): Promise<void> {
   const current = plan.value
-  if (!current) {
+  if (blocked.value || !current) {
     return
   }
 

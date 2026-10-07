@@ -10,6 +10,8 @@ export default {
   searchPlaceholder: '请输入',
   groupLabel: '分组',
   groupPlaceholder: '如 系统',
+  groupFilterTip: '点击筛选该分组，再次点击取消',
+  groupFilterClearTip: '点击取消该分组筛选',
   statusLabel: '状态',
   allPlaceholder: '全部',
   enabled: '启用',

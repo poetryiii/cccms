@@ -50,7 +50,7 @@ use Throwable;
  *    在缓存里 fetch / reset。因此下游把代码拷成非 git 目录、或工作区有未提交改动，
  *    都不影响同步，也不会污染本地版本历史。
  * 2. **覆盖必先备份**：所有被覆盖 / 删除的文件按原相对路径复制到备份目录，可随时回滚。
- * 3. **默认不覆盖冲突**：无人值守（定时任务 / 页面一键升级）场景下也不会丢代码。
+ * 3. **默认不覆盖冲突**：无人值守（页面一键升级）场景下也不会丢代码。
  * 4. **行尾归一化后再哈希**：避免 Windows(CRLF) 与仓库(LF) 的差异被误判成「本地改过」。
  */
 final class Upgrader
@@ -93,6 +93,26 @@ final class Upgrader
     ];
 
     // ---------------------------------------------------------------------
+    // 环境守卫：只允许在「本地开发环境」执行
+    // ---------------------------------------------------------------------
+
+    /**
+     * 判定「本地开发环境」的标记文件（相对仓库根）。
+     *
+     * 线上是「已构建」形态：前端产物放在 public 下、没有 frontend 源码目录，docs 等目录也不在，
+     * 目录结构与仓库并不一致 —— 此时按仓库相对路径覆盖会写出线上不该有的文件、也覆盖不到线上
+     * 真正要的那份代码，风险很高。因此只有源码仓库（开发环境）才允许在线升级。
+     */
+    private const DEV_MARKER = 'frontend/package.json';
+
+    /** 目录自检缓存有效期（秒）：部署形态不会频繁变化，避免每个请求都扫盘 */
+    private const DEV_CHECK_TTL = 60;
+
+    /** 目录自检缓存 */
+    private static bool $devLayout = false;
+    private static int $devLayoutCheckedAt = 0;
+
+    // ---------------------------------------------------------------------
     // 配置与路径
     // ---------------------------------------------------------------------
 
@@ -104,7 +124,8 @@ final class Upgrader
     public static function settings(): array
     {
         $defaults = [
-            'enable'         => true,
+            // 与 config/upgrade.php 保持一致：默认关闭，只有本地开发环境才打开
+            'enable'         => false,
             'remotes'        => [],
             'default_source' => '',
             'track'          => 'main',
@@ -864,10 +885,59 @@ final class Upgrader
     // 对外动作
     // ---------------------------------------------------------------------
 
+    /**
+     * 当前运行环境与是否允许在线升级（页面用它渲染提醒，接口/命令用它拦截）。
+     *
+     * 两道门槛都过才允许：总开关开启 **且** 目录自检确认是本地开发环境。
+     *
+     * @return array{key:string,allowed:bool,reason:string,marker:string}
+     */
+    public static function environment(): array
+    {
+        $dev = self::isDevLayout();
+
+        if (!(bool)self::settings()['enable']) {
+            return [
+                'key'     => $dev ? 'dev' : 'production',
+                'allowed' => false,
+                'reason'  => '上游同步已关闭（plugin.cccms.upgrade.enable = false）',
+                'marker'  => self::DEV_MARKER,
+            ];
+        }
+
+        if (!$dev) {
+            return [
+                'key'     => 'production',
+                'allowed' => false,
+                'reason'  => '当前不是本地开发环境（未发现 ' . self::DEV_MARKER . '），已禁止在线升级',
+                'marker'  => self::DEV_MARKER,
+            ];
+        }
+
+        return ['key' => 'dev', 'allowed' => true, 'reason' => '', 'marker' => self::DEV_MARKER];
+    }
+
+    /** 目录自检：仓库根是否存在开发态标记文件（带进程内缓存） */
+    private static function isDevLayout(): bool
+    {
+        $now = time();
+        if (self::$devLayoutCheckedAt !== 0 && $now - self::$devLayoutCheckedAt < self::DEV_CHECK_TTL) {
+            return self::$devLayout;
+        }
+
+        clearstatcache();
+        self::$devLayout          = is_file(self::root() . '/' . self::DEV_MARKER);
+        self::$devLayoutCheckedAt = $now;
+
+        return self::$devLayout;
+    }
+
+    /** 对外动作的统一守卫：总开关关闭、或不在本地开发环境时一律拒绝 */
     private static function assertEnabled(): void
     {
-        if (!(bool)self::settings()['enable']) {
-            throw new ApiException('上游同步已关闭（plugin.cccms.upgrade.enable = false）', 500);
+        $env = self::environment();
+        if (!$env['allowed']) {
+            throw new ApiException($env['reason'], 403);
         }
     }
 
@@ -1136,6 +1206,7 @@ final class Upgrader
     {
         $result = [
             'enabled'     => (bool)self::settings()['enable'],
+            'environment' => self::environment(),
             'initialized' => false,
             'ok'          => false,
             'message'     => '',

@@ -32,6 +32,8 @@ final class UpgradeLogic
 
         return [
             'enabled'        => (bool)$settings['enable'],
+            // 是否允许执行在线升级（总开关 + 本地开发环境目录自检），页面据此渲染提醒
+            'environment'    => Upgrader::environment(),
             'git_available'  => Upgrader::gitAvailable(),
             'initialized'    => Upgrader::initialized(),
             'current'        => Upgrader::current(),

@@ -11,6 +11,8 @@ export default {
   searchPlaceholder: 'Please enter',
   groupLabel: 'Group',
   groupPlaceholder: 'e.g. System',
+  groupFilterTip: 'Click to filter by this group, click again to clear',
+  groupFilterClearTip: 'Click to clear this group filter',
   statusLabel: 'Status',
   allPlaceholder: 'All',
   enabled: 'Enabled',
