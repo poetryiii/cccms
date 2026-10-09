@@ -172,8 +172,18 @@ final class PermScanner
         // 现有菜单节点（目录/菜单）的 node 列表：只用未删除的，
         // 否则新按钮会被挂到一个躺在回收站里的目录下（挂上了也看不见）
         $menuNodes = Menu::where('type', 'in', [1, 2])->column('node');
-        // 按钮节点则要含回收站：撞上唯一键前先识别出来（见下方恢复逻辑）
-        $existingNodes = Menu::where('type', 3)->column('node');
+        /*
+         * 按钮节点**必须含回收站**（withTrashed）。
+         *
+         * `sys_menu.uk_node` 是**表级**唯一键，已软删的行同样占着那个 node。
+         * 不带 withTrashed() 就查不到它们，于是走到下面的 INSERT 直接撞唯一键：
+         *   SQLSTATE[23000] 1062 Duplicate entry 'xxx' for key 'sys_menu.uk_node'
+         * 而下面那段「恢复软删 + 纠正归属菜单」的逻辑**永远执行不到**。
+         *
+         * 触发场景很常见：某个功能下线（菜单连同其按钮被一起软删），过段时间又上线，
+         * 重跑 perm-scan 就报这个错 —— 命令行报的是 SQL 约束冲突，看不出真实原因。
+         */
+        $existingNodes = Menu::withTrashed()->where('type', 3)->column('node');
 
         $created = 0;
         $skipped = 0;

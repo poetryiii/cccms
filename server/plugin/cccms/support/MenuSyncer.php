@@ -141,9 +141,19 @@ final class MenuSyncer
         ];
 
         if ($existing) {
-            // 声明式源文件里仍有该节点 → 若在回收站里则一并恢复
+            /*
+             * 声明式源文件里仍有该节点 → 若在回收站里则一并恢复。
+             *
+             * ⚠️ 恢复必须走**查询构造器**，不能写成 `$data['delete_time'] = null` + `save()`：
+             * think-orm 的 SoftDelete 在「已软删」状态下 save() 不会把 delete_time 改回 NULL
+             * （它只更新其它字段），于是「自动恢复」形同虚设 ——
+             * 表现为 menu-sync 每次都报「更新 N」，但那几个菜单**永远不出现在界面上**，
+             * 因为它们还躺在回收站里（`userTree` 会过滤掉软删节点）。
+             *
+             * 触发场景：某功能下线（菜单被软删）后又重新声明回来。
+             */
             if (!empty($existing->delete_time)) {
-                $data['delete_time'] = null;
+                Db::name('menu')->where('id', (int)$existing->id)->update(['delete_time' => null]);
             }
             $existing->save($data);
             $id = (int)$existing->id;
