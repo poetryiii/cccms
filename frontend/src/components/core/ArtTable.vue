@@ -155,6 +155,29 @@
               </div>
             </div>
           </el-popover>
+          <!--
+            密度（紧凑 / 默认 / 宽松）：一份设置同时决定表格行高与工具栏控件大小。
+            放在工具栏而不是塞进「列设置」里 —— 它是整体外观，和「显示哪些列」不是一类事，
+            而且调密度比调列频繁得多，值得一个一级入口。
+          -->
+          <el-dropdown trigger="click" placement="bottom-end" @command="onDensityChange">
+            <el-button text circle :title="t('table.density')">
+              <i class="ri-line-height" />
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="small" :class="{ 'art-table-density-on': effectiveSize === 'small' }">
+                  {{ t('table.sizeCompact') }}
+                </el-dropdown-item>
+                <el-dropdown-item command="default" :class="{ 'art-table-density-on': effectiveSize === 'default' }">
+                  {{ t('table.sizeDefault') }}
+                </el-dropdown-item>
+                <el-dropdown-item command="large" :class="{ 'art-table-density-on': effectiveSize === 'large' }">
+                  {{ t('table.sizeLoose') }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-tooltip :content="t('table.refresh')" placement="top">
             <el-button text circle :icon="Refresh" :loading="loading" @click="emit('refresh')" />
           </el-tooltip>
@@ -167,58 +190,6 @@
               <el-button text circle :icon="Setting" />
             </template>
             <div class="art-table-columns">
-              <!--
-                表格大小：**全局偏好**（不带 storageKey，所有页面的 ArtTable 共用一份）。
-                放在列设置上方 —— 它是整体外观，而列显隐属于内容层面，先外观后内容。
-                刻意不并入下方「重置」：那个按钮的语义是重置列，拉到尺寸上会让人以为一并清掉了偏好。
-              -->
-              <div class="art-table-size">
-                <div class="art-table-size-head">
-                  <span>{{ t('table.tableSize') }}</span>
-                  <!-- 只有设过偏好才给「跟随默认」入口，否则这个按钮没有意义 -->
-                  <el-button
-                    v-if="tableSizePreference"
-                    link
-                    type="primary"
-                    size="small"
-                    @click="onTableSizeChange('')"
-                  >
-                    {{ t('table.followDefault') }}
-                  </el-button>
-                </div>
-                <el-radio-group :model-value="tableSizePreference" size="small" @change="onTableSizeChange">
-                  <el-radio-button value="small">{{ t('table.sizeCompact') }}</el-radio-button>
-                  <el-radio-button value="default">{{ t('table.sizeDefault') }}</el-radio-button>
-                  <el-radio-button value="large">{{ t('table.sizeLoose') }}</el-radio-button>
-                </el-radio-group>
-              </div>
-
-              <!--
-                按钮大小：与表格尺寸**分开记录**。二者诉求常相反 ——
-                典型是「表格紧凑塞下更多行，但工具栏主操作保持默认大小」（全小号会让主操作不显眼）。
-                作用于 ArtTable 自己渲染的按钮，以及**页面通过 #toolbar / #search-extra 插槽传进来的按钮**
-                （后者靠 el-config-provider 向下传递才能覆盖到，props 直接控制不到）。
-              -->
-              <div class="art-table-size">
-                <div class="art-table-size-head">
-                  <span>{{ t('table.buttonSize') }}</span>
-                  <el-button
-                    v-if="buttonSizePreference"
-                    link
-                    type="primary"
-                    size="small"
-                    @click="onButtonSizeChange('')"
-                  >
-                    {{ t('table.followDefault') }}
-                  </el-button>
-                </div>
-                <el-radio-group :model-value="buttonSizePreference" size="small" @change="onButtonSizeChange">
-                  <el-radio-button value="small">{{ t('table.sizeCompact') }}</el-radio-button>
-                  <el-radio-button value="default">{{ t('table.sizeDefault') }}</el-radio-button>
-                  <el-radio-button value="large">{{ t('table.sizeLoose') }}</el-radio-button>
-                </el-radio-group>
-              </div>
-
               <div class="art-table-columns-head">
                 <span>{{ t('table.columnSetting') }}</span>
                 <el-button link type="primary" size="small" @click="resetColumns">{{ t('table.reset') }}</el-button>
@@ -402,7 +373,7 @@
           <slot name="pager-left" />
         </div>
         <el-pagination
-          :small="buttonSize === 'small'"
+          :small="effectiveButtonSize === 'small'"
           :current-page="page"
           :page-size="limit"
           :total="total"
@@ -426,13 +397,7 @@ import { useI18n } from 'vue-i18n'
 import { ElCheckbox, ElMessage } from 'element-plus'
 import { ArrowDown, ArrowUp, Delete, Filter, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
 import { TABLE_FILTER_KEY } from '@/composables/useTable'
-import {
-  buttonSizePreference,
-  setButtonSizePreference,
-  setTableSizePreference,
-  tableSizePreference,
-  type TableSize,
-} from '@/composables/useTableSize'
+import { densityPreference, setDensityPreference, type TableSize } from '@/composables/useTableSize'
 import type { ArtTableColumn } from '@/types/table'
 
 const { t } = useI18n({ useScope: 'global' })
@@ -447,29 +412,26 @@ const props = withDefaults(
     /** 表格高度：'100%' 撑满父容器，也可传数字（px） */
     height?: number | string
     /**
-     * 表格尺寸，透传给 `el-table`（`large` / `default` / `small`）。
+     * 表格本体的**默认**尺寸（`large` / `default` / `small`），透传给 `el-table`。
      *
-     * 只影响表格本体（行高 / 字号 / 单元格内边距），工具栏按钮、筛选控件与分页不受影响。
-     * 不传则由 Element Plus 的全局尺寸配置决定 —— 显式声明这个 prop 是必要的：
-     * 未声明的属性只会 fallthrough 到根 div，传 `size` 会静默失效（内部 el-table 收不到）。
+     * 它是**回退值**：用户在工具栏「密度」下拉里选过之后会覆盖它
+     * （偏好优先于 prop —— 那是用户主动设的，不该被页面的默认值顶掉）。
+     * 两者都没有时才走 Element Plus 的全局尺寸配置。
+     *
+     * 显式声明这个 prop 是必要的：未声明的属性只会 fallthrough 到根 div，
+     * 传 `size` 会静默失效（内部 el-table 收不到）。
      * 注意：`virtual`（虚拟滚动）走的是 `el-table-v2`，它本身没有 `size` 属性，那种模式下不生效。
      */
     size?: 'large' | 'default' | 'small'
     /**
-     * 工具栏 / 搜索区控件的尺寸，**与 `size`（表格本体）分开**。
+     * 工具栏 / 搜索区控件的**默认**尺寸（与 `size` 分开，因为两者可以各自声明默认档位）。
      *
-     * 为什么独立成一个参数：这两处的诉求常常相反 —— 常见组合是「表格压到 small 塞下更多行」，
-     * 但工具栏按钮保持默认大小（不然整个页面全是小号控件，主操作不显眼）。
+     * 作用范围：ArtTable 自己渲染的控件，以及**页面通过 `#toolbar` / `#toolbar-right` /
+     * `#search-extra` 插槽传进来的按钮** —— 后者靠 `el-config-provider` 向下传递才能覆盖到
+     * （插槽内容在父组件作用域里创建，props 直接控制不到）。
+     * 分页也会跟随（`small` 档位映射为分页的 `small` 属性）。
      *
-     * 实现上给这两块各套一层 `el-config-provider`（无渲染组件，不产生 DOM、不影响布局）。
-     * 这是唯一能覆盖**页面通过 `#toolbar` / `#toolbar-right` / `#search-extra` 插槽传进来的按钮**
-     * 的办法 —— 插槽内容在父组件作用域里创建，父组件没法从 props 直接改它们的尺寸，
-     * 只能靠 provider 向下传递。
-     *
-     * 不传则跟随 Element Plus 的全局尺寸配置。
-     *
-     * 注意：用户在设置弹层里改动「按钮大小」会**覆盖本参数**（偏好优先于 prop），
-     * 因为那是用户主动设的，不该被页面的默认值顶掉。
+     * 与 `size` 一样是**回退值**：工具栏「密度」下拉的全局偏好会覆盖它。
      */
     buttonSize?: 'large' | 'default' | 'small'
     pageSizes?: number[]
@@ -536,31 +498,26 @@ const props = withDefaults(
 )
 
 /**
- * 实际生效的表格尺寸。
+ * 实际生效的密度档位（表格本体）。
  *
- * 优先级：**用户偏好 > 页面的 size prop > Element Plus 全局配置**。
- * 偏好排在 prop 之前是有意的 —— 它是用户在设置里主动选的，
+ * 优先级：**用户偏好 > 页面的 size prop > 'default'**。
+ * 偏好排在 prop 之前是有意的 —— 它是用户主动选的，
  * 若让页面的默认值盖过它，就会出现「我明明设了紧凑，一进某个页面又变回去」。
- * 三个都没有时 `el-table` 收到 undefined，按全局配置走。
+ * 末位的 'default' 等价于 Element Plus 的全局尺寸配置。
  */
-const effectiveSize = computed<TableSize | undefined>(() => tableSizePreference.value || props.size)
-
-/** 设置弹层里的尺寸选择：'' = 清除偏好（跟随默认） */
-function onTableSizeChange(value: string | number | boolean): void {
-  setTableSizePreference(value === '' ? '' : (String(value) as TableSize))
-}
+const effectiveSize = computed<TableSize>(() => densityPreference.value || props.size || 'default')
 
 /**
- * 实际生效的工具栏 / 搜索区控件尺寸。
+ * 实际生效的控件尺寸（工具栏 / 搜索区，含页面插槽传进来的按钮）。
  *
- * 规则与 `effectiveSize` 完全一致（偏好 > prop > Element Plus 全局配置），
- * 但**两份偏好互相独立** —— 常见组合是「表格紧凑 + 按钮默认」，绑成一份就没法这么配。
+ * 与 `effectiveSize` **共用同一份密度偏好** —— 用户要的是「这一屏挤不挤」，
+ * 而不是分别调表格和按钮。各自的 prop 仍作为回退，方便页面声明自己的默认档位。
  */
-const effectiveButtonSize = computed<TableSize | undefined>(() => buttonSizePreference.value || props.buttonSize)
+const effectiveButtonSize = computed<TableSize>(() => densityPreference.value || props.buttonSize || 'default')
 
-/** 设置弹层里的「按钮大小」选择：'' = 清除偏好（跟随默认） */
-function onButtonSizeChange(value: string | number | boolean): void {
-  setButtonSizePreference(value === '' ? '' : (String(value) as TableSize))
+/** 密度下拉的选择：三个档位直接落库 */
+function onDensityChange(command: string | number | object): void {
+  setDensityPreference(String(command) as TableSize)
 }
 
 const emit = defineEmits<{
@@ -1321,19 +1278,10 @@ function onSortChange(payload: { prop: string | null; order: string | null }): v
   border-bottom: 1px solid var(--art-card-border);
 }
 
-/* 尺寸偏好小节（表格大小 / 按钮大小）：靠间距与下方列设置区分，不再加线（列设置头已有分隔线） */
-.art-table-size {
-  margin-bottom: 10px;
-}
-
-.art-table-size-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-  font-size: 13px;
+/* 密度下拉里当前生效的档位：加粗 + 主题色，一眼看出现在用的是哪档 */
+.art-table-density-on {
+  color: var(--el-color-primary);
   font-weight: 600;
-  color: var(--art-main);
 }
 
 .art-table-filter {
