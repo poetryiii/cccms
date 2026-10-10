@@ -9,71 +9,71 @@
     <el-card v-if="searchColumns.length || $slots['search-extra']" class="art-table-search" shadow="never">
       <!-- 搜索区同理：查询 / 重置按钮与 #search-extra 里的页面控件都跟随按钮尺寸偏好 -->
       <el-config-provider :size="effectiveButtonSize">
-      <!--
+        <!--
         页面自定义搜索项（如层级切换）通过 #search-extra 注入，排在自动生成的搜索项前面；
         没有 filter 列配置的页面也能用这张搜索卡承载自己的搜索 UI。
       -->
-      <slot name="search-extra" />
-      <el-form v-if="searchColumns.length" class="art-table-search-form" :inline="true" @submit.prevent>
-        <el-form-item
-          v-for="(col, index) in searchColumns"
-          v-show="searchExpanded || index < SEARCH_COLLAPSE_LIMIT"
-          :key="col.prop"
-          :label="col.label"
-          class="art-table-search-item"
-        >
-          <!-- 枚举：多选下拉（与列头弹层同一套取值，多值按逗号拼接） -->
-          <el-select
-            v-if="col.filter?.type === 'enum'"
-            v-model="searchEnum[col.prop]"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            :placeholder="t('table.filterAll')"
+        <slot name="search-extra" />
+        <el-form v-if="searchColumns.length" class="art-table-search-form" :inline="true" @submit.prevent>
+          <el-form-item
+            v-for="(col, index) in searchColumns"
+            v-show="searchExpanded || index < SEARCH_COLLAPSE_LIMIT"
+            :key="col.prop"
+            :label="col.label"
+            class="art-table-search-item"
           >
-            <el-option
-              v-for="opt in col.filter?.options ?? []"
-              :key="opt.value"
-              :label="opt.label"
-              :value="opt.value"
+            <!-- 枚举：多选下拉（与列头弹层同一套取值，多值按逗号拼接） -->
+            <el-select
+              v-if="col.filter?.type === 'enum'"
+              v-model="searchEnum[col.prop]"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              clearable
+              :placeholder="t('table.filterAll')"
+            >
+              <el-option
+                v-for="opt in col.filter?.options ?? []"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+            <!-- 日期：范围选择（带时分秒，起止分别写入 startKey / endKey） -->
+            <el-date-picker
+              v-else-if="col.filter?.type === 'date'"
+              v-model="searchDate[col.prop]"
+              v-bind="datePickerProps"
             />
-          </el-select>
-          <!-- 日期：范围选择（带时分秒，起止分别写入 startKey / endKey） -->
-          <el-date-picker
-            v-else-if="col.filter?.type === 'date'"
-            v-model="searchDate[col.prop]"
-            v-bind="datePickerProps"
-          />
-          <!-- 文本：模糊查询 -->
-          <el-input
-            v-else
-            v-model="searchText[col.prop]"
-            clearable
-            :placeholder="col.filter?.placeholder || t('table.filterTextPlaceholder')"
-            @keyup.enter="submitSearch"
-          />
-        </el-form-item>
-      </el-form>
-      <div v-if="searchColumns.length" class="art-table-search-actions">
-        <el-button type="primary" :icon="Search" @click="submitSearch">
-          {{ t('common.search') }}
-        </el-button>
-        <el-button :icon="RefreshLeft" @click="resetSearch">{{ t('table.reset') }}</el-button>
-        <!-- 搜索条件超过折叠阈值时才给展开入口 -->
-        <el-button
-          v-if="searchColumns.length > SEARCH_COLLAPSE_LIMIT"
-          link
-          type="primary"
-          @click="searchExpanded = !searchExpanded"
-        >
-          {{ searchExpanded ? t('table.searchCollapse') : t('table.searchExpand') }}
-          <el-icon class="art-table-search-arrow">
-            <ArrowUp v-if="searchExpanded" />
-            <ArrowDown v-else />
-          </el-icon>
-        </el-button>
-      </div>
+            <!-- 文本：模糊查询 -->
+            <el-input
+              v-else
+              v-model="searchText[col.prop]"
+              clearable
+              :placeholder="col.filter?.placeholder || t('table.filterTextPlaceholder')"
+              @keyup.enter="submitSearch"
+            />
+          </el-form-item>
+        </el-form>
+        <div v-if="searchColumns.length" class="art-table-search-actions">
+          <el-button type="primary" :icon="Search" @click="submitSearch">
+            {{ t('common.search') }}
+          </el-button>
+          <el-button :icon="RefreshLeft" @click="resetSearch">{{ t('table.reset') }}</el-button>
+          <!-- 搜索条件超过折叠阈值时才给展开入口 -->
+          <el-button
+            v-if="searchColumns.length > SEARCH_COLLAPSE_LIMIT"
+            link
+            type="primary"
+            @click="searchExpanded = !searchExpanded"
+          >
+            {{ searchExpanded ? t('table.searchCollapse') : t('table.searchExpand') }}
+            <el-icon class="art-table-search-arrow">
+              <ArrowUp v-if="searchExpanded" />
+              <ArrowDown v-else />
+            </el-icon>
+          </el-button>
+        </div>
       </el-config-provider>
     </el-card>
 
@@ -85,128 +85,134 @@
         插槽内容在父组件作用域里创建，父组件无法从 props 改它们的尺寸，只有 provider 能向下传递。
       -->
       <el-config-provider :size="effectiveButtonSize">
-      <div class="art-table-toolbar">
-        <div class="art-table-toolbar-left">
-          <!--
+        <div class="art-table-toolbar">
+          <div class="art-table-toolbar-left">
+            <!--
             回收站模式：左侧操作区整体换成「还原 / 彻底删除」，页面的新增/批量操作等按钮不渲染
             （在回收站里做这些操作没有意义）。
           -->
-          <template v-if="recycle">
-            <el-tag type="warning" effect="dark" round>{{ t('table.recycleMode') }}</el-tag>
-            <template v-if="selection">
-              <el-button
-                v-auth="'cccms:recycle:restore'"
-                type="primary"
-                :icon="RefreshLeft"
-                :disabled="selected.length === 0"
-                @click="emit('restore')"
-              >
-                {{ t('table.restoreSelected') }}{{ selected.length ? `（${selected.length}）` : '' }}
-              </el-button>
-              <el-button
-                v-auth="'cccms:recycle:delete'"
-                type="danger"
-                plain
-                :icon="Delete"
-                :disabled="selected.length === 0"
-                @click="emit('force-delete')"
-              >
-                {{ t('table.forceDeleteSelected') }}{{ selected.length ? `（${selected.length}）` : '' }}
-              </el-button>
+            <template v-if="recycle">
+              <el-tag type="warning" effect="dark" round>{{ t('table.recycleMode') }}</el-tag>
+              <template v-if="selection">
+                <el-button
+                  v-auth="'cccms:recycle:restore'"
+                  type="primary"
+                  :icon="RefreshLeft"
+                  :disabled="selected.length === 0"
+                  @click="emit('restore')"
+                >
+                  {{ t('table.restoreSelected') }}{{ selected.length ? `（${selected.length}）` : '' }}
+                </el-button>
+                <el-button
+                  v-auth="'cccms:recycle:delete'"
+                  type="danger"
+                  plain
+                  :icon="Delete"
+                  :disabled="selected.length === 0"
+                  @click="emit('force-delete')"
+                >
+                  {{ t('table.forceDeleteSelected') }}{{ selected.length ? `（${selected.length}）` : '' }}
+                </el-button>
+              </template>
             </template>
-          </template>
-          <slot v-else name="toolbar" />
-        </div>
-        <div class="art-table-toolbar-right">
-          <slot name="toolbar-right" />
-          <!--
+            <slot v-else name="toolbar" />
+          </div>
+          <div class="art-table-toolbar-right">
+            <slot name="toolbar-right" />
+            <!--
             筛选方案：控制器由页面 useTable 通过 provide 注入，页面无需接线。
             页面没用 useTable（如纯树表）时为 null，入口整体不渲染。
           -->
-          <el-popover v-if="tableFilter" trigger="click" placement="bottom-end" :width="240" @show="refreshFilterPanel">
-            <template #reference>
-              <!-- 这里同样不能套 el-tooltip：popover 与 tooltip 都是 popper trigger，会互抢 click -->
-              <el-button text circle :icon="Filter" :title="t('table.filterScheme')" />
-            </template>
-            <div class="art-table-filter">
-              <div class="art-table-filter-head">
-                <span>{{ t('table.filterScheme') }}</span>
-                <el-button link type="primary" size="small" :disabled="!filterHasSaved" @click="clearFilterSaved">
-                  {{ t('table.clearMemory') }}
-                </el-button>
-              </div>
-              <div v-if="filterSchemes.length" class="art-table-filter-list">
-                <div v-for="name in filterSchemes" :key="name" class="art-table-filter-item">
-                  <el-button link type="primary" @click="applyFilterScheme(name)">{{ name }}</el-button>
-                  <el-button link type="danger" @click="removeFilterScheme(name)">{{ t('table.delete') }}</el-button>
+            <el-popover
+              v-if="tableFilter"
+              trigger="click"
+              placement="bottom-end"
+              :width="240"
+              @show="refreshFilterPanel"
+            >
+              <template #reference>
+                <!-- 这里同样不能套 el-tooltip：popover 与 tooltip 都是 popper trigger，会互抢 click -->
+                <el-button text circle :icon="Filter" :title="t('table.filterScheme')" />
+              </template>
+              <div class="art-table-filter">
+                <div class="art-table-filter-head">
+                  <span>{{ t('table.filterScheme') }}</span>
+                  <el-button link type="primary" size="small" :disabled="!filterHasSaved" @click="clearFilterSaved">
+                    {{ t('table.clearMemory') }}
+                  </el-button>
+                </div>
+                <div v-if="filterSchemes.length" class="art-table-filter-list">
+                  <div v-for="name in filterSchemes" :key="name" class="art-table-filter-item">
+                    <el-button link type="primary" @click="applyFilterScheme(name)">{{ name }}</el-button>
+                    <el-button link type="danger" @click="removeFilterScheme(name)">{{ t('table.delete') }}</el-button>
+                  </div>
+                </div>
+                <div v-else class="art-table-filter-empty">{{ t('table.noSavedScheme') }}</div>
+                <div class="art-table-filter-save">
+                  <el-input
+                    v-model="filterName"
+                    size="small"
+                    :placeholder="t('table.schemeName')"
+                    @keyup.enter="saveFilterScheme"
+                  />
+                  <el-button size="small" type="primary" :disabled="!filterName.trim()" @click="saveFilterScheme">
+                    {{ t('table.save') }}
+                  </el-button>
                 </div>
               </div>
-              <div v-else class="art-table-filter-empty">{{ t('table.noSavedScheme') }}</div>
-              <div class="art-table-filter-save">
-                <el-input
-                  v-model="filterName"
-                  size="small"
-                  :placeholder="t('table.schemeName')"
-                  @keyup.enter="saveFilterScheme"
-                />
-                <el-button size="small" type="primary" :disabled="!filterName.trim()" @click="saveFilterScheme">
-                  {{ t('table.save') }}
-                </el-button>
-              </div>
-            </div>
-          </el-popover>
-          <el-tooltip :content="t('table.refresh')" placement="top">
-            <el-button text circle :icon="Refresh" :loading="loading" @click="emit('refresh')" />
-          </el-tooltip>
-          <!--
+            </el-popover>
+            <el-tooltip :content="t('table.refresh')" placement="top">
+              <el-button text circle :icon="Refresh" :loading="loading" @click="emit('refresh')" />
+            </el-tooltip>
+            <!--
             密度（紧凑 / 默认 / 宽松）：一份设置同时决定表格行高与工具栏控件大小。
             放在工具栏而不是塞进「列设置」里 —— 它是整体外观，和「显示哪些列」不是一类事，
             而且调密度比调列频繁得多，值得一个一级入口。
           -->
-          <el-dropdown trigger="click" placement="bottom-end" @command="onDensityChange">
-            <el-button text circle :title="t('table.density')">
-              <i class="ri-line-height" />
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="small" :class="{ 'art-table-density-on': effectiveSize === 'small' }">
-                  {{ t('table.sizeCompact') }}
-                </el-dropdown-item>
-                <el-dropdown-item command="default" :class="{ 'art-table-density-on': effectiveSize === 'default' }">
-                  {{ t('table.sizeDefault') }}
-                </el-dropdown-item>
-                <el-dropdown-item command="large" :class="{ 'art-table-density-on': effectiveSize === 'large' }">
-                  {{ t('table.sizeLoose') }}
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <!--
+            <el-dropdown trigger="click" placement="bottom-end" @command="onDensityChange">
+              <el-button text circle :title="t('table.density')">
+                <i class="ri-line-height" />
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="small" :class="{ 'art-table-density-on': effectiveSize === 'small' }">
+                    {{ t('table.sizeCompact') }}
+                  </el-dropdown-item>
+                  <el-dropdown-item command="default" :class="{ 'art-table-density-on': effectiveSize === 'default' }">
+                    {{ t('table.sizeDefault') }}
+                  </el-dropdown-item>
+                  <el-dropdown-item command="large" :class="{ 'art-table-density-on': effectiveSize === 'large' }">
+                    {{ t('table.sizeLoose') }}
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <!--
             不要在 #reference 里再套 el-tooltip：
             popover 与 tooltip 都基于 popper trigger，会互相抢 click 事件，导致面板点不开。
           -->
-          <el-popover trigger="click" placement="bottom-end" :width="220">
-            <template #reference>
-              <el-button text circle :icon="Setting" />
-            </template>
-            <div class="art-table-columns">
-              <div class="art-table-columns-head">
-                <span>{{ t('table.columnSetting') }}</span>
-                <el-button link type="primary" size="small" @click="resetColumns">{{ t('table.reset') }}</el-button>
+            <el-popover trigger="click" placement="bottom-end" :width="220">
+              <template #reference>
+                <el-button text circle :icon="Setting" />
+              </template>
+              <div class="art-table-columns">
+                <div class="art-table-columns-head">
+                  <span>{{ t('table.columnSetting') }}</span>
+                  <el-button link type="primary" size="small" @click="resetColumns">{{ t('table.reset') }}</el-button>
+                </div>
+                <el-checkbox
+                  v-for="col in ownColumns"
+                  :key="col.prop"
+                  :model-value="!hiddenColumns.includes(col.prop)"
+                  :disabled="col.lockVisible"
+                  @change="(checked: string | number | boolean) => toggleColumn(col.prop, Boolean(checked))"
+                >
+                  {{ col.label }}
+                </el-checkbox>
               </div>
-              <el-checkbox
-                v-for="col in ownColumns"
-                :key="col.prop"
-                :model-value="!hiddenColumns.includes(col.prop)"
-                :disabled="col.lockVisible"
-                @change="(checked: string | number | boolean) => toggleColumn(col.prop, Boolean(checked))"
-              >
-                {{ col.label }}
-              </el-checkbox>
-            </div>
-          </el-popover>
+            </el-popover>
+          </div>
         </div>
-      </div>
       </el-config-provider>
 
       <div class="art-table-wrap">
@@ -237,7 +243,7 @@
           :data="data"
           :size="effectiveSize"
           :row-key="rowKey"
-          :height="height"
+          :height="tableHeight"
           :default-expand-all="tree"
           :tree-props="{ children: 'children' }"
           :default-sort="defaultSort"
@@ -373,7 +379,7 @@
           <slot name="pager-left" />
         </div>
         <el-pagination
-          :size="effectiveButtonSize"
+          :small="effectiveButtonSize === 'small'"
           :current-page="page"
           :page-size="limit"
           :total="total"
@@ -409,8 +415,16 @@ const props = withDefaults(
     loading?: boolean
     total?: number
     rowKey?: string
-    /** 表格高度：'100%' 撑满父容器，也可传数字（px） */
-    height?: number | string
+    /**
+     * 表格高度：
+     *   - `'100%'`（默认）撑满父容器，表格**内部**滚动 —— 仅当父容器高度确定时可用
+     *     （即页面根节点用 `.art-fill`，如账户授权 / 员工管理 / 站内消息）；
+     *   - 数字（px）固定高度；
+     *   - `'auto'` 按内容自然铺开，由**页面整体滚动** —— 页面根节点是 `.art-scroll`
+     *     （或表格被放在 `el-row / el-col / el-card` 里）时必须用它，
+     *     否则 el-table 的高度反馈循环会让页面无限变高（见下方 tableHeight 的说明）。
+     */
+    height?: number | string | 'auto'
     /**
      * 表格本体的**默认**尺寸（`large` / `default` / `small`），透传给 `el-table`。
      *
@@ -429,7 +443,7 @@ const props = withDefaults(
      * 作用范围：ArtTable 自己渲染的控件，以及**页面通过 `#toolbar` / `#toolbar-right` /
      * `#search-extra` 插槽传进来的按钮** —— 后者靠 `el-config-provider` 向下传递才能覆盖到
      * （插槽内容在父组件作用域里创建，props 直接控制不到）。
-     * 分页也会跟随（直接透传 `size`，与控件尺寸同档位）。
+     * 分页也会跟随（`small` 档位映射为分页的 `small` 属性）。
      *
      * 与 `size` 一样是**回退值**：工具栏「密度」下拉的全局偏好会覆盖它。
      */
@@ -506,6 +520,22 @@ const props = withDefaults(
  * 末位的 'default' 等价于 Element Plus 的全局尺寸配置。
  */
 const effectiveSize = computed<TableSize>(() => densityPreference.value || props.size || 'default')
+
+/**
+ * 传给 `el-table` 的 height：`'auto'` 时传 undefined（不设固定高度，表格按内容自然铺开）。
+ *
+ * 【为什么必须有这个分支】`'100%'` 只在**父容器高度确定**时成立（`.art-fill` 的 flex 链：
+ * `.layout-content-inner` → `.art-fill` → `.art-table` 一路都是确定高度）。
+ * 一旦父容器的高度是由内容撑开的 —— 典型是「`.art-scroll` 页面里把表格放进
+ * `el-row > el-col > el-card`」—— el-table 会陷入反馈循环：
+ * 量到内容高度 `offsetHeight` → 触发 `doLayout()` 并回灌 `bodyScrollHeight` → 表格更高 → 再量…
+ * 表现就是**页面竖向滚动条持续增长（高度无限膨胀）**，`/oceanengine/material` 就踩过这个坑，
+ * 同时控制台反复刷 `ResizeObserver loop completed with undelivered notifications`。
+ *
+ * 判定规则很简单：**表格要在容器内部滚动（撑满一屏）→ 用 `.art-fill` + 默认 `'100%'`；
+ * 表格让页面整体滚动 → 传 `'auto'`**。两者混用就会出现上面那个循环。
+ */
+const tableHeight = computed(() => (props.height === 'auto' ? undefined : props.height))
 
 /**
  * 实际生效的控件尺寸（工具栏 / 搜索区，含页面插槽传进来的按钮）。
