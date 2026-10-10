@@ -15,6 +15,7 @@ export default {
   refresh: '刷新',
   columnSetting: '列设置',
   tableSize: '表格大小',
+  buttonSize: '按钮大小',
   sizeCompact: '紧凑',
   sizeDefault: '默认',
   sizeLoose: '宽松',

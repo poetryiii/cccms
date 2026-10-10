@@ -25,6 +25,7 @@ export interface DictDataRow {
   sort: number
   status: number
   remark?: string
+  [key: string]: unknown
 }
 
 /** 字典数据；trashed=true 取回收站（只看该类型下已删的数据） */

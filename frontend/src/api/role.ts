@@ -14,6 +14,7 @@ export interface RoleTreeNode {
   sort: number
   status: number
   children?: RoleTreeNode[]
+  [key: string]: unknown
 }
 
 export function roleTree() {

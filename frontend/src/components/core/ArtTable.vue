@@ -7,8 +7,8 @@
       条件多时折叠，只显示前几项，点「展开」看全部。
     -->
     <el-card v-if="searchColumns.length || $slots['search-extra']" class="art-table-search" shadow="never">
-      <!-- 搜索区同理：查询 / 重置按钮与 #search-extra 里的页面控件都跟随 buttonSize -->
-      <el-config-provider :size="buttonSize || undefined">
+      <!-- 搜索区同理：查询 / 重置按钮与 #search-extra 里的页面控件都跟随按钮尺寸偏好 -->
+      <el-config-provider :size="effectiveButtonSize">
       <!--
         页面自定义搜索项（如层级切换）通过 #search-extra 注入，排在自动生成的搜索项前面；
         没有 filter 列配置的页面也能用这张搜索卡承载自己的搜索 UI。
@@ -84,7 +84,7 @@
         但它能让**页面通过 #toolbar / #toolbar-right 插槽传进来的按钮**也一起变尺寸 ——
         插槽内容在父组件作用域里创建，父组件无法从 props 改它们的尺寸，只有 provider 能向下传递。
       -->
-      <el-config-provider :size="buttonSize || undefined">
+      <el-config-provider :size="effectiveButtonSize">
       <div class="art-table-toolbar">
         <div class="art-table-toolbar-left">
           <!--
@@ -187,6 +187,32 @@
                   </el-button>
                 </div>
                 <el-radio-group :model-value="tableSizePreference" size="small" @change="onTableSizeChange">
+                  <el-radio-button value="small">{{ t('table.sizeCompact') }}</el-radio-button>
+                  <el-radio-button value="default">{{ t('table.sizeDefault') }}</el-radio-button>
+                  <el-radio-button value="large">{{ t('table.sizeLoose') }}</el-radio-button>
+                </el-radio-group>
+              </div>
+
+              <!--
+                按钮大小：与表格尺寸**分开记录**。二者诉求常相反 ——
+                典型是「表格紧凑塞下更多行，但工具栏主操作保持默认大小」（全小号会让主操作不显眼）。
+                作用于 ArtTable 自己渲染的按钮，以及**页面通过 #toolbar / #search-extra 插槽传进来的按钮**
+                （后者靠 el-config-provider 向下传递才能覆盖到，props 直接控制不到）。
+              -->
+              <div class="art-table-size">
+                <div class="art-table-size-head">
+                  <span>{{ t('table.buttonSize') }}</span>
+                  <el-button
+                    v-if="buttonSizePreference"
+                    link
+                    type="primary"
+                    size="small"
+                    @click="onButtonSizeChange('')"
+                  >
+                    {{ t('table.followDefault') }}
+                  </el-button>
+                </div>
+                <el-radio-group :model-value="buttonSizePreference" size="small" @change="onButtonSizeChange">
                   <el-radio-button value="small">{{ t('table.sizeCompact') }}</el-radio-button>
                   <el-radio-button value="default">{{ t('table.sizeDefault') }}</el-radio-button>
                   <el-radio-button value="large">{{ t('table.sizeLoose') }}</el-radio-button>
@@ -401,6 +427,8 @@ import { ElCheckbox, ElMessage } from 'element-plus'
 import { ArrowDown, ArrowUp, Delete, Filter, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
 import { TABLE_FILTER_KEY } from '@/composables/useTable'
 import {
+  buttonSizePreference,
+  setButtonSizePreference,
   setTableSizePreference,
   tableSizePreference,
   type TableSize,
@@ -439,6 +467,9 @@ const props = withDefaults(
      * 只能靠 provider 向下传递。
      *
      * 不传则跟随 Element Plus 的全局尺寸配置。
+     *
+     * 注意：用户在设置弹层里改动「按钮大小」会**覆盖本参数**（偏好优先于 prop），
+     * 因为那是用户主动设的，不该被页面的默认值顶掉。
      */
     buttonSize?: 'large' | 'default' | 'small'
     pageSizes?: number[]
@@ -517,6 +548,19 @@ const effectiveSize = computed<TableSize | undefined>(() => tableSizePreference.
 /** 设置弹层里的尺寸选择：'' = 清除偏好（跟随默认） */
 function onTableSizeChange(value: string | number | boolean): void {
   setTableSizePreference(value === '' ? '' : (String(value) as TableSize))
+}
+
+/**
+ * 实际生效的工具栏 / 搜索区控件尺寸。
+ *
+ * 规则与 `effectiveSize` 完全一致（偏好 > prop > Element Plus 全局配置），
+ * 但**两份偏好互相独立** —— 常见组合是「表格紧凑 + 按钮默认」，绑成一份就没法这么配。
+ */
+const effectiveButtonSize = computed<TableSize | undefined>(() => buttonSizePreference.value || props.buttonSize)
+
+/** 设置弹层里的「按钮大小」选择：'' = 清除偏好（跟随默认） */
+function onButtonSizeChange(value: string | number | boolean): void {
+  setButtonSizePreference(value === '' ? '' : (String(value) as TableSize))
 }
 
 const emit = defineEmits<{
@@ -1277,7 +1321,7 @@ function onSortChange(payload: { prop: string | null; order: string | null }): v
   border-bottom: 1px solid var(--art-card-border);
 }
 
-/* 表格大小（弹层顶部小节）：靠间距与下方列设置区分，不再加线（列设置头已有分隔线） */
+/* 尺寸偏好小节（表格大小 / 按钮大小）：靠间距与下方列设置区分，不再加线（列设置头已有分隔线） */
 .art-table-size {
   margin-bottom: 10px;
 }

@@ -15,6 +15,7 @@ export default {
   refresh: 'Refresh',
   columnSetting: 'Columns',
   tableSize: 'Table size',
+  buttonSize: 'Button size',
   sizeCompact: 'Compact',
   sizeDefault: 'Default',
   sizeLoose: 'Loose',

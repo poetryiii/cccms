@@ -192,6 +192,7 @@ import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { useTable } from '@/composables/useTable'
 import { roleCopy, roleDelete, roleList, roleRead, roleSave, roleTree, roleUpdate } from '@/api/role'
 import { menuTree } from '@/api/menu'
+import type { MenuNode } from '@/api/types'
 import type { ArtTableColumn } from '@/types/table'
 
 const { t } = useI18n({ useScope: 'global' })
@@ -294,7 +295,7 @@ function clearNode(): void {
 
 /* ---- 下拉与权限树 ---- */
 const parentOptions = ref<Row[]>([])
-const menuTreeData = ref<Record<string, unknown>[]>([])
+const menuTreeData = ref<MenuNode[]>([])
 const expandAll = ref(false)
 /** 用于强制重挂载 el-tree（它的 default-expand-all 只在初始化生效） */
 const treeKey = ref(0)
@@ -382,14 +383,14 @@ function clearAllNodes(): void {
   treeRef.value?.setCheckedKeys([])
 }
 
-function collectNodeKeys(nodes: Record<string, unknown>[]): string[] {
+function collectNodeKeys(nodes: MenuNode[]): string[] {
   const out: string[] = []
-  const walk = (items: Record<string, unknown>[]) => {
+  const walk = (items: MenuNode[]) => {
     for (const item of items) {
       if (item.node) {
         out.push(String(item.node))
       }
-      const children = item.children as Record<string, unknown>[] | undefined
+      const children = item.children
       if (children?.length) {
         walk(children)
       }

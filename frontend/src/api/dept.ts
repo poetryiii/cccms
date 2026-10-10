@@ -10,6 +10,7 @@ export interface DeptNode {
   status?: number
   parent_id?: number
   children?: DeptNode[]
+  [key: string]: unknown
 }
 
 /** 部门树；trashed=true 取回收站（平铺已删部门） */
