@@ -155,6 +155,9 @@
               </div>
             </div>
           </el-popover>
+          <el-tooltip :content="t('table.refresh')" placement="top">
+            <el-button text circle :icon="Refresh" :loading="loading" @click="emit('refresh')" />
+          </el-tooltip>
           <!--
             密度（紧凑 / 默认 / 宽松）：一份设置同时决定表格行高与工具栏控件大小。
             放在工具栏而不是塞进「列设置」里 —— 它是整体外观，和「显示哪些列」不是一类事，
@@ -178,9 +181,6 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-tooltip :content="t('table.refresh')" placement="top">
-            <el-button text circle :icon="Refresh" :loading="loading" @click="emit('refresh')" />
-          </el-tooltip>
           <!--
             不要在 #reference 里再套 el-tooltip：
             popover 与 tooltip 都基于 popper trigger，会互相抢 click 事件，导致面板点不开。
