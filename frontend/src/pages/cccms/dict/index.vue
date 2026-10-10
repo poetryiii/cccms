@@ -221,11 +221,10 @@
       </div>
       <el-table
         v-loading="dataLoading"
-        :data="dataList"
+        :data="pagedDataList"
         row-key="id"
         stripe
         border
-        max-height="460"
         @selection-change="onDataSelectionChange"
       >
         <el-table-column type="selection" :selectable="() => !dataRecycle" width="46" />
@@ -262,6 +261,15 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-if="dataList.length > dataLimit"
+        v-model:current-page="dataPage"
+        :page-size="dataLimit"
+        :total="dataList.length"
+        layout="prev, pager, next"
+        class="drawer-pager"
+      />
 
       <el-dialog
         v-model="dataFormVisible"
@@ -301,8 +309,8 @@ import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { useTable } from '@/composables/useTable'
 import { useRecycle } from '@/composables/useRecycle'
+import { useCategoryTree } from '@/composables/useCategoryTree'
 import { useUserStore } from '@/stores/user'
-import { categoryDelete, categorySave, categoryTree, categoryUpdate, type CategoryNode } from '@/api/category'
 import {
   dictDataBatchDelete,
   dictDataBatchStatus,
@@ -329,9 +337,6 @@ const { t } = useI18n({ useScope: 'global' })
 const { hasAuth } = useUserStore()
 
 const MODULE = 'dict' as const
-/** 虚拟节点：全部 / 未分类（后端约定 category_id：0=全部，-1=未分类） */
-const ALL_ID = 0
-const NONE_ID = -1
 
 interface Row {
   id: number
@@ -361,65 +366,35 @@ const columns = computed<ArtTableColumn[]>(() => [
 ])
 
 /* ---- 左侧分类树 ---- */
-const saving = ref(false)
-const currentId = ref(0)
-const categories = ref<CategoryNode[]>([])
+const {
+  saving,
+  currentId,
+  categoryRecycle,
+  toggleCategoryRecycle,
+  onCategoryRestore,
+  onCategoryForceDelete,
+  treeData,
+  currentNodeName,
+  categoryOptions,
+  selectorOptions: categorySelectOptions,
+  loadCategories,
+  onNodeClick,
+  clearNode,
+  categoryFormRef,
+  categoryVisible,
+  categoryForm,
+  categoryRules,
+  openCategoryCreate,
+  openCategoryEdit,
+  submitCategory,
+  onCategoryDelete,
+} = useCategoryTree(MODULE, { prefix: 'dict', onListReload: () => search() })
 
-const treeData = computed(() =>
-  // 回收站视图里只列已删分类，不掺「全部 / 未分类」这两个虚拟节点
-  categoryRecycle.value
-    ? categories.value
-    : [{ id: ALL_ID, name: t('dict.all') }, { id: NONE_ID, name: t('dict.uncategorized') }, ...categories.value],
-)
-
-const currentNodeName = computed(() => {
-  if (currentId.value === ALL_ID) {
-    return t('dict.all')
-  }
-  if (currentId.value === NONE_ID) {
-    return t('dict.uncategorized')
-  }
-  return findCategory(categories.value, currentId.value)?.name ?? ''
-})
-
-/** 上级分类选择器：顶层补一个「顶级分类」 */
-const categoryOptions = computed(() => [{ id: 0, name: t('dict.topCategory'), children: categories.value }])
-/** 类型归属选择器：顶层补一个「未分类」 */
-const categorySelectOptions = computed(() => [{ id: 0, name: t('dict.uncategorized'), children: categories.value }])
-
-function findCategory(nodes: CategoryNode[], id: number): CategoryNode | null {
-  for (const node of nodes) {
-    if (node.id === id) {
-      return node
-    }
-    if (node.children?.length) {
-      const hit = findCategory(node.children, id)
-      if (hit) {
-        return hit
-      }
-    }
-  }
-  return null
-}
-
-async function loadCategories(): Promise<void> {
-  categories.value = await categoryTree(MODULE, categoryRecycle.value)
-  if (currentId.value > 0 && !findCategory(categories.value, currentId.value)) {
-    currentId.value = ALL_ID
-  }
-}
-
-/* ---- 回收站：本页三个入口（字典类型 / 字典数据 / 分类）各一个开关 ---- */
+/* ---- 回收站：本页两个入口（字典类型 / 字典数据）各一个开关；分类入口由 useCategoryTree 管理 ---- */
 // 声明在 useTable 之前：列表闭包在 setup 阶段就会执行一次
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('dict_type', {
   reload: () => search(),
 })
-const {
-  recycle: categoryRecycle,
-  toggle: toggleCategoryRecycle,
-  onRestore: onCategoryRestore,
-  onForceDelete: onCategoryForceDelete,
-} = useRecycle('category', { reload: () => loadCategories() })
 const {
   recycle: dataRecycle,
   toggle: toggleDataRecycle,
@@ -433,77 +408,13 @@ const { list, loading, total, page, limit, load, search, onPageChange, onLimitCh
   initialQuery: { name: '', type: '' },
 })
 
-function onNodeClick(data: Record<string, any>): void {
-  currentId.value = Number(data.id ?? ALL_ID)
-  search()
-}
 
-function clearNode(): void {
-  currentId.value = ALL_ID
-  search()
-}
-
-async function refresh(): Promise<void> {
-  await Promise.all([load(), loadCategories()])
-}
-
-/* ---- 分类表单 ---- */
-const categoryFormRef = ref<FormInstance>()
-const categoryVisible = ref(false)
-const emptyCategoryForm = { id: 0, parent_id: 0, name: '', sort: 0, remark: '' }
-const categoryForm = reactive<Record<string, any>>({ ...emptyCategoryForm })
-const categoryRules = computed<FormRules>(() => ({
-  name: [{ required: true, message: t('dict.categoryNameRequired'), trigger: 'blur' }],
-}))
-
-function openCategoryCreate(parentId: number): void {
-  Object.assign(categoryForm, emptyCategoryForm, { parent_id: parentId })
-  categoryVisible.value = true
-}
-
-function openCategoryEdit(record: CategoryNode): void {
-  Object.assign(categoryForm, emptyCategoryForm, record)
-  categoryVisible.value = true
-}
-
-async function submitCategory(): Promise<void> {
-  const valid = await categoryFormRef.value?.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
-  saving.value = true
-  try {
-    if (categoryForm.id) {
-      await categoryUpdate(MODULE, { ...categoryForm })
-    } else {
-      await categorySave(MODULE, { ...categoryForm })
-    }
-    ElMessage.success(t('dict.saveSuccess'))
-    categoryVisible.value = false
-    await refresh()
-  } finally {
-    saving.value = false
-  }
-}
-
-async function onCategoryDelete(record: CategoryNode): Promise<void> {
-  try {
-    await ElMessageBox.confirm(t('dict.categoryDeleteConfirm', { name: record.name }), t('dict.deleteCategoryTitle'), {
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  await categoryDelete(MODULE, record.id)
-  ElMessage.success(t('dict.deleteSuccess'))
-  await refresh()
-}
 
 /* ---- 字典类型 ---- */
 const typeFormRef = ref<FormInstance>()
 const typeVisible = ref(false)
 const emptyTypeForm = { id: 0, category_id: 0, name: '', type: '', remark: '' }
-const typeForm = reactive<Record<string, any>>({ ...emptyTypeForm })
+const typeForm = reactive({ ...emptyTypeForm })
 const typeRules = computed<FormRules>(() => ({
   name: [{ required: true, message: t('dict.nameRequired'), trigger: 'blur' }],
   type: [{ required: true, message: t('dict.typeRequired'), trigger: 'blur' }],
@@ -603,11 +514,19 @@ const dataVisible = ref(false)
 const dataLoading = ref(false)
 const dataList = ref<Row[]>([])
 const currentType = reactive<{ id: number; name: string }>({ id: 0, name: '' })
+// 字典数据较多时按页渲染，避免一次性渲染上千行
+const dataPage = ref(1)
+const dataLimit = ref(15)
+const pagedDataList = computed(() => {
+  const start = (dataPage.value - 1) * dataLimit.value
+  return dataList.value.slice(start, start + dataLimit.value)
+})
 
 async function openData(record: Row): Promise<void> {
   currentType.id = record.id
   currentType.name = record.name ?? ''
   selectedData.value = []
+  dataPage.value = 1
   dataVisible.value = true
   await loadData()
 }
@@ -615,7 +534,7 @@ async function openData(record: Row): Promise<void> {
 async function loadData(): Promise<void> {
   dataLoading.value = true
   try {
-    dataList.value = (await dictDataList(currentType.id, dataRecycle.value)) as unknown as Row[]
+    dataList.value = await dictDataList(currentType.id, dataRecycle.value)
   } finally {
     dataLoading.value = false
   }
@@ -624,7 +543,7 @@ async function loadData(): Promise<void> {
 const dataFormRef = ref<FormInstance>()
 const dataFormVisible = ref(false)
 const emptyDataForm = { id: 0, type_id: 0, label: '', value: '', sort: 0 }
-const dataForm = reactive<Record<string, any>>({ ...emptyDataForm })
+const dataForm = reactive({ ...emptyDataForm })
 const dataRules = computed<FormRules>(() => ({
   label: [{ required: true, message: t('dict.labelRequired'), trigger: 'blur' }],
   value: [{ required: true, message: t('dict.valueRequired'), trigger: 'blur' }],
@@ -707,6 +626,12 @@ loadCategories()
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
+}
+
+.drawer-pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 /* ---- 分类树节点 ---- */

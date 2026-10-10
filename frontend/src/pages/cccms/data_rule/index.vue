@@ -597,7 +597,7 @@ const emptyForm = {
   value_type: 'static',
   remark: '',
 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 // 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
 const rules = computed<FormRules>(() => ({

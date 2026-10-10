@@ -374,18 +374,28 @@ const analysisCards = computed(() => {
   ]
 })
 
+// 请求序号：切 tab 与改天数并发触发时，先发后至的旧结果不能覆盖新结果
+let analysisSeq = 0
+
 async function loadAnalysis(): Promise<void> {
   if (!canAnalyse.value) {
     return
   }
 
+  const seq = ++analysisSeq
   analysisLoading.value = true
   try {
-    analysis.value = await logLoginAnalysis({ days: analysisDays.value })
+    const result = await logLoginAnalysis({ days: analysisDays.value })
+    if (seq !== analysisSeq) {
+      return
+    }
+    analysis.value = result
     await nextTick()
     renderTrend()
   } finally {
-    analysisLoading.value = false
+    if (seq === analysisSeq) {
+      analysisLoading.value = false
+    }
   }
 }
 

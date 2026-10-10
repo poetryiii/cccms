@@ -256,10 +256,8 @@ final class PasswordReset
             }
 
             $attemptKey = self::attemptKey($channel, $userId);
-            $attempts   = (int)Redis::incr($attemptKey);
-            if ($attempts === 1) {
-                Redis::expire($attemptKey, self::codeTtl());
-            }
+            // 原子初始化（不存在时置 1 并带 TTL），避免 INCR 后、EXPIRE 前崩溃导致 key 永久
+            $attempts = (bool)Redis::set($attemptKey, '1', 'EX', self::codeTtl(), 'NX') ? 1 : (int)Redis::incr($attemptKey);
 
             if (self::exceededAttempts($attempts, self::maxAttempts())) {
                 self::clearCode($userId, $channel);
@@ -335,10 +333,8 @@ final class PasswordReset
             $daily = max(0, SysConfig::getInt('security.reset_daily_limit', 10));
             if ($daily > 0) {
                 $dailyKey = self::dailyKey($channel, $account);
-                $count    = (int)Redis::incr($dailyKey);
-                if ($count === 1) {
-                    Redis::expire($dailyKey, 86400);
-                }
+                // 原子初始化（不存在时置 1 并带 TTL），避免 INCR 成功后、EXPIRE 前崩溃导致 key 永久
+                $count = (bool)Redis::set($dailyKey, '1', 'EX', 86400, 'NX') ? 1 : (int)Redis::incr($dailyKey);
                 if ($count > $daily) {
                     Redis::del(self::sendKey($channel, $account));
                     throw new ApiException(I18n::t('auth.reset_daily_limit'), 429);
@@ -354,13 +350,8 @@ final class PasswordReset
 
     private static function acquire(string $key, int $seconds): bool
     {
-        if (Redis::setnx($key, '1')) {
-            Redis::expire($key, $seconds);
-
-            return true;
-        }
-
-        return false;
+        // 原子 SET NX EX：避免 SETNX 成功后、EXPIRE 前进程崩溃导致 key 永久不失效
+        return (bool)Redis::set($key, '1', 'EX', $seconds, 'NX');
     }
 
     /** 重置成功：作废该用户此前签发的全部令牌，并从在线列表移除 */

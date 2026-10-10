@@ -247,12 +247,12 @@ final class GeneratorLogic
      * 生成「可写字段白名单」时要排除的系统维护列。
      *
      * 这些列要么由框架写入（`tenant_id` / `create_*`），要么由调度进程维护
-     * （`running*` / `retry*`），经接口改写会造成数据归属错乱或锁不释放。
+     * （`running*`），经接口改写会造成数据归属错乱或锁不释放。
      */
     private const SYSTEM_COLUMNS = [
         'tenant_id', 'create_time', 'update_time', 'delete_time', 'create_by',
         'login_time', 'login_ip', 'last_run_time', 'next_run_time',
-        'running', 'running_at', 'retry_left', 'retry_at', 'read_count',
+        'running', 'running_at', 'read_count',
     ];
 
     /**

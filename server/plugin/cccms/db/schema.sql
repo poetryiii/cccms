@@ -419,8 +419,6 @@ CREATE TABLE IF NOT EXISTS `sys_crontab` (
   `timeout`        int          NOT NULL DEFAULT 0 COMMENT '超时秒数，0=不限；超时会释放运行锁并记为超时',
   `retry_times`    tinyint      NOT NULL DEFAULT 0 COMMENT '失败后的重试次数',
   `retry_interval` int          NOT NULL DEFAULT 60 COMMENT '重试间隔(秒)',
-  `retry_left`     tinyint      NOT NULL DEFAULT 0 COMMENT '剩余重试次数(运行时)',
-  `retry_at`       datetime     DEFAULT NULL COMMENT '下次重试时间(运行时)',
   `running`        tinyint      NOT NULL DEFAULT 0 COMMENT '是否运行中(运行时) 1是 0否',
   `running_at`     datetime     DEFAULT NULL COMMENT '本次开始运行时间(运行时)',
   `remark`         varchar(255) NOT NULL DEFAULT '',
@@ -431,7 +429,6 @@ CREATE TABLE IF NOT EXISTS `sys_crontab` (
   `delete_time`    datetime     DEFAULT NULL COMMENT '删除时间(NULL=未删除)',
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
-  KEY `idx_retry` (`retry_left`, `retry_at`),
   KEY `idx_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务';
 
@@ -456,7 +453,6 @@ CREATE TABLE IF NOT EXISTS `sys_crontab_log` (
 -- 重试只按自己的 retry_at 触发，不影响任务本身的 cron 时间轴 ——
 -- 避免「重试吃掉一次正常调度」（旧实现把 retry_left/retry_at 写在 sys_crontab 上，
 -- 重试与 cron 同秒命中时会让 cron 被跳过）。
--- sys_crontab 上遗留的 retry_left / retry_at 列为历史兼容保留，不再写入。
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sys_crontab_retry` (
   `id`          bigint unsigned NOT NULL AUTO_INCREMENT,

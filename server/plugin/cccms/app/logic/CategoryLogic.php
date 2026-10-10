@@ -9,6 +9,7 @@ use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\TenantContext;
+use plugin\cccms\support\Tree;
 
 /**
  * 通用分类逻辑（sys_category，按 module 隔离）。
@@ -51,7 +52,7 @@ final class CategoryLogic
             ->order('id', 'asc')
             ->select()->toArray();
 
-        return $trashed ? $all : self::buildTree($all, 0);
+        return $trashed ? $all : Tree::buildTree($all, 0);
     }
 
     /**
@@ -79,21 +80,10 @@ final class CategoryLogic
     /** 分类自身 + 所有后代 id（选中父分类时同时统计子分类的数据）。 */
     public static function subtreeIds(int $id): array
     {
-        $parents = SoftDelete::apply(TenantContext::table('category'))->column('parent_id', 'id');
-        $ids     = [$id];
-        $stack   = [$id];
-
-        while ($stack) {
-            $current = (int)array_pop($stack);
-            foreach ($parents as $childId => $parentId) {
-                if ((int)$parentId === $current && !in_array((int)$childId, $ids, true)) {
-                    $ids[]   = (int)$childId;
-                    $stack[] = (int)$childId;
-                }
-            }
-        }
-
-        return $ids;
+        return Tree::subtreeIds(
+            SoftDelete::apply(TenantContext::table('category'))->column('parent_id', 'id'),
+            [$id]
+        );
     }
 
     public static function create(string $module, array $data): int
@@ -176,16 +166,4 @@ final class CategoryLogic
         return $row;
     }
 
-    private static function buildTree(array $items, int $parentId): array
-    {
-        $tree = [];
-        foreach ($items as $item) {
-            if ((int)$item['parent_id'] === $parentId) {
-                $item['children'] = self::buildTree($items, (int)$item['id']);
-                $tree[]           = $item;
-            }
-        }
-
-        return $tree;
-    }
 }

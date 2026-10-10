@@ -9,6 +9,7 @@ use plugin\cccms\app\model\UserDept;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
+use plugin\cccms\support\Tree;
 
 /**
  * 部门逻辑。
@@ -47,7 +48,7 @@ final class DeptLogic
         // 需要把这类节点提升为顶层，否则整棵树会因为找不到 parent_id = 0 的根而变成空的
         $visibleIds = array_map(static fn (array $row): int => (int)$row['id'], $all);
 
-        return self::buildTree($all, 0, $visibleIds);
+        return Tree::buildTree($all, 0, $visibleIds);
     }
 
     /**
@@ -62,7 +63,7 @@ final class DeptLogic
         $all = Dept::withoutGlobalScope()
             ->order('sort', 'asc')->order('id', 'asc')->select()->toArray();
 
-        return self::buildTree($all, 0);
+        return Tree::buildTree($all, 0);
     }
 
     public static function create(array $data): int
@@ -79,6 +80,14 @@ final class DeptLogic
 
         self::assertInScope($id);
 
+        // 不允许把自己或自己的下级设为上级，否则部门树成环
+        if (array_key_exists('parent_id', $data)) {
+            $parentId = (int)$data['parent_id'];
+            if ($parentId === $id || in_array($parentId, self::subtreeIds($id), true)) {
+                throw new ApiException(I18n::t('dept.parent_invalid'), 422);
+            }
+        }
+
         Dept::newScopedQuery()->where('id', $id)->update($data);
     }
 
@@ -88,10 +97,10 @@ final class DeptLogic
 
         // 子部门 / 成员判定必须看**全量**：范围外的子部门同样会造成孤儿数据
         if (Dept::withoutGlobalScope()->where('parent_id', $id)->count() > 0) {
-            throw new \RuntimeException(I18n::t('dept.has_children'));
+            throw new ApiException(I18n::t('dept.has_children'), 422);
         }
         if (UserDept::where('dept_id', $id)->count() > 0) {
-            throw new \RuntimeException(I18n::t('dept.has_users'));
+            throw new ApiException(I18n::t('dept.has_users'), 422);
         }
 
         // 软删除：进回收站；dept_role 保留，恢复后部门角色原样回来
@@ -110,39 +119,15 @@ final class DeptLogic
         }
 
         if (!Dept::withoutGlobalScope()->where('id', $id)->find()) {
-            throw new \RuntimeException(I18n::t('dept.not_found'));
+            throw new ApiException(I18n::t('dept.not_found'), 404);
         }
 
         throw new ApiException(I18n::t('dept.no_permission'), 403);
     }
 
-    /**
-     * 拼树。
-     *
-     * `$visibleIds` 传入后，「父节点不在可见集合里」的节点会被当作顶层：
-     * 这是数据范围过滤后的必然情况（只看子树 / 只看自己所属部门），
-     * 不处理的话树会整棵变空。
-     *
-     * @param array<int,array<string,mixed>> $items
-     * @param array<int,int>|null            $visibleIds
-     */
-    private static function buildTree(array $items, int $parentId, ?array $visibleIds = null): array
+    /** 部门自身 + 所有后代 id（用于成环校验） */
+    private static function subtreeIds(int $id): array
     {
-        $tree = [];
-        foreach ($items as $item) {
-            $pid = (int)$item['parent_id'];
-            $isRoot = $visibleIds !== null && $parentId === 0
-                ? ($pid === 0 || !in_array($pid, $visibleIds, true))
-                : $pid === $parentId;
-
-            if (!$isRoot) {
-                continue;
-            }
-
-            $item['children'] = self::buildTree($items, (int)$item['id'], $visibleIds);
-            $tree[] = $item;
-        }
-
-        return $tree;
+        return Tree::subtreeIds(Dept::withoutGlobalScope()->column('parent_id', 'id'), [$id]);
     }
 }

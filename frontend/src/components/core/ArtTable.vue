@@ -7,6 +7,8 @@
       条件多时折叠，只显示前几项，点「展开」看全部。
     -->
     <el-card v-if="searchColumns.length || $slots['search-extra']" class="art-table-search" shadow="never">
+      <!-- 搜索区同理：查询 / 重置按钮与 #search-extra 里的页面控件都跟随 buttonSize -->
+      <el-config-provider :size="buttonSize || undefined">
       <!--
         页面自定义搜索项（如层级切换）通过 #search-extra 注入，排在自动生成的搜索项前面；
         没有 filter 列配置的页面也能用这张搜索卡承载自己的搜索 UI。
@@ -72,9 +74,17 @@
           </el-icon>
         </el-button>
       </div>
+      </el-config-provider>
     </el-card>
 
     <el-card class="art-table-main" shadow="never">
+      <!--
+        工具栏尺寸：套一层 el-config-provider。
+        它是**无渲染组件**（不产生 DOM），所以不会破坏 .art-table-toolbar 的 flex 布局；
+        但它能让**页面通过 #toolbar / #toolbar-right 插槽传进来的按钮**也一起变尺寸 ——
+        插槽内容在父组件作用域里创建，父组件无法从 props 改它们的尺寸，只有 provider 能向下传递。
+      -->
+      <el-config-provider :size="buttonSize || undefined">
       <div class="art-table-toolbar">
         <div class="art-table-toolbar-left">
           <!--
@@ -157,6 +167,32 @@
               <el-button text circle :icon="Setting" />
             </template>
             <div class="art-table-columns">
+              <!--
+                表格大小：**全局偏好**（不带 storageKey，所有页面的 ArtTable 共用一份）。
+                放在列设置上方 —— 它是整体外观，而列显隐属于内容层面，先外观后内容。
+                刻意不并入下方「重置」：那个按钮的语义是重置列，拉到尺寸上会让人以为一并清掉了偏好。
+              -->
+              <div class="art-table-size">
+                <div class="art-table-size-head">
+                  <span>{{ t('table.tableSize') }}</span>
+                  <!-- 只有设过偏好才给「跟随默认」入口，否则这个按钮没有意义 -->
+                  <el-button
+                    v-if="tableSizePreference"
+                    link
+                    type="primary"
+                    size="small"
+                    @click="onTableSizeChange('')"
+                  >
+                    {{ t('table.followDefault') }}
+                  </el-button>
+                </div>
+                <el-radio-group :model-value="tableSizePreference" size="small" @change="onTableSizeChange">
+                  <el-radio-button value="small">{{ t('table.sizeCompact') }}</el-radio-button>
+                  <el-radio-button value="default">{{ t('table.sizeDefault') }}</el-radio-button>
+                  <el-radio-button value="large">{{ t('table.sizeLoose') }}</el-radio-button>
+                </el-radio-group>
+              </div>
+
               <div class="art-table-columns-head">
                 <span>{{ t('table.columnSetting') }}</span>
                 <el-button link type="primary" size="small" @click="resetColumns">{{ t('table.reset') }}</el-button>
@@ -174,6 +210,7 @@
           </el-popover>
         </div>
       </div>
+      </el-config-provider>
 
       <div class="art-table-wrap">
         <!-- 虚拟滚动模式：仅当开启 virtual 且非树形/非回收站时生效，用 el-table-v2 + el-auto-resizer -->
@@ -201,6 +238,7 @@
           :key="columnKey"
           v-loading="loading"
           :data="data"
+          :size="effectiveSize"
           :row-key="rowKey"
           :height="height"
           :default-expand-all="tree"
@@ -338,6 +376,7 @@
           <slot name="pager-left" />
         </div>
         <el-pagination
+          :small="buttonSize === 'small'"
           :current-page="page"
           :page-size="limit"
           :total="total"
@@ -361,6 +400,11 @@ import { useI18n } from 'vue-i18n'
 import { ElCheckbox, ElMessage } from 'element-plus'
 import { ArrowDown, ArrowUp, Delete, Filter, Refresh, RefreshLeft, Search, Setting } from '@element-plus/icons-vue'
 import { TABLE_FILTER_KEY } from '@/composables/useTable'
+import {
+  setTableSizePreference,
+  tableSizePreference,
+  type TableSize,
+} from '@/composables/useTableSize'
 import type { ArtTableColumn } from '@/types/table'
 
 const { t } = useI18n({ useScope: 'global' })
@@ -374,6 +418,29 @@ const props = withDefaults(
     rowKey?: string
     /** 表格高度：'100%' 撑满父容器，也可传数字（px） */
     height?: number | string
+    /**
+     * 表格尺寸，透传给 `el-table`（`large` / `default` / `small`）。
+     *
+     * 只影响表格本体（行高 / 字号 / 单元格内边距），工具栏按钮、筛选控件与分页不受影响。
+     * 不传则由 Element Plus 的全局尺寸配置决定 —— 显式声明这个 prop 是必要的：
+     * 未声明的属性只会 fallthrough 到根 div，传 `size` 会静默失效（内部 el-table 收不到）。
+     * 注意：`virtual`（虚拟滚动）走的是 `el-table-v2`，它本身没有 `size` 属性，那种模式下不生效。
+     */
+    size?: 'large' | 'default' | 'small'
+    /**
+     * 工具栏 / 搜索区控件的尺寸，**与 `size`（表格本体）分开**。
+     *
+     * 为什么独立成一个参数：这两处的诉求常常相反 —— 常见组合是「表格压到 small 塞下更多行」，
+     * 但工具栏按钮保持默认大小（不然整个页面全是小号控件，主操作不显眼）。
+     *
+     * 实现上给这两块各套一层 `el-config-provider`（无渲染组件，不产生 DOM、不影响布局）。
+     * 这是唯一能覆盖**页面通过 `#toolbar` / `#toolbar-right` / `#search-extra` 插槽传进来的按钮**
+     * 的办法 —— 插槽内容在父组件作用域里创建，父组件没法从 props 直接改它们的尺寸，
+     * 只能靠 provider 向下传递。
+     *
+     * 不传则跟随 Element Plus 的全局尺寸配置。
+     */
+    buttonSize?: 'large' | 'default' | 'small'
     pageSizes?: number[]
     /** 是否显示多选列 */
     selection?: boolean
@@ -411,6 +478,13 @@ const props = withDefaults(
     summaryMethod?: (param: { columns: any[]; data: any[] }) => string[]
     /** 汇总行第一个单元格的文案 */
     summaryText?: string
+    /**
+     * 默认隐藏的列（列多到铺不下时用它给一组「核心列」）。
+     *
+     * 仅在用户**从未调整过**本页列显隐时生效：一旦用户勾过列设置，
+     * localStorage 里的记录优先（尊重用户意图，不被页面默认值反复覆盖）。
+     */
+    defaultHidden?: string[]
   }>(),
   {
     loading: false,
@@ -426,8 +500,24 @@ const props = withDefaults(
     virtual: false,
     summaryMethod: undefined,
     summaryText: '',
+    defaultHidden: () => [],
   },
 )
+
+/**
+ * 实际生效的表格尺寸。
+ *
+ * 优先级：**用户偏好 > 页面的 size prop > Element Plus 全局配置**。
+ * 偏好排在 prop 之前是有意的 —— 它是用户在设置里主动选的，
+ * 若让页面的默认值盖过它，就会出现「我明明设了紧凑，一进某个页面又变回去」。
+ * 三个都没有时 `el-table` 收到 undefined，按全局配置走。
+ */
+const effectiveSize = computed<TableSize | undefined>(() => tableSizePreference.value || props.size)
+
+/** 设置弹层里的尺寸选择：'' = 清除偏好（跟随默认） */
+function onTableSizeChange(value: string | number | boolean): void {
+  setTableSizePreference(value === '' ? '' : (String(value) as TableSize))
+}
 
 const emit = defineEmits<{
   refresh: []
@@ -778,7 +868,8 @@ function loadHidden(): string[] {
   } catch {
     // 忽略解析异常，回落到默认值
   }
-  return []
+  // 页面声明了「默认隐藏」时以它为准；用户动过列设置后，上面的本地记录优先
+  return [...props.defaultHidden]
 }
 
 function persistHidden(): void {
@@ -1184,6 +1275,21 @@ function onSortChange(payload: { prop: string | null; order: string | null }): v
   font-weight: 600;
   color: var(--art-main);
   border-bottom: 1px solid var(--art-card-border);
+}
+
+/* 表格大小（弹层顶部小节）：靠间距与下方列设置区分，不再加线（列设置头已有分隔线） */
+.art-table-size {
+  margin-bottom: 10px;
+}
+
+.art-table-size-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--art-main);
 }
 
 .art-table-filter {

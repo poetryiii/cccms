@@ -38,7 +38,6 @@ class LogVerifyCommand extends Command
         if (!LogVerifier::ready()) {
             $output->writeln(
                 '<error>审计链尚未初始化</error>：请先执行 php webman cccms:db-upgrade'
-                . '（补 sys_log.prev_hash / row_hash 列与 sys_log_chain 表）'
             );
 
             return Command::FAILURE;

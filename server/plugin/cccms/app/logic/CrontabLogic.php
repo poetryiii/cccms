@@ -28,8 +28,8 @@ final class CrontabLogic
     /**
      * 可写字段白名单。
      *
-     * 运行时列（`running` / `running_at` / `retry_left` / `retry_at`）**不允许**通过接口改写 ——
-     * 它们由调度进程维护，手工改会造成「锁没释放」或「重试乱序」。
+     * 运行时列（`running` / `running_at`）**不允许**通过接口改写 ——
+     * 它们由调度进程维护，手工改会造成「锁没释放」。
      */
     private const FIELDS = [
         'name', 'group_name', 'expression', 'target', 'params',
@@ -125,14 +125,20 @@ final class CrontabLogic
 
     public static function update(int $id, array $data): void
     {
-        self::assertInScope($id);
-        self::assertValid($data);
-        $data = self::prepare($data);
+        // 先拿到当前行：未提交的字段用原值合并后校验，避免「只改 status」被当成「表达式非法」
+        $current = self::assertInScope($id);
+        $data    = self::prepare($data);
+        self::assertValid(array_merge($current, $data));
+
         if (array_key_exists('params', $data)) {
             $data['params'] = self::encodeParams($data['params']);
         }
-        $next = CronMatcher::nextRunTime((string)$data['expression'], time());
-        $data['next_run_time'] = $next ? date('Y-m-d H:i:s', $next) : null;
+
+        // 只有 expression 本次有变化才重算 next_run_time，否则保留调度器维护的值
+        if (array_key_exists('expression', $data)) {
+            $next = CronMatcher::nextRunTime((string)$data['expression'], time());
+            $data['next_run_time'] = $next ? date('Y-m-d H:i:s', $next) : null;
+        }
 
         Crontab::newScopedQuery()->where('id', $id)->update($data);
     }
@@ -219,7 +225,7 @@ final class CrontabLogic
     }
 
     /**
-     * 字段白名单过滤：运行时列（running / retry_left…）不允许通过接口改写。
+     * 字段白名单过滤：运行时列（running / running_at）不允许通过接口改写。
      *
      * @param array<string,mixed> $data
      * @return array<string,mixed>

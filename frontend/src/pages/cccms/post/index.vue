@@ -181,7 +181,7 @@ const formVisible = ref(false)
 const saving = ref(false)
 
 const emptyForm = { id: 0, code: '', name: '', sort: 0, status: 1 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 // 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
 const rules = computed<FormRules>(() => ({
@@ -265,9 +265,13 @@ async function onBatchCommand(command: string): Promise<void> {
     return
   }
   if (command === 'delete') {
-    await ElMessageBox.confirm(t('post.batchDeleteConfirm', { count: ids.length }), t('post.batchDeleteTitle'), {
-      type: 'warning',
-    })
+    try {
+      await ElMessageBox.confirm(t('post.batchDeleteConfirm', { count: ids.length }), t('post.batchDeleteTitle'), {
+        type: 'warning',
+      })
+    } catch {
+      return
+    }
     const result = await postBatchDelete(ids)
     reportBatch(result, 'delete')
     load()

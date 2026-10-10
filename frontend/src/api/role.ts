@@ -5,8 +5,19 @@ export function roleList(params: Record<string, unknown>) {
   return http.get<PageResult>('/role', params)
 }
 
+export interface RoleTreeNode {
+  id: number
+  name: string
+  code: string
+  parent_id: number
+  data_scope: number
+  sort: number
+  status: number
+  children?: RoleTreeNode[]
+}
+
 export function roleTree() {
-  return http.get<Record<string, unknown>[]>('/role/tree')
+  return http.get<RoleTreeNode[]>('/role/tree')
 }
 
 export function roleRead(id: number) {

@@ -518,7 +518,10 @@ final class DataScope
                     $row[$field] = self::mask((string)$row[$field], $field);
                     break;
                 case 'encrypt':
-                    $row[$field] = Cipher::encrypt((string)$row[$field]);
+                    // 未配置密钥时保持原样，避免用公开默认密钥「假装加密」
+                    if (Cipher::configured()) {
+                        $row[$field] = Cipher::encrypt((string)$row[$field]);
+                    }
                     break;
                     // readonly：出参照常，仅入参剔除
             }
@@ -690,20 +693,9 @@ final class DataScope
      */
     private static function deptAndChildren(array $ids, ?array $parents = null): array
     {
-        $result  = array_map('intval', $ids);
         $parents ??= SoftDelete::apply(TenantContext::table('dept'))->column('parent_id', 'id');
-        $queue = $result;
-        while ($queue) {
-            $parent = (int)array_shift($queue);
-            foreach ($parents as $id => $pid) {
-                $id = (int)$id;
-                if ((int)$pid === $parent && !in_array($id, $result, true)) {
-                    $result[] = $id;
-                    $queue[] = $id;
-                }
-            }
-        }
-        return $result;
+
+        return Tree::subtreeIds($parents, $ids);
     }
 
     private static function mask(string $value, string $field): string

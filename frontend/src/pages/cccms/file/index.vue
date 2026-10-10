@@ -221,8 +221,8 @@ import RecycleToggle from '@/components/core/RecycleToggle.vue'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { useTable } from '@/composables/useTable'
 import { useRecycle } from '@/composables/useRecycle'
+import { useCategoryTree } from '@/composables/useCategoryTree'
 import { useUserStore } from '@/stores/user'
-import { categoryDelete, categorySave, categoryTree, categoryUpdate, type CategoryNode } from '@/api/category'
 import {
   fileDelete,
   fileList,
@@ -236,9 +236,6 @@ import {
 import type { ArtTableColumn } from '@/types/table'
 
 const MODULE = 'file' as const
-/** 虚拟节点：全部 / 未分类（后端约定 category_id：0=全部，-1=未分类） */
-const ALL_ID = 0
-const NONE_ID = -1
 
 interface Query {
   original_name: string
@@ -270,54 +267,31 @@ const columns = computed<ArtTableColumn[]>(() => [
 ])
 
 /* ---- 左侧分类树 ---- */
-const saving = ref(false)
-const currentId = ref(ALL_ID)
-const categories = ref<CategoryNode[]>([])
+const {
+  saving,
+  currentId,
+  categoryRecycle,
+  toggleCategoryRecycle,
+  onCategoryRestore,
+  onCategoryForceDelete,
+  treeData,
+  currentNodeName,
+  categoryOptions,
+  selectorOptions: moveOptions,
+  loadCategories,
+  onNodeClick,
+  clearNode,
+  categoryFormRef,
+  categoryVisible,
+  categoryForm,
+  categoryRules,
+  openCategoryCreate,
+  openCategoryEdit,
+  submitCategory,
+  onCategoryDelete,
+} = useCategoryTree(MODULE, { prefix: 'file', onListReload: () => search() })
 
-const treeData = computed(() =>
-  // 回收站视图里只列已删分类，不掺「全部 / 未分类」这两个虚拟节点
-  categoryRecycle.value
-    ? categories.value
-    : [{ id: ALL_ID, name: t('file.all') }, { id: NONE_ID, name: t('file.uncategorized') }, ...categories.value],
-)
-
-const currentNodeName = computed(() => {
-  if (currentId.value === ALL_ID) {
-    return t('file.all')
-  }
-  if (currentId.value === NONE_ID) {
-    return t('file.uncategorized')
-  }
-  return findCategory(categories.value, currentId.value)?.name ?? ''
-})
-
-const categoryOptions = computed(() => [{ id: 0, name: t('file.topCategory'), children: categories.value }])
-/** 移动目标：允许移出分类 */
-const moveOptions = computed(() => [{ id: 0, name: t('file.uncategorized'), children: categories.value }])
-
-function findCategory(nodes: CategoryNode[], id: number): CategoryNode | null {
-  for (const node of nodes) {
-    if (node.id === id) {
-      return node
-    }
-    if (node.children?.length) {
-      const hit = findCategory(node.children, id)
-      if (hit) {
-        return hit
-      }
-    }
-  }
-  return null
-}
-
-async function loadCategories(): Promise<void> {
-  categories.value = await categoryTree(MODULE, categoryRecycle.value)
-  if (currentId.value > 0 && !findCategory(categories.value, currentId.value)) {
-    currentId.value = ALL_ID
-  }
-}
-
-/* ---- 回收站：本页两个入口（附件 / 附件分类）各一个开关 ---- */
+/* ---- 回收站：本页附件入口；附件分类入口由 useCategoryTree 管理 ---- */
 // 声明在 useTable 之前：列表闭包在 setup 阶段就会执行一次
 const { recycle, toggle, onRestore, onForceDelete } = useRecycle('file', {
   reload: () => search(),
@@ -326,12 +300,6 @@ const { recycle, toggle, onRestore, onForceDelete } = useRecycle('file', {
     selection.value = []
   },
 })
-const {
-  recycle: categoryRecycle,
-  toggle: toggleCategoryRecycle,
-  onRestore: onCategoryRestore,
-  onForceDelete: onCategoryForceDelete,
-} = useRecycle('category', { reload: () => loadCategories() })
 
 const { list, loading, total, page, limit, selection, load, search, onPageChange, onLimitChange, onSelectionChange } =
   useTable<FileRow, Query>({
@@ -339,72 +307,7 @@ const { list, loading, total, page, limit, selection, load, search, onPageChange
     initialQuery: { original_name: '', ext: '', start: '', end: '' },
   })
 
-function onNodeClick(data: Record<string, any>): void {
-  currentId.value = Number(data.id ?? ALL_ID)
-  search()
-}
 
-function clearNode(): void {
-  currentId.value = ALL_ID
-  search()
-}
-
-async function refresh(): Promise<void> {
-  await Promise.all([load(), loadCategories()])
-}
-
-/* ---- 分类表单 ---- */
-const categoryFormRef = ref<FormInstance>()
-const categoryVisible = ref(false)
-const emptyCategoryForm = { id: 0, parent_id: 0, name: '', sort: 0, remark: '' }
-const categoryForm = reactive<Record<string, any>>({ ...emptyCategoryForm })
-// 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
-const categoryRules = computed<FormRules>(() => ({
-  name: [{ required: true, message: t('file.categoryNameRequired'), trigger: 'blur' }],
-}))
-
-function openCategoryCreate(parentId: number): void {
-  Object.assign(categoryForm, emptyCategoryForm, { parent_id: parentId })
-  categoryVisible.value = true
-}
-
-function openCategoryEdit(record: CategoryNode): void {
-  Object.assign(categoryForm, emptyCategoryForm, record)
-  categoryVisible.value = true
-}
-
-async function submitCategory(): Promise<void> {
-  const valid = await categoryFormRef.value?.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
-  saving.value = true
-  try {
-    if (categoryForm.id) {
-      await categoryUpdate(MODULE, { ...categoryForm })
-    } else {
-      await categorySave(MODULE, { ...categoryForm })
-    }
-    ElMessage.success(t('file.saveSuccess'))
-    categoryVisible.value = false
-    await refresh()
-  } finally {
-    saving.value = false
-  }
-}
-
-async function onCategoryDelete(record: CategoryNode): Promise<void> {
-  try {
-    await ElMessageBox.confirm(t('file.deleteCategoryConfirm', { name: record.name }), t('file.deleteCategoryTitle'), {
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  await categoryDelete(MODULE, record.id)
-  ElMessage.success(t('file.deleteSuccess'))
-  await refresh()
-}
 
 /* ---- 上传 ---- */
 const uploading = ref(false)

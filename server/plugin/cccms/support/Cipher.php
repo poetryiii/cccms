@@ -7,10 +7,22 @@ namespace plugin\cccms\support;
 /** 字段级 encrypt 加解密（AES-256-GCM）。 */
 final class Cipher
 {
-    /** 是否已配置 encrypt 密钥。未配置时字段级 encrypt 不可用（下发端据此跳过 crypto_key）。 */
+    /** 随源码公开的历史默认密钥：继续用它等于没加密 */
+    private const FORBIDDEN = [
+        'cccms-local-dev-crypto-key-0123456789abcdef',
+    ];
+
+    /**
+     * 是否已配置 encrypt 密钥。
+     *
+     * 密钥为空、或仍是仓库中公开的历史默认值时返回 false —— 字段级 encrypt
+     * 不会用公开密钥「假装加密」，下发端也据此跳过 crypto_key。
+     */
     public static function configured(): bool
     {
-        return (string)config('plugin.cccms.auth.data_encrypt_key', '') !== '';
+        $key = (string)config('plugin.cccms.auth.data_encrypt_key', '');
+
+        return $key !== '' && !in_array($key, self::FORBIDDEN, true);
     }
 
     private static function key(): string

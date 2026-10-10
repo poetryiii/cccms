@@ -63,8 +63,18 @@ class SecurityBootstrap implements Bootstrap
         if ($dataKey === '' || in_array($dataKey, self::FORBIDDEN, true)) {
             Log::warning(
                 '[cccms] DATA_ENCRYPT_KEY 未配置或仍为公开的历史默认值：'
-                . '字段级 encrypt 仅能防「数据库裸读」，请尽快注入随机密钥'
+                . '字段级 encrypt 已自动停用（不再用公开密钥加密），请尽快注入随机密钥'
                 . '（注意：更换后历史加密字段将无法解密，需先备份或确认无历史数据）。'
+            );
+        }
+
+        // DB 凭据弱口令告警：未注入时回退到仓库公开默认值（root/123456），生产环境应显式注入
+        $dbUser = (string)(getenv('DB_USERNAME') ?: '');
+        $dbPass = (string)(getenv('DB_PASSWORD') ?: '');
+        if ($dbUser === '' || $dbPass === '') {
+            Log::warning(
+                '[cccms] DB_USERNAME / DB_PASSWORD 未注入：将回退到内置默认值（root/123456）。'
+                . '生产环境请显式注入强口令，避免数据库弱口令带来的风险。'
             );
         }
     }

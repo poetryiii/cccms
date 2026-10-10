@@ -10,6 +10,7 @@ use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
+use plugin\cccms\support\Tree;
 
 /**
  * 角色管理逻辑（含继承与节点授权）。
@@ -62,21 +63,7 @@ final class RoleLogic
     /** 角色自身 + 所有下级角色 id */
     public static function subtreeIds(int $id): array
     {
-        $parents = Role::withoutGlobalScope()->column('parent_id', 'id');
-        $ids     = [$id];
-        $stack   = [$id];
-
-        while ($stack) {
-            $current = (int)array_pop($stack);
-            foreach ($parents as $childId => $parentId) {
-                if ((int)$parentId === $current && !in_array((int)$childId, $ids, true)) {
-                    $ids[]   = (int)$childId;
-                    $stack[] = (int)$childId;
-                }
-            }
-        }
-
-        return $ids;
+        return Tree::subtreeIds(Role::withoutGlobalScope()->column('parent_id', 'id'), [$id]);
     }
 
     /** 角色树（含继承，供选择器）。 */
@@ -84,7 +71,7 @@ final class RoleLogic
     {
         $all = Role::withoutGlobalScope()->order('sort', 'asc')->select()->toArray();
 
-        return self::buildTree($all, 0);
+        return Tree::buildTree($all, 0);
     }
 
     public static function read(int $id): array
@@ -343,18 +330,5 @@ final class RoleLogic
                 422
             );
         }
-    }
-
-    private static function buildTree(array $items, int $parentId): array
-    {
-        $tree = [];
-        foreach ($items as $item) {
-            if ((int)$item['parent_id'] === $parentId) {
-                $item['children'] = self::buildTree($items, (int)$item['id']);
-                $tree[] = $item;
-            }
-        }
-
-        return $tree;
     }
 }

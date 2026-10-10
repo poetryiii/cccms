@@ -11,6 +11,7 @@ use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\TenantContext;
+use plugin\cccms\support\Tree;
 use think\facade\Db;
 
 /** 数据字典逻辑。 */
@@ -153,6 +154,18 @@ final class DictLogic
     public static function dataUpdate(int $id, array $data): void
     {
         $data = FilterInput::only($data, self::DATA_FIELDS);
+
+        // type_id 变更时校验新类型属于当前租户，避免把数据挂到别的租户的类型下
+        if (array_key_exists('type_id', $data)) {
+            $typeId = (int)$data['type_id'];
+            if ($typeId <= 0) {
+                throw new ApiException(I18n::t('dict.type_not_found'), 404);
+            }
+            self::assertTypeInTenant($typeId);
+        }
+
+        self::assertDataInTenant($id);
+
         $data = TenantContext::stamp('dict_data', $data);
         TenantContext::table('dict_data')->where('id', $id)->update($data);
         DictCache::bump();
@@ -160,6 +173,7 @@ final class DictLogic
 
     public static function dataDelete(int $id): void
     {
+        self::assertDataInTenant($id);
         SoftDelete::remove(TenantContext::table('dict_data'), $id);
         DictCache::bump();
     }
@@ -177,6 +191,14 @@ final class DictLogic
     {
         if ($typeId <= 0 || DictType::withoutGlobalScope()->withTrashed()->where('id', $typeId)->count() === 0) {
             throw new ApiException(I18n::t('dict.type_not_found'), 404);
+        }
+    }
+
+    /** 字典数据必须属于当前租户（不存在或越权统一 404，不泄露「存在但看不见」） */
+    private static function assertDataInTenant(int $id): void
+    {
+        if (SoftDelete::apply(TenantContext::table('dict_data'))->where('id', $id)->count() === 0) {
+            throw new ApiException(I18n::t('dict.data_not_found'), 404);
         }
     }
 
@@ -266,11 +288,6 @@ final class DictLogic
      */
     private static function batchIds(array $ids): array
     {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
-        if ($ids === []) {
-            throw new ApiException(I18n::t('common.select_required'), 422);
-        }
-
-        return $ids;
+        return Tree::batchIds($ids);
     }
 }

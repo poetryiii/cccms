@@ -57,9 +57,6 @@
             <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="light" round>
               {{ row.status === 1 ? t('crontab.enabled') : t('crontab.disabled') }}
             </el-tag>
-            <el-tag v-if="row.retry_left > 0" type="danger" effect="plain" size="small">
-              {{ t('crontab.retryPending', { count: row.retry_left }) }}
-            </el-tag>
           </template>
         </span>
       </template>
@@ -334,7 +331,7 @@ const emptyForm = {
   retry_interval: 60,
   remark: '',
 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 // 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
 const rules = computed<FormRules>(() => ({

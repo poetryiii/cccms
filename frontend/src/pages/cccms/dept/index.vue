@@ -120,6 +120,7 @@ import { useTableFilter } from '@/composables/useTable'
 import ArtTreePanel from '@/components/core/ArtTreePanel.vue'
 import { deptDelete, deptSave, deptTree, deptUpdate } from '@/api/dept'
 import type { ArtTableColumn } from '@/types/table'
+import { filterTree, matchEnum } from '@/utils/tree'
 
 const { t } = useI18n({ useScope: 'global' })
 
@@ -199,29 +200,6 @@ interface Query {
 
 const { query } = useTableFilter<Query>({ initialQuery: { name: '', leader: '', status: '' } })
 
-/** 枚举多选匹配：空条件放行，否则按逗号串匹配 */
-function matchEnum(value: unknown, raw: string): boolean {
-  return raw === '' || raw.split(',').includes(String(value))
-}
-
-/**
- * 树形过滤：命中节点整棵子树原样保留；未命中但子孙命中的节点保留自身，children 换成过滤结果。
- */
-function filterTree(nodes: Row[], match: (node: Row) => boolean): Row[] {
-  const out: Row[] = []
-  for (const node of nodes) {
-    if (match(node)) {
-      out.push(node)
-      continue
-    }
-    const children = node.children?.length ? filterTree(node.children, match) : []
-    if (children.length) {
-      out.push({ ...node, children })
-    }
-  }
-  return out
-}
-
 /** 右侧表格：先按左侧选中节点收窄，再按关键字过滤 */
 const tableData = computed<Row[]>(() => {
   // 回收站里是平铺的已删部门，不再按左侧选的部门过滤，否则会看不到一部分
@@ -257,7 +235,7 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     // trashed=true → 后端返回平铺的已删部门（父节点可能还活着，拼不出完整树）
-    list.value = (await deptTree(recycle.value)) as unknown as Row[]
+    list.value = await deptTree(recycle.value)
 
     // 选中的部门被删掉后，回落到「全部」，避免右侧一直空白
     if (currentId.value && !findNode(list.value, currentId.value)) {
@@ -282,7 +260,7 @@ const emptyForm = {
   sort: 0,
   status: 1,
 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 // 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
 const rules = computed<FormRules>(() => ({

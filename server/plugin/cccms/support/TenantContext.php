@@ -140,7 +140,7 @@ final class TenantContext
      */
     public static function usable(int $tenantId): bool
     {
-        if ($tenantId <= self::PLATFORM_ID) {
+        if ($tenantId === self::PLATFORM_ID) {
             return true;
         }
 

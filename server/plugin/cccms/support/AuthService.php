@@ -31,8 +31,12 @@ final class AuthService
      */
     public static function buildContext(int $userId, ?int $activeTenantId = null): ?UserContext
     {
-        // 软删除的用户立即失效：禁用/删除后旧令牌下一次请求就 401
-        $user = SoftDelete::apply(Db::name('user'))->where('id', $userId)->find();
+        // 软删除的用户立即失效：禁用/删除后旧令牌下一次请求就 401。
+        // 只取构建上下文所需的列，不把 password 哈希读进内存（每请求一次）。
+        $user = SoftDelete::apply(Db::name('user'))
+            ->field(['id', 'status', 'tenant_id', 'username', 'nickname', 'avatar'])
+            ->where('id', $userId)
+            ->find();
         if (!$user || (int)$user['status'] !== 1) {
             return null;
         }

@@ -306,7 +306,7 @@ const emptyForm = {
   dept_ids: [] as number[],
   post_ids: [] as number[],
 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 const rules = computed<FormRules>(() => ({
   username: [{ required: true, message: t('user.usernameRequired'), trigger: 'blur' }],

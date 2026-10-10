@@ -111,7 +111,7 @@ INSERT IGNORE INTO `sys_config` (`name`, `title`, `type`, `value`, `options`, `g
 ('security.login_fail_limit',   '失败锁定次数',    'input-number', '5',                            NULL, '安全', 2, 1, '同一账号连续登录失败达到该次数后锁定账号；0 表示关闭', NOW(), NOW()),
 ('security.login_fail_ip_limit','同 IP 失败上限',  'input-number', '20',                           NULL, '安全', 3, 1, '同一 IP 连续登录失败达到该次数后限流该 IP（不锁账号，避免误伤同出口 IP 的同事）；0 表示关闭', NOW(), NOW()),
 ('security.login_fail_window',  '锁定时长',        'input-number', '15',                           NULL, '安全', 4, 1, '单位分钟，超时后自动解锁', NOW(), NOW()),
-('security.token_ttl',          '令牌有效期',      'input-number', '7200',                         NULL, '安全', 5, 1, '单位秒，默认 2 小时；剩余不足 1/3 时自动滑动续期（用户无感），调大可延长 XSS 有效窗口', NOW(), NOW()),
+('security.token_ttl',          '令牌有效期',      'input-number', '7200',                          NULL, '安全', 5, 1, '单位秒，默认 2 小时；剩余不足 1/3 时自动滑动续期（用户无感），调大可延长 XSS 有效窗口', NOW(), NOW()),
 ('security.password_min_length','密码最小长度',    'input-number', '6',                            NULL, '安全', 6, 1, '新增、编辑、重置密码与个人改密时校验', NOW(), NOW()),
 ('security.password_max_length','密码最大长度',    'input-number', '64',                           NULL, '安全', 7, 1, '超长口令会放大 bcrypt 开销，构成低成本 DoS；0 表示不限制', NOW(), NOW()),
 ('security.password_strength', '密码字符类别数',  'input-number', '2',                            NULL, '安全', 8, 1, '需包含大写字母/小写字母/数字/符号中的几类；0 表示不要求。内置弱口令黑名单与「不得包含用户名等身份信息」始终生效', NOW(), NOW()),

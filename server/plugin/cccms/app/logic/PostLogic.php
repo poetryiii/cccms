@@ -6,8 +6,10 @@ namespace plugin\cccms\app\logic;
 
 use plugin\cccms\app\model\Post;
 use plugin\cccms\app\model\UserPost;
+use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
+use plugin\cccms\support\Tree;
 
 /**
  * 岗位逻辑。
@@ -48,6 +50,8 @@ final class PostLogic
     {
         $data = FilterInput::only($data, self::FIELDS);
 
+        self::assertUniqueCode((string)($data['code'] ?? ''), 0);
+
         // 新增还没有归属，插入语句不需要数据权限条件
         return (int)Post::withoutGlobalScope()->insertGetId($data);
     }
@@ -57,13 +61,16 @@ final class PostLogic
         $data = FilterInput::only($data, self::FIELDS);
 
         self::assertExists($id);
+        if (array_key_exists('code', $data)) {
+            self::assertUniqueCode((string)$data['code'], $id);
+        }
         Post::newScopedQuery()->where('id', $id)->update($data);
     }
 
     public static function delete(int $id): void
     {
         if (UserPost::where('post_id', $id)->count() > 0) {
-            throw new \RuntimeException(I18n::t('post.has_users'));
+            throw new ApiException(I18n::t('post.has_users'), 422);
         }
 
         // 软删除：进回收站
@@ -74,7 +81,28 @@ final class PostLogic
     {
         // 存在性校验看全量（含回收站），显式跳出作用域
         if (!Post::withoutGlobalScope()->where('id', $id)->find()) {
-            throw new \RuntimeException(I18n::t('post.not_found'));
+            throw new ApiException(I18n::t('post.not_found'), 404);
+        }
+    }
+
+    /** 岗位编码全局唯一：软删行仍占用标识，且 uk_code 是全局索引，须绕过租户作用域查重 */
+    private static function assertUniqueCode(string $code, int $excludeId): void
+    {
+        if ($code === '') {
+            throw new ApiException(I18n::t('post.code_required'), 422);
+        }
+        $q = Post::withoutAllScopes()->withTrashed()->where('code', $code);
+        if ($excludeId > 0) {
+            $q->where('id', '<>', $excludeId);
+        }
+        $exist = $q->find();
+        if ($exist) {
+            throw new ApiException(
+                !empty($exist->delete_time)
+                    ? I18n::t('post.code_in_trash', ['code' => $code])
+                    : I18n::t('post.code_exists'),
+                422
+            );
         }
     }
 
@@ -144,11 +172,6 @@ final class PostLogic
      */
     private static function batchIds(array $ids): array
     {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
-        if ($ids === []) {
-            throw new \RuntimeException(I18n::t('common.select_required'));
-        }
-
-        return $ids;
+        return Tree::batchIds($ids);
     }
 }

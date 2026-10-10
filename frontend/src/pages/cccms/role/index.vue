@@ -320,9 +320,9 @@ function flatten(tree: Row[]): Row[] {
 
 async function loadOptions(): Promise<void> {
   const [roles, menus] = await Promise.all([roleTree(), menuTree()])
-  roleTreeData.value = roles as unknown as Row[]
+  roleTreeData.value = roles
   parentOptions.value = flatten(roleTreeData.value)
-  menuTreeData.value = menus as unknown as Record<string, unknown>[]
+  menuTreeData.value = menus
 }
 
 /* ---- 表单 ---- */
@@ -340,7 +340,7 @@ const emptyForm = {
   status: 1,
   nodes: [] as string[],
 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: t('role.nameRequired'), trigger: 'blur' }],

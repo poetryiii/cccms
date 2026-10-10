@@ -16,8 +16,7 @@ export interface CrontabRow {
   timeout: number
   retry_times: number
   retry_interval: number
-  /** 运行时：剩余重试次数 / 是否运行中 */
-  retry_left?: number
+  /** 运行时：是否运行中 */
   running?: number
   remark: string
   last_run_time: string | null

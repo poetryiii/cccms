@@ -149,6 +149,7 @@ import { menuDelete, menuSave, menuTree, menuUpdate } from '@/api/menu'
 import { MENU_ICON_OPTIONS } from '@/utils/icon'
 import type { MenuNode } from '@/api/types'
 import type { ArtTableColumn } from '@/types/table'
+import { filterTree, matchEnum } from '@/utils/tree'
 
 const { t } = useI18n({ useScope: 'global' })
 
@@ -218,29 +219,6 @@ interface Query {
 
 const { query } = useTableFilter<Query>({ initialQuery: { title: '', node: '', type: '', status: '' } })
 
-/** 枚举多选匹配：空条件放行，否则按逗号串匹配 */
-function matchEnum(value: unknown, raw: string): boolean {
-  return raw === '' || raw.split(',').includes(String(value))
-}
-
-/**
- * 树形过滤：命中节点整棵子树原样保留；未命中但子孙命中的节点保留自身，children 换成过滤结果。
- */
-function filterTree(nodes: MenuNode[], match: (node: MenuNode) => boolean): MenuNode[] {
-  const out: MenuNode[] = []
-  for (const node of nodes) {
-    if (match(node)) {
-      out.push(node)
-      continue
-    }
-    const children = node.children?.length ? filterTree(node.children, match) : []
-    if (children.length) {
-      out.push({ ...node, children })
-    }
-  }
-  return out
-}
-
 const tableData = computed<MenuNode[]>(() => {
   const title = query.title.trim().toLowerCase()
   const node = query.node.trim().toLowerCase()
@@ -269,7 +247,21 @@ async function load(): Promise<void> {
   try {
     // trashed=true → 后端返回平铺的已删节点（含隐藏节点），恢复后父子关系自动接上
     list.value = await menuTree(recycle.value)
-    parentOptions.value = [{ id: 0, title: t('menu.top'), children: list.value } as unknown as MenuNode]
+    parentOptions.value = [
+      {
+        id: 0,
+        parent_id: 0,
+        type: 1,
+        title: t('menu.top'),
+        path: '',
+        component: '',
+        icon: '',
+        sort: 0,
+        node: '',
+        status: 1,
+        children: list.value,
+      },
+    ]
   } finally {
     loading.value = false
   }
@@ -291,7 +283,7 @@ const emptyForm = {
   sort: 0,
   status: 1,
 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 const rules = computed<FormRules>(() => ({
   title: [{ required: true, message: t('menu.nameRequired'), trigger: 'blur' }],

@@ -16,6 +16,7 @@ use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PasswordPolicy;
 use plugin\cccms\support\PermissionCache;
+use plugin\cccms\support\Tree;
 use plugin\cccms\support\UserContext;
 use Throwable;
 
@@ -277,15 +278,26 @@ final class UserLogic
             throw new ApiException(I18n::t('user.assign_target_required'), 422);
         }
 
+        // 归属校验只做一次：三个维度的输入对整批用户完全相同，循环内重复校验是 N+1
+        if ($roleIds !== null) {
+            self::assertOwnedInTenant(Role::class, $roleIds, 'user.label_role');
+        }
+        if ($deptIds !== null) {
+            self::assertOwnedInTenant(Dept::class, $deptIds, 'user.label_dept');
+        }
+        if ($postIds !== null) {
+            self::assertOwnedInTenant(Post::class, $postIds, 'user.label_post');
+        }
+
         foreach ($inScope as $id) {
             if ($roleIds !== null) {
-                self::assignRoles($id, $roleIds);
+                self::syncRoles($id, $roleIds);
             }
             if ($deptIds !== null) {
-                self::assignDepts($id, $deptIds);
+                self::syncDepts($id, $deptIds);
             }
             if ($postIds !== null) {
-                self::assignPosts($id, $postIds);
+                self::syncPosts($id, $postIds);
             }
         }
 
@@ -334,12 +346,7 @@ final class UserLogic
     /** 规范化批量 id：去重、去非正整数 */
     private static function batchIds(array $ids): array
     {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id): bool => $id > 0)));
-        if ($ids === []) {
-            throw new ApiException(I18n::t('common.select_required'), 422);
-        }
-
-        return $ids;
+        return Tree::batchIds($ids);
     }
 
     /**
@@ -427,34 +434,65 @@ final class UserLogic
     private static function assignRoles(int $userId, array $roleIds): void
     {
         self::assertOwnedInTenant(Role::class, $roleIds, 'user.label_role');
-        UserRole::where('user_id', $userId)->delete();
-        foreach (array_unique(array_map('intval', $roleIds)) as $rid) {
-            if ($rid > 0) {
-                UserRole::insert(['user_id' => $userId, 'role_id' => $rid]);
-            }
-        }
+        self::syncRoles($userId, $roleIds);
     }
 
     private static function assignDepts(int $userId, array $deptIds): void
     {
         self::assertOwnedInTenant(Dept::class, $deptIds, 'user.label_dept');
-        UserDept::where('user_id', $userId)->delete();
-        foreach (array_unique(array_map('intval', $deptIds)) as $did) {
-            if ($did > 0) {
-                UserDept::insert(['user_id' => $userId, 'dept_id' => $did]);
-            }
-        }
+        self::syncDepts($userId, $deptIds);
     }
 
     private static function assignPosts(int $userId, array $postIds): void
     {
         self::assertOwnedInTenant(Post::class, $postIds, 'user.label_post');
-        UserPost::where('user_id', $userId)->delete();
-        foreach (array_unique(array_map('intval', $postIds)) as $pid) {
-            if ($pid > 0) {
-                UserPost::insert(['user_id' => $userId, 'post_id' => $pid]);
-            }
+        self::syncPosts($userId, $postIds);
+    }
+
+    /** 纯写入：删除旧关联 + 批量插入（归属校验由调用方负责，避免批量分配时 N+1） */
+    private static function syncRoles(int $userId, array $roleIds): void
+    {
+        UserRole::where('user_id', $userId)->delete();
+        $rows = [];
+        foreach (self::positiveIds($roleIds) as $rid) {
+            $rows[] = ['user_id' => $userId, 'role_id' => $rid];
         }
+        if ($rows !== []) {
+            UserRole::insertAll($rows);
+        }
+    }
+
+    private static function syncDepts(int $userId, array $deptIds): void
+    {
+        UserDept::where('user_id', $userId)->delete();
+        $rows = [];
+        foreach (self::positiveIds($deptIds) as $did) {
+            $rows[] = ['user_id' => $userId, 'dept_id' => $did];
+        }
+        if ($rows !== []) {
+            UserDept::insertAll($rows);
+        }
+    }
+
+    private static function syncPosts(int $userId, array $postIds): void
+    {
+        UserPost::where('user_id', $userId)->delete();
+        $rows = [];
+        foreach (self::positiveIds($postIds) as $pid) {
+            $rows[] = ['user_id' => $userId, 'post_id' => $pid];
+        }
+        if ($rows !== []) {
+            UserPost::insertAll($rows);
+        }
+    }
+
+    /** @return int[] 归一化关联 id：去重、去非正整数 */
+    private static function positiveIds(array $ids): array
+    {
+        return array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn (int $id): bool => $id > 0
+        )));
     }
 
     /**

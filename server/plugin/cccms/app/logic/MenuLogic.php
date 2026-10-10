@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\support\ApiException;
 use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
 use plugin\cccms\support\PermissionCache;
 use plugin\cccms\support\SoftDelete;
 use plugin\cccms\support\TenantContext;
+use plugin\cccms\support\Tree;
 use plugin\cccms\support\UserContext;
 use think\facade\Db;
 
@@ -52,7 +54,7 @@ final class MenuLogic
 
         $all = $query->select()->toArray();
 
-        return $trashed ? $all : self::localizeTitles(self::buildTree($all, 0));
+        return $trashed ? $all : self::localizeTitles(Tree::buildTree($all, 0));
     }
 
     /**
@@ -76,7 +78,7 @@ final class MenuLogic
         }
 
         if ($user->isSuperAdmin()) {
-            return self::localizeTitles(self::buildTree($all, 0));
+            return self::localizeTitles(Tree::buildTree($all, 0));
         }
 
         $nodes = array_flip($user->permissions);
@@ -118,7 +120,7 @@ final class MenuLogic
         }
 
         $filtered = array_values(array_filter($all, fn ($i) => isset($visible[(int)$i['id']])));
-        return self::localizeTitles(self::buildTree($filtered, 0));
+        return self::localizeTitles(Tree::buildTree($filtered, 0));
     }
 
     /** 节点是否属于平台级模块（只应出现在平台租户的菜单里） */
@@ -174,7 +176,7 @@ final class MenuLogic
         $data = FilterInput::only($data, self::FIELDS);
 
         if (!SoftDelete::apply(Db::name('menu'))->where('id', $id)->find()) {
-            throw new \RuntimeException(I18n::t('menu.not_found'));
+            throw new ApiException(I18n::t('menu.not_found'), 404);
         }
         Db::name('menu')->where('id', $id)->update($data);
         PermissionCache::bump();
@@ -183,7 +185,7 @@ final class MenuLogic
     public static function delete(int $id): void
     {
         if (SoftDelete::apply(Db::name('menu'))->where('parent_id', $id)->count() > 0) {
-            throw new \RuntimeException(I18n::t('menu.has_children'));
+            throw new ApiException(I18n::t('menu.has_children'), 422);
         }
 
         // 软删除：进回收站；role_node 授权刻意保留，恢复后授权原样回来。
@@ -193,15 +195,4 @@ final class MenuLogic
         PermissionCache::bump();
     }
 
-    private static function buildTree(array $items, int $parentId): array
-    {
-        $tree = [];
-        foreach ($items as $item) {
-            if ((int)$item['parent_id'] === $parentId) {
-                $item['children'] = self::buildTree($items, (int)$item['id']);
-                $tree[] = $item;
-            }
-        }
-        return $tree;
-    }
 }

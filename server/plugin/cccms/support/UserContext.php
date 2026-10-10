@@ -10,7 +10,6 @@ final class UserContext
     /**
      * @param array<int,string>    $roles
      * @param array<int,string>    $permissions
-     * @param array<string,mixed>  $dataScope
      * @param int                  $tenantId     当前**生效**租户（超管切换后 ≠ homeTenantId）
      * @param int                  $homeTenantId 账号所属租户（`sys_user.tenant_id`，不随切换变化）
      */
@@ -21,7 +20,6 @@ final class UserContext
         public readonly bool   $superAdmin = false,
         public readonly array  $roles = [],
         public readonly array  $permissions = [],
-        public readonly array  $dataScope = [],
         public readonly string $avatar = '',
         public readonly int    $tenantId = 0,
         public readonly int    $homeTenantId = 0,
@@ -59,7 +57,6 @@ final class UserContext
             'super_admin'        => $this->superAdmin,
             'roles'              => $this->roles,
             'permissions'        => $this->permissions,
-            'data_scope'         => $this->dataScope,
             'tenant_id'          => $this->tenantId,
             'home_tenant_id'     => $this->homeTenantId,
             'tenant_switched'    => $this->isTenantSwitched(),

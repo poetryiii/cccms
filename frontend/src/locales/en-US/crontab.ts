@@ -28,7 +28,6 @@ export default {
   create: 'New task',
   toolbarTip: 'The scheduler only runs on Linux/macOS; on Windows use "Run now" to verify',
   running: 'Running',
-  retryPending: 'Retry pending ({count})',
   runNow: 'Run now',
   logs: 'Logs',
   deleteConfirm: 'Delete this task?',

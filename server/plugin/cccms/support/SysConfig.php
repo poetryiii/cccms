@@ -93,7 +93,7 @@ final class SysConfig
         return in_array(strtolower($value), ['1', 'true', 'on', 'yes'], true);
     }
 
-    /** 逗号分隔的多值配置（如 upload.ext_allow） */
+    /** 逗号分隔的扩展名白名单（upload.ext_allow / upload.image_ext）：去前导点并转小写归一 */
     public static function getList(string $name): array
     {
         $raw = self::getString($name);

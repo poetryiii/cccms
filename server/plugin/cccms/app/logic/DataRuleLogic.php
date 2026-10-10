@@ -384,12 +384,38 @@ final class DataRuleLogic
      */
     private static function decorate(array $list): array
     {
-        // 把绑定 id 翻译成名字用于展示：必须看全量，否则已绑定的用户会显示成空名字
-        $users = User::withoutGlobalScope()->column('username', 'id');
-        $posts = Post::withoutGlobalScope()->column('name', 'id');
-        $roles = Role::withoutGlobalScope()->column('name', 'id');
+        // 只对当前页出现的 id 补名，避免每次分页都全量拉取用户/岗位/角色/部门
+        $userIds = [];
+        $postIds = [];
+        $roleIds = [];
+        $deptIds = [];
+        foreach ($list as $row) {
+            if ((int)$row['user_id'] > 0) {
+                $userIds[] = (int)$row['user_id'];
+            }
+            if ((int)$row['post_id'] > 0) {
+                $postIds[] = (int)$row['post_id'];
+            }
+            if ((int)$row['role_id'] > 0) {
+                $roleIds[] = (int)$row['role_id'];
+            }
+            $ids = json_decode((string)($row['dept_ids'] ?? 'null'), true);
+            if (is_array($ids)) {
+                foreach ($ids as $id) {
+                    $deptIds[] = (int)$id;
+                }
+            }
+        }
+        $userIds = array_values(array_unique($userIds));
+        $postIds = array_values(array_unique($postIds));
+        $roleIds = array_values(array_unique($roleIds));
+        $deptIds = array_values(array_unique($deptIds));
+
+        $users = $userIds === [] ? [] : User::withoutGlobalScope()->whereIn('id', $userIds)->column('username', 'id');
+        $posts = $postIds === [] ? [] : Post::withoutGlobalScope()->whereIn('id', $postIds)->column('name', 'id');
+        $roles = $roleIds === [] ? [] : Role::withoutGlobalScope()->whereIn('id', $roleIds)->column('name', 'id');
         // 部门参与数据权限，必须显式跳出：否则范围外的部门会显示成空名字
-        $depts = Dept::withoutGlobalScope()->column('name', 'id');
+        $depts = $deptIds === [] ? [] : Dept::withoutGlobalScope()->whereIn('id', $deptIds)->column('name', 'id');
         // 表注释只查一次，避免逐行调用 tables()
         $tables = array_column(self::tables(), null, 'table');
 

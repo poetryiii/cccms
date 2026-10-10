@@ -287,11 +287,19 @@ export function useTable<T = Record<string, unknown>, Q extends object = Record<
     provide(TABLE_FILTER_KEY, store.controller(applyScheme))
   }
 
+  // 请求序号：快速连续翻页/筛选时，先发起的慢请求可能后返回并覆盖较新的结果
+  let requestSeq = 0
+
   async function load(): Promise<void> {
+    const seq = ++requestSeq
     loading.value = true
     const startedAt = Date.now()
     try {
       const res = await options.api({ ...query, page: page.value, limit: limit.value })
+      // 过期响应直接丢弃，避免「翻到第 2 页却显示第 1 页数据」
+      if (seq !== requestSeq) {
+        return
+      }
       const rows = (res?.list ?? []) as T[]
       list.value = options.transform ? options.transform(rows) : rows
       total.value = res?.total ?? 0
@@ -304,7 +312,10 @@ export function useTable<T = Record<string, unknown>, Q extends object = Record<
           window.setTimeout(resolve, rest)
         })
       }
-      loading.value = false
+      // 只有最新请求才负责收起 loading，避免旧请求提前收掉
+      if (seq === requestSeq) {
+        loading.value = false
+      }
     }
   }
 

@@ -165,7 +165,7 @@ const formVisible = ref(false)
 const saving = ref(false)
 
 const emptyForm = { id: 0, name: '', code: '', contact: '', phone: '', expire_at: '', status: 1, remark: '' }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 // 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
 const rules = computed<FormRules>(() => ({

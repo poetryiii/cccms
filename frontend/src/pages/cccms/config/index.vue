@@ -235,12 +235,9 @@ function parseOptions(item: ConfigItem): ConfigOption[] {
   return []
 }
 
-function same(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
-}
-
 function isDirty(name: string): boolean {
-  return !same(values[name], original.value[name])
+  // 配置值都是标量（string / number），全等比较即可，无需 JSON.stringify
+  return values[name] !== original.value[name]
 }
 
 const dirtyKeys = computed(() => Object.keys(values).filter((key) => isDirty(key)))

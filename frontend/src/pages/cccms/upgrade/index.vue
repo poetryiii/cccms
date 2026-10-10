@@ -414,14 +414,18 @@ async function onInit(): Promise<void> {
     return
   }
 
-  await ElMessageBox.confirm(
-    t('upgrade.initConfirm', {
-      source: sourceLabel.value,
-      base: overview.value?.default_base || t('upgrade.defaultVersion'),
-    }),
-    t('upgrade.initTitle'),
-    { type: 'info' },
-  )
+  try {
+    await ElMessageBox.confirm(
+      t('upgrade.initConfirm', {
+        source: sourceLabel.value,
+        base: overview.value?.default_base || t('upgrade.defaultVersion'),
+      }),
+      t('upgrade.initTitle'),
+      { type: 'info' },
+    )
+  } catch {
+    return
+  }
 
   initing.value = true
   try {
@@ -455,21 +459,25 @@ async function onRun(): Promise<void> {
     (forceAll.value ? (current.summary.local || 0) + (current.summary.deleted || 0) : 0)
   const willRemove = (current.summary.removed || 0) && forceAll.value ? current.summary.removed : 0
 
-  await ElMessageBox.confirm(
-    [
-      t('upgrade.runConfirmRef', { ref: current.ref, commit: short(current.commit) }),
-      willRemove
-        ? t('upgrade.runConfirmWriteRemove', { write: willWrite, remove: willRemove })
-        : t('upgrade.runConfirmWrite', { count: willWrite }),
-      force.value && current.pending ? t('upgrade.runConfirmConflict', { count: current.pending }) : '',
-      forceAll.value ? t('upgrade.runConfirmForceAll') : '',
-      t('upgrade.runConfirmBackup'),
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    t('upgrade.runTitle'),
-    { type: 'warning' },
-  )
+  try {
+    await ElMessageBox.confirm(
+      [
+        t('upgrade.runConfirmRef', { ref: current.ref, commit: short(current.commit) }),
+        willRemove
+          ? t('upgrade.runConfirmWriteRemove', { write: willWrite, remove: willRemove })
+          : t('upgrade.runConfirmWrite', { count: willWrite }),
+        force.value && current.pending ? t('upgrade.runConfirmConflict', { count: current.pending }) : '',
+        forceAll.value ? t('upgrade.runConfirmForceAll') : '',
+        t('upgrade.runConfirmBackup'),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      t('upgrade.runTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
 
   running.value = true
   try {

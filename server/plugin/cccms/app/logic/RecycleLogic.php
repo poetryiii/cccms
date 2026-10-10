@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace plugin\cccms\app\logic;
 
+use plugin\cccms\app\model\Crontab;
+use plugin\cccms\app\model\Dept;
 use plugin\cccms\app\model\File;
 use plugin\cccms\app\model\Menu;
 use plugin\cccms\app\model\RoleNode;
+use plugin\cccms\app\model\User;
 use plugin\cccms\support\ApiException;
 use plugin\cccms\support\DictCache;
 use plugin\cccms\support\FileStorage;
@@ -61,6 +64,23 @@ final class RecycleLogic
         'category'  => ['column' => 'parent_id', 'table' => 'category'],
         'dict_data' => ['column' => 'type_id',   'table' => 'dict_type'],
         'menu'      => ['column' => 'parent_id', 'table' => 'menu'],
+    ];
+
+    /**
+     * 参与数据权限的类型 => 模型类。
+     *
+     * 恢复 / 彻底删除是**写操作**，必须与列表同一口径：数据档位（仅本人 / 本部门 /
+     * 自定义规则）在回收站同样生效，否则持有回收站权限、但范围被收窄的账号可以枚举
+     * id 去恢复 / 彻底删除同租户内自己看不见的数据（越权写）。
+     *
+     * 其余类型在各自模型里声明 `$dataScope = false`（组织架构 / 基础数据只按权限节点
+     * 控制，不按人收窄），因此不需要额外过滤 —— 租户边界已由 `self::query()` 保证。
+     */
+    private const SCOPED_MODEL = [
+        'user'    => User::class,
+        'dept'    => Dept::class,
+        'file'    => File::class,
+        'crontab' => Crontab::class,
     ];
 
     /** 业务插件声明的回收站类型缓存（plugin/{插件}/db/recycle.php） */
@@ -130,6 +150,10 @@ final class RecycleLogic
     {
         $meta = self::meta($type);
         $ids  = self::ids($ids);
+        $ids  = self::visibleIds($type, $ids);
+        if ($ids === []) {
+            return 0;
+        }
 
         self::assertRestorable($type, $meta, $ids);
 
@@ -150,6 +174,10 @@ final class RecycleLogic
     {
         $meta = self::meta($type);
         $ids  = self::ids($ids);
+        $ids  = self::visibleIds($type, $ids);
+        if ($ids === []) {
+            return 0;
+        }
 
         if ($type === 'file') {
             // 软删阶段刻意保留物理文件，只有「彻底删除」才真正落盘删除。
@@ -237,6 +265,26 @@ final class RecycleLogic
         }
 
         throw new ApiException(I18n::t('recycle.unknown_type', ['type' => $type]), 422);
+    }
+
+    /**
+     * 收敛到「当前用户数据范围内可见」的已删 id（参与数据权限的类型）。
+     *
+     * 模型 `onlyTrashed()` 会带上租户 + 数据档位两个全局作用域，再叠加传入的 id 集合，
+     * 因此返回的就是「当前用户既有回收站权限、又落在自己数据范围内」的已删行。
+     * 未登记的 id 被静默丢弃 —— 与各模块批量删除的「范围外跳过」同口径。
+     *
+     * @param  int[] $ids
+     * @return int[]
+     */
+    private static function visibleIds(string $type, array $ids): array
+    {
+        $model = self::SCOPED_MODEL[$type] ?? null;
+        if ($model === null) {
+            return $ids;
+        }
+
+        return array_map('intval', $model::onlyTrashed()->whereIn('id', $ids)->column('id'));
     }
 
     /** @return int[] */

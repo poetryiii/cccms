@@ -222,7 +222,6 @@ import {
   noticeDelete,
   noticeList,
   noticeOptions,
-  noticeRead,
   noticeReport,
   noticeSave,
   noticeUpdate,
@@ -388,7 +387,7 @@ const emptyForm = {
   expire_at: null as string | null,
   content: '',
 }
-const form = reactive<Record<string, any>>({ ...emptyForm })
+const form = reactive({ ...emptyForm })
 
 // 校验提示同样走 i18n：用 computed 保证切换语言后规则文案立即更新
 const rules = computed<FormRules>(() => ({
@@ -407,13 +406,21 @@ async function loadOptions(): Promise<void> {
 // 用户候选（懒加载）
 const userOptions = ref<NoticeUserOption[]>([])
 const userLoading = ref(false)
+// 请求序号：远程搜索连续输入时，先发后至的旧结果不能覆盖新结果
+let userSearchSeq = 0
 
 async function searchUsers(keyword: string): Promise<void> {
+  const seq = ++userSearchSeq
   userLoading.value = true
   try {
-    userOptions.value = await noticeUsers({ keyword })
+    const result = await noticeUsers({ keyword })
+    if (seq === userSearchSeq) {
+      userOptions.value = result
+    }
   } finally {
-    userLoading.value = false
+    if (seq === userSearchSeq) {
+      userLoading.value = false
+    }
   }
 }
 
@@ -436,21 +443,21 @@ function openCreate(): void {
 }
 
 async function openEdit(row: NoticeRow): Promise<void> {
-  const detail = await noticeRead(row.id)
+  // 列表行已携带 content / target_ids 等全部字段，直接回填，省一次详情请求
   Object.assign(form, emptyForm, {
-    id: detail.id,
-    title: detail.title,
-    type: detail.type,
-    level: detail.level,
-    status: detail.status,
-    scope: detail.scope ?? 0,
-    target_ids: Array.isArray(detail.target_ids) ? [...detail.target_ids] : [],
-    publish_at: detail.publish_at,
-    expire_at: detail.expire_at,
-    content: detail.content,
+    id: row.id,
+    title: row.title,
+    type: row.type,
+    level: row.level,
+    status: row.status,
+    scope: row.scope ?? 0,
+    target_ids: Array.isArray(row.target_ids) ? [...row.target_ids] : [],
+    publish_at: row.publish_at,
+    expire_at: row.expire_at,
+    content: row.content,
   })
   userOptions.value = []
-  if ((detail.scope ?? 0) === 3) {
+  if ((row.scope ?? 0) === 3) {
     await loadSelectedUsers(form.target_ids)
   }
   formVisible.value = true

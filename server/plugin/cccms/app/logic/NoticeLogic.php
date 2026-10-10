@@ -16,6 +16,7 @@ use plugin\cccms\support\ApiException;
 use plugin\cccms\support\AuthService;
 use plugin\cccms\support\FilterInput;
 use plugin\cccms\support\I18n;
+use plugin\cccms\support\Tree;
 use plugin\cccms\support\UserContext;
 use think\db\BaseQuery;
 
@@ -346,10 +347,12 @@ final class NoticeLogic
             return 0;
         }
 
-        $now = date('Y-m-d H:i:s');
+        $now  = date('Y-m-d H:i:s');
+        $rows = [];
         foreach ($todo as $id) {
-            NoticeRead::create(['notice_id' => $id, 'user_id' => $userId, 'read_time' => $now]);
+            $rows[] = ['notice_id' => $id, 'user_id' => $userId, 'read_time' => $now];
         }
+        NoticeRead::insertAll($rows);
         Notice::whereIn('id', $todo)->inc('read_count')->update();
 
         return count($todo);
@@ -501,57 +504,14 @@ final class NoticeLogic
     /** 部门子树展开：给定部门 + 其所有下级部门。 */
     private static function deptSubtree(array $ids): array
     {
-        $ids = array_values(array_filter(array_map('intval', $ids), static fn ($id) => $id > 0));
-        if ($ids === []) {
-            return [];
-        }
-
         // 子树展开需要**完整**部门树（父不在可见集合时也要能往上/往下走），故跳出数据权限
-        $parents = Dept::withoutGlobalScope()->column('parent_id', 'id');   // id => parent_id
-        $result  = $ids;
-        $queue   = $ids;
-        while ($queue !== []) {
-            $current = (int)array_shift($queue);
-            foreach ($parents as $id => $pid) {
-                $id = (int)$id;
-                if ((int)$pid === $current && !in_array($id, $result, true)) {
-                    $result[] = $id;
-                    $queue[]  = $id;
-                }
-            }
-        }
-
-        return $result;
+        return Tree::subtreeIds(Dept::withoutGlobalScope()->column('parent_id', 'id'), $ids);
     }
 
     /** 角色子树展开：给定角色 + 其所有后代角色。 */
     private static function roleSubtreeIds(array $ids): array
     {
-        $ids = array_values(array_filter(array_map('intval', $ids), static fn ($id) => $id > 0));
-        if ($ids === []) {
-            return [];
-        }
-
-        // 同上：角色子树展开也需要完整角色树
-        $parents  = Role::withoutGlobalScope()->column('parent_id', 'id');   // id => parent_id
-        $children = [];
-        foreach ($parents as $id => $pid) {
-            $children[(int)$pid][] = (int)$id;
-        }
-
-        $result = $ids;
-        $queue  = $ids;
-        while ($queue !== []) {
-            $current = (int)array_shift($queue);
-            foreach ($children[$current] ?? [] as $child) {
-                if (!in_array($child, $result, true)) {
-                    $result[] = $child;
-                    $queue[]  = $child;
-                }
-            }
-        }
-
-        return $result;
+        return Tree::subtreeIds(Role::withoutGlobalScope()->column('parent_id', 'id'), $ids);
     }
 
     private static function syncTargets(int $noticeId, int $scope, array $targetIds): void
@@ -562,13 +522,15 @@ final class NoticeLogic
         }
 
         $type = self::SCOPE_TYPES[$scope] ?? 'user';
+        $rows = [];
         foreach ($targetIds as $targetId) {
-            NoticeTarget::insert([
+            $rows[] = [
                 'notice_id'   => $noticeId,
                 'target_type' => $type,
                 'target_id'   => $targetId,
-            ]);
+            ];
         }
+        NoticeTarget::insertAll($rows);
     }
 
     private static function normalizeScope(mixed $scope): int

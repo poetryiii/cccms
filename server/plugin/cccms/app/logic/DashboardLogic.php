@@ -123,20 +123,35 @@ final class DashboardLogic
     /**
      * 最近 N 天的操作日志数量。
      *
-     * 用逐天 count 而不是 GROUP BY：日志表通常不大，且能保证「没有数据的日期」也补 0，
-     * 前端折线图不会出现断点。
+     * 一条 GROUP BY 在库内分桶，再在 PHP 补空桶（保证「没有数据的日期」也补 0，
+     * 前端折线图不会出现断点）—— 避免逐天 count 带来的 N 次查询。
      */
     private static function logTrend(int $days): array
     {
+        $start = date('Y-m-d 00:00:00', strtotime('-' . ($days - 1) . ' day'));
+        $end   = date('Y-m-d 23:59:59');
+
+        /** @var \think\db\Query $trendQuery */
+        $trendQuery = OperationLog::newScopedQuery();
+        $rows = $trendQuery
+            ->where('create_time', '>=', $start)
+            ->where('create_time', '<=', $end)
+            ->field("DATE_FORMAT(create_time, '%Y-%m-%d') AS day, COUNT(*) AS num")
+            ->group('day')
+            ->select()
+            ->toArray();
+
+        $byDay = [];
+        foreach ($rows as $row) {
+            $byDay[(string)$row['day']] = (int)$row['num'];
+        }
+
         $dates  = [];
         $values = [];
-
         for ($i = $days - 1; $i >= 0; $i--) {
-            $day    = date('Y-m-d', strtotime("-{$i} day"));
-            $dates[]  = $day;
-            $values[] = (int)OperationLog::newScopedQuery()
-                ->whereBetween('create_time', [$day . ' 00:00:00', $day . ' 23:59:59'])
-                ->count();
+            $day     = date('Y-m-d', strtotime("-{$i} day"));
+            $dates[] = $day;
+            $values[] = $byDay[$day] ?? 0;
         }
 
         return ['dates' => $dates, 'values' => $values];

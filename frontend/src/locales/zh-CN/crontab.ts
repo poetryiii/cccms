@@ -27,7 +27,6 @@ export default {
   create: '新增任务',
   toolbarTip: '调度进程仅跑在 Linux/macOS，Windows 可用「立即执行」验证',
   running: '运行中',
-  retryPending: '待重试({count})',
   runNow: '立即执行',
   logs: '日志',
   deleteConfirm: '确定删除该任务？',
