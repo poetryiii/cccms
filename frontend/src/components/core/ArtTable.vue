@@ -373,7 +373,7 @@
           <slot name="pager-left" />
         </div>
         <el-pagination
-          :small="effectiveButtonSize === 'small'"
+          :size="effectiveButtonSize"
           :current-page="page"
           :page-size="limit"
           :total="total"
@@ -429,7 +429,7 @@ const props = withDefaults(
      * 作用范围：ArtTable 自己渲染的控件，以及**页面通过 `#toolbar` / `#toolbar-right` /
      * `#search-extra` 插槽传进来的按钮** —— 后者靠 `el-config-provider` 向下传递才能覆盖到
      * （插槽内容在父组件作用域里创建，props 直接控制不到）。
-     * 分页也会跟随（`small` 档位映射为分页的 `small` 属性）。
+     * 分页也会跟随（直接透传 `size`，与控件尺寸同档位）。
      *
      * 与 `size` 一样是**回退值**：工具栏「密度」下拉的全局偏好会覆盖它。
      */
