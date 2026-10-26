@@ -28,8 +28,10 @@ declare(strict_types=1);
  *   CCCMS_SSE_PORT=8790 php sse.php start          # Linux / macOS 换端口
  *
  * 端口来自 `config/plugin/cccms/process.php` 的 `realtime_sse.listen`（默认 8788）。
- * 前端不需要额外配置：`.env` 里没有 `VITE_SSE_URL` 时，`useRealtime.ts` 直连
- * `http://<hostname>:8788/stream`。
+ * 开发环境前端走同源代理：`.env.development` 的 `VITE_SSE_URL=/sse/stream` 由 Vite
+ * dev server 转发到 8788（见 `frontend/vite.config.ts`），所以浏览器侧不需要 CORS 白名单；
+ * 只有把 `VITE_SSE_URL` 改成直连 `http://<hostname>:8788/stream` 时才依赖
+ * `server/.env` 的 `CORS_ORIGIN`（必须写前端实际来源含端口）。
  *
  * ## 验证
  *

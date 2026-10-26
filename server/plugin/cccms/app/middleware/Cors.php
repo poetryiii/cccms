@@ -89,10 +89,10 @@ class Cors implements MiddlewareInterface
      * 白名单匹配（不依赖 `Webman\Http\Request`，供非 HTTP 中间件场景复用）。
      *
      * SSE 推送进程是裸 TCP 自己写响应头（`process/Sse.php`），拿不到中间件链，
-     * 但它**照样要跨域**：开发前端在 `5173`、推送端口是 `8788`，浏览器对
-     * `EventSource` 同样执行 CORS 校验 —— 少一个 `Access-Control-Allow-Origin`
-     * 就会得到 `net::ERR_FAILED 200 (OK)`（curl 看不出问题）。白名单只有这一处，
-     * 两条链路认的是同一份 `.env` 的 `CORS_ORIGIN`。
+     * 但它**照样受 CORS 约束**：开发环境默认由 Vite 代理成同源（`VITE_SSE_URL=/sse/stream`），
+     * 只有直连 `hostname:8788` 时才是跨域 —— 那种情况下少一个
+     * `Access-Control-Allow-Origin` 就会得到 `net::ERR_FAILED 200 (OK)`（curl 看不出问题）。
+     * 白名单只有这一处，两条链路认的是同一份 `.env` 的 `CORS_ORIGIN`。
      */
     public static function matchOrigin(string $origin): string
     {

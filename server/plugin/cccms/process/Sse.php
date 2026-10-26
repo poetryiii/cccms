@@ -35,10 +35,15 @@ use Workerman\Worker;
  *
  * ## 跨域
  *
- * `EventSource` 与普通 XHR 一样受 CORS 约束。开发时前端跑在 Vite 的 5173、推送在 8788，
- * 是**跨域**请求 —— 响应里没有 `Access-Control-Allow-Origin` 时，浏览器给出的是
- * `net::ERR_FAILED 200 (OK)`（拿到了 200 却不让读），用 curl 完全复现不出来。
- * 白名单复用 HTTP 侧的 `Cors::matchOrigin()`，即 `.env` 的 `CORS_ORIGIN`，只有一份配置。
+ * `EventSource` 与普通 XHR 一样受 CORS 约束。开发环境的默认做法是**同源**：前端把
+ * `VITE_SSE_URL` 设为 `/sse/stream`，由 Vite dev server 代理到本进程（见
+ * `frontend/vite.config.ts` 的 `/sse`）—— 端口漂移（5173 被占用会用 5174）与白名单无关。
+ *
+ * 直连 `http://<hostname>:8788/stream` 时才是跨域请求：响应里没有
+ * `Access-Control-Allow-Origin` 时，浏览器给出的是 `net::ERR_FAILED 200 (OK)`
+ * （拿到了 200 却不让读），用 curl 完全复现不出来。白名单复用 HTTP 侧的
+ * `Cors::matchOrigin()`，即 `.env` 的 `CORS_ORIGIN`，只有一份配置 ——
+ * 直连就必须把前端实际来源（含端口）写进去。
  *
  * ## 连接管理
  *

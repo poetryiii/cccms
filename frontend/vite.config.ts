@@ -64,6 +64,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // 实时推送（SSE）：8788 是独立的推送进程，默认由前端直连，属于跨域请求 ——
+      // 必须先在 server/.env 配 CORS_ORIGIN 才放行，且 dev server 换端口（5173 被占用
+      // 会自动用 5174）就要跟着改白名单，否则浏览器只报 net::ERR_FAILED 200 (OK)。
+      // 这里代理成同源，端口漂移与 CORS 配置都不再相关（见 .env.development 的 VITE_SSE_URL）。
+      // SSE 是长连接：http-proxy 默认按流透传，不要加 buffer / timeout 相关选项。
+      '/sse': {
+        target: 'http://127.0.0.1:8788',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/sse/, ''),
+      },
       // 附件（本地存储）也代理到后端：缩略图 <img src="/storage/..."> 与「查看」新窗口
       // 都从 5173 发请求，若不代理，Vite 会把 /storage 当 SPA 路由回退到 index.html，
       // 于是「查看」跳到 #/dashboard。生产由 Nginx 托管/反代（见 02-安装部署 §5）。
