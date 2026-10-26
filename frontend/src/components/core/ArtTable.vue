@@ -522,6 +522,7 @@ import {
   Search,
   Setting,
 } from '@element-plus/icons-vue'
+import { useDateShortcuts } from '@/composables/useDateShortcuts'
 import { TABLE_FILTER_KEY, TABLE_SORT_KEY } from '@/composables/useTable'
 import { densityPreference, setDensityPreference, type TableSize } from '@/composables/useTableSize'
 import type { ArtTableColumn } from '@/types/table'
@@ -760,48 +761,11 @@ const dateDraft = reactive<Record<string, [string, string] | null>>({})
 /* ---- 日期范围选择器的公共配置（顶部搜索区与列头弹层共用） ---- */
 
 /**
- * 常用时间范围快捷项：今天 / 昨天 / 最近 3·7·30 天 / 本月 / 上月。
- * 返回 Date 数组，由 el-date-picker 按 `value-format` 统一格式化。
+ * 快捷项：今天 / 昨天 / 近 3·7·15·30 天 / 上周 / 本月 / 上月。
+ * 定义在 `composables/useDateShortcuts`（纯计算在 `utils/dateRange`），
+ * 其它页面要自定义范围选择器时复用同一个数组，别再各写一份。
  */
-const dateShortcuts = computed(() => {
-  const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0)
-  const endOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59)
-  const shiftDays = (d: Date, days: number): Date => {
-    const next = new Date(d)
-    next.setDate(next.getDate() + days)
-    return next
-  }
-  const now = new Date()
-
-  return [
-    { text: t('core.table.timeToday'), value: (): [Date, Date] => [startOfDay(now), endOfDay(now)] },
-    {
-      text: t('core.table.timeYesterday'),
-      value: (): [Date, Date] => {
-        const day = shiftDays(now, -1)
-        return [startOfDay(day), endOfDay(day)]
-      },
-    },
-    { text: t('core.table.timeLast3Days'), value: (): [Date, Date] => [startOfDay(shiftDays(now, -2)), endOfDay(now)] },
-    { text: t('core.table.timeLast7Days'), value: (): [Date, Date] => [startOfDay(shiftDays(now, -6)), endOfDay(now)] },
-    {
-      text: t('core.table.timeLast30Days'),
-      value: (): [Date, Date] => [startOfDay(shiftDays(now, -29)), endOfDay(now)],
-    },
-    {
-      text: t('core.table.timeThisMonth'),
-      value: (): [Date, Date] => [new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0), endOfDay(now)],
-    },
-    {
-      text: t('core.table.timeLastMonth'),
-      value: (): [Date, Date] => [
-        new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0),
-        // 上月最后一天：下月第 0 天即本月 1 号前一天
-        new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
-      ],
-    },
-  ]
-})
+const dateShortcuts = useDateShortcuts()
 
 /**
  * 时间范围筛选统一带时分秒（`YYYY-MM-DD HH:mm:ss`），后端按字符串直接比较，
