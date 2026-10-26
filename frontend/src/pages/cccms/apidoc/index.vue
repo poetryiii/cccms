@@ -515,7 +515,7 @@ onMounted(async () => {
 .apidoc__title p {
   margin: 4px 0 0;
   font-size: 12px;
-  color: var(--art-secondary);
+  color: var(--art-sub);
 }
 
 .apidoc__tools {
@@ -566,8 +566,8 @@ onMounted(async () => {
   padding: 0 6px;
   font-size: 11px;
   font-weight: 400;
-  color: var(--art-secondary);
-  background: var(--art-fill);
+  color: var(--art-sub);
+  background: var(--art-hover-bg);
   border-radius: 8px;
 }
 
@@ -585,6 +585,7 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+/* HTTP 方法标签：白字 + 深色底，未收录的方法也要能看清（默认灰底，不能留透明） */
 .apidoc__op em,
 .apidoc__detail-line em {
   flex: none;
@@ -595,7 +596,7 @@ onMounted(async () => {
   line-height: 18px;
   border-radius: 4px;
   color: #fff;
-  background: var(--art-secondary);
+  background: var(--art-muted);
 }
 
 .apidoc__op em.is-get,
@@ -616,6 +617,22 @@ onMounted(async () => {
 .apidoc__op em.is-delete,
 .apidoc__detail-line em.is-delete {
   background: #f56c6c;
+}
+
+/* PATCH / HEAD / OPTIONS：巨量回调、CORS 预检这类路由会出现，不能只覆盖 get/post/put/delete */
+.apidoc__op em.is-patch,
+.apidoc__detail-line em.is-patch {
+  background: #7b61ff;
+}
+
+.apidoc__op em.is-head,
+.apidoc__detail-line em.is-head {
+  background: #6b7688;
+}
+
+.apidoc__op em.is-options,
+.apidoc__detail-line em.is-options {
+  background: #12b3a8;
 }
 
 .apidoc__op-path {
@@ -650,8 +667,8 @@ onMounted(async () => {
 .apidoc__tag {
   padding: 2px 8px;
   font-size: 12px;
-  color: var(--art-secondary);
-  background: var(--art-fill);
+  color: var(--art-sub);
+  background: var(--art-hover-bg);
   border-radius: 4px;
 }
 
@@ -677,7 +694,7 @@ onMounted(async () => {
 .apidoc__muted {
   margin: 0;
   font-size: 12px;
-  color: var(--art-secondary);
+  color: var(--art-sub);
 }
 
 .apidoc__form {
@@ -693,7 +710,7 @@ onMounted(async () => {
   gap: 16px;
   margin-bottom: 8px;
   font-size: 12px;
-  color: var(--art-secondary);
+  color: var(--art-sub);
 }
 
 .apidoc__result-head .is-ok {
@@ -711,7 +728,7 @@ onMounted(async () => {
   overflow: auto;
   font-size: 12px;
   line-height: 1.6;
-  background: var(--art-fill);
+  background: var(--art-hover-bg);
   border-radius: 6px;
 }
 </style>

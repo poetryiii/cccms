@@ -60,7 +60,13 @@ final class OpenApi
     /** 源码文件缓存：`文件路径` => 行数组 */
     private static array $lines = [];
 
-    /** 插件显示名缓存：`插件名` => 标题（解析要 include 配置文件，别每个分组都来一次） */
+    /**
+     * 插件显示名缓存：`语言` => `插件名` => 标题。
+     *
+     * 解析要 include 配置文件，别每个分组都来一次；**但必须按语言分开缓存** ——
+     * webman worker 常驻，`I18n::locale()` 是按请求现算的，只按插件名缓存会把
+     * 第一个请求的语言固化成整个进程的语言。
+     */
     private static array $pluginTitles = [];
 
     /**
@@ -862,13 +868,15 @@ final class OpenApi
      * 插件在文档里显示的名字（三层树的第一层）。
      *
      * 取不到「人话」就退回插件目录名，绝不空着。来源依次为：
-     * ① 本模块语言包 `apidoc.plugin_{插件}`（内置插件有中英文名）；
-     * ② `plugin/{插件}/config/app.php` 的 `title`（脚手架生成的插件可声明）；
+     * ① `apidoc.plugin_{插件}` —— **任何一个插件**的语言包都可以声明（`I18n` 会汇总
+     *    所有 `plugin/{插件}/lang/{locale}/apidoc.php`，cccms 的内置名只是其中一份），
+     *    新插件自建 `lang/{locale}/apidoc.php` 即可中英文各一份，不用改 cccms；
+     * ② `plugin/{插件}/config/app.php` 的 `title`（单语言兜底，脚手架生成的插件可声明）；
      * ③ `plugin/{插件}/db/menu.php` 第一个一级菜单标题（业务插件通常就是业务名，如「商城」）。
      */
     private static function pluginTitle(string $plugin): string
     {
-        return self::$pluginTitles[$plugin] ??= self::resolvePluginTitle($plugin);
+        return self::$pluginTitles[I18n::locale()][$plugin] ??= self::resolvePluginTitle($plugin);
     }
 
     /** @see pluginTitle() */
@@ -953,7 +961,11 @@ final class OpenApi
         return $title ?: $action;
     }
 
-    /** 分组标题：内置节点走 `menu.{slug}` 语言包，取不到就退回 key / 上下文 */
+    /**
+     * 分组标题：业务分组（`{插件}:{模块}`）走 **该插件自己的** `menu.{slug}`
+     * （`plugin/{插件}/lang/{locale}/menu.php`，key 就是菜单 slug）；公开接口的
+     * `common:{控制器}` 分组先找同名菜单，再找 `apidoc.group_{控制器小写}`。都取不到才退回 key / 控制器名。
+     */
     private static function groupTitle(string $group, ?string $fallback = null): string
     {
         if (!str_starts_with($group, 'common:')) {

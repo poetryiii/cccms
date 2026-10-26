@@ -207,7 +207,20 @@ final class I18n
         return is_scalar($value) ? (string)$value : null;
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * 按 `命名空间` 汇总所有插件的语言包（结果缓存）。
+     *
+     * **逐文件合并而不是「取第一个命中」**：业务插件各自维护
+     * `plugin/{插件}/lang/{locale}/{命名空间}.php`，而 `menu` / `apidoc` 这类命名空间
+     * cccms 自己也有一份 —— 只取一个的话，新插件的 `menu.oceanengine:account`、
+     * `apidoc.plugin_oceanengine` 永远读不到（表现为文档/菜单标题回落成中文或 key 原文）。
+     *
+     * 优先级：cccms 自己的 key 先占位（`+` 不覆盖已有），其余插件按目录名排序补空缺，
+     * 因此框架文案不会被插件意外改写；插件的 key 本身带 slug 前缀（`{插件}:{模块}`），
+     * 相互之间不会撞车。
+     *
+     * @return array<string,mixed>
+     */
     private static function loadNamespace(string $locale, string $namespace): array
     {
         if (isset(self::$messages[$locale][$namespace])) {
@@ -216,24 +229,37 @@ final class I18n
 
         // 命名空间只允许字母数字下划线连字符，防止路径穿越
         if (!preg_match('/^[A-Za-z0-9_-]+$/', $namespace)) {
-            return [];
-        }
-
-        $file = dirname(__DIR__) . '/lang/' . $locale . '/' . $namespace . '.php';
-
-        // 业务插件的语言包：插件共享同一个 `I18n`，但各自维护 `plugin/{插件}/lang/{locale}/{ns}.php`。
-        // 只在主插件目录里没有该命名空间时才回退扫描，避免与 cccms 自身的命名空间抢优先级。
-        if (!is_file($file)) {
-            $candidates = glob(dirname(__DIR__, 2) . '/*/lang/' . $locale . '/' . $namespace . '.php') ?: [];
-            $file       = $candidates === [] ? '' : (string)$candidates[0];
-        }
-
-        if ($file === '' || !is_file($file)) {
             return self::$messages[$locale][$namespace] = [];
         }
 
-        $loaded = require $file;
-        return self::$messages[$locale][$namespace] = is_array($loaded) ? $loaded : [];
+        $messages = [];
+        $own      = dirname(__DIR__) . '/lang/' . $locale . '/' . $namespace . '.php';
+        if (is_file($own)) {
+            $messages = self::readArray($own);
+        }
+
+        $candidates = glob(dirname(__DIR__, 2) . '/*/lang/' . $locale . '/' . $namespace . '.php') ?: [];
+        sort($candidates);
+        foreach ($candidates as $file) {
+            if (realpath($file) === realpath($own)) {
+                continue;
+            }
+            $messages += self::readArray((string)$file);
+        }
+
+        return self::$messages[$locale][$namespace] = $messages;
+    }
+
+    /** 读取一个语言包文件（非数组 / 文件不可读时返回空数组，不让文档页或菜单整页挂掉） */
+    private static function readArray(string $file): array
+    {
+        try {
+            $loaded = require $file;
+        } catch (Throwable) {
+            return [];
+        }
+
+        return is_array($loaded) ? $loaded : [];
     }
 
     /** @param array<string,mixed> $params */

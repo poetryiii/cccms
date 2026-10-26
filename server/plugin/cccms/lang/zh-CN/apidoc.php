@@ -6,7 +6,8 @@ declare(strict_types=1);
 return [
     'not_found' => '接口不存在或未生成文档（id 形如 GET /user）',
 
-    // 左侧三层树的第一层：插件。内置插件给中文名，业务插件取 config/app.php 的 title
+    // 左侧三层树的第一层：插件。每个插件都可以在自己的 `plugin/{插件}/lang/{locale}/apidoc.php`
+    // 里声明 `plugin_{插件}`（语言包按命名空间合并）；没声明才退回 config/app.php 的 title
     // 或 db/menu.php 的首个菜单标题（见 OpenApi::pluginTitle）
     'plugin_cccms' => '内置模块',
     'plugin_index' => '前台站点',
