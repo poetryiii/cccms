@@ -522,8 +522,8 @@ import {
   Search,
   Setting,
 } from '@element-plus/icons-vue'
-import { useDateShortcuts } from '@/composables/useDateShortcuts'
 import { TABLE_FILTER_KEY, TABLE_SORT_KEY } from '@/composables/useTable'
+import { useDateShortcuts } from '@/composables/useDateShortcuts'
 import { densityPreference, setDensityPreference, type TableSize } from '@/composables/useTableSize'
 import type { ArtTableColumn } from '@/types/table'
 
@@ -762,8 +762,10 @@ const dateDraft = reactive<Record<string, [string, string] | null>>({})
 
 /**
  * 快捷项：今天 / 昨天 / 近 3·7·15·30 天 / 上周 / 本月 / 上月。
- * 定义在 `composables/useDateShortcuts`（纯计算在 `utils/dateRange`），
- * 其它页面要自定义范围选择器时复用同一个数组，别再各写一份。
+ *
+ * 统一走 `composables/useDateShortcuts`（全站同一份口径 + 同一份 i18n 文案），
+ * 不再在本组件里另写一套 —— 之前的本地副本把 `now` 算在 computed 求值时，
+ * 页面挂到第二天点「今天」会拿到昨天，且少 15 天 / 上周两项。
  */
 const dateShortcuts = useDateShortcuts()
 

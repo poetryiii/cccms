@@ -21,7 +21,11 @@ export interface DateShortcut {
  * 用法（`el-date-picker` 的 `shortcuts` 直接吃这个数组）：
  *
  *   const shortcuts = useDateShortcuts()
- *   <el-date-picker v-model="range" type="datetimerange" :shortcuts="shortcuts.value" />
+ *   <el-date-picker v-model="range" type="daterange" value-format="YYYY-MM-DD" :shortcuts="shortcuts" />
+ *
+ * 快捷项返回的是 `[Date, Date]`，`value-format` 由选择器自己序列化（Element Plus 在
+ * `emitInput` 里按 `value-format` 转字符串），所以 `daterange` / `datetimerange` 都能直接用；
+ * 点快捷项同样会走 `change`，页面原有的「改动即查询」不用额外处理。
  *
  * 为什么集中在 composable 里：
  *  - 文案走 i18n（`core.table.time*`），一处改全站生效；
