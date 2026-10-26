@@ -619,7 +619,7 @@ onMounted(async () => {
   background: #f56c6c;
 }
 
-/* PATCH / HEAD / OPTIONS：巨量回调、CORS 预检这类路由会出现，不能只覆盖 get/post/put/delete */
+/* PATCH / HEAD / OPTIONS：公开回调、CORS 预检这类路由会出现，不能只覆盖 get/post/put/delete */
 .apidoc__op em.is-patch,
 .apidoc__detail-line em.is-patch {
   background: #7b61ff;

@@ -333,14 +333,14 @@ describe('downloadFile', () => {
   })
 
   it('POST blob 错误：响应体是 Blob 时解析出后端 message 再提示', async () => {
-    mockAdapterFailure(422, new Blob([JSON.stringify({ code: 1, message: '所选登录账号下没有广告账户' })]))
+    mockAdapterFailure(422, new Blob([JSON.stringify({ code: 1, message: '导出参数不合法' })]))
 
     await expect(
-      downloadFileByPost('/oceanengine/delivery_link/exportTemplate', { main_list: [], file_name: '模板' }),
+      downloadFileByPost('/log/export', { ids: [], file_name: '导出' }),
     ).rejects.toBeTruthy()
 
     await vi.waitFor(() => {
-      expect(mocks.messageError).toHaveBeenCalledWith('所选登录账号下没有广告账户')
+      expect(mocks.messageError).toHaveBeenCalledWith('导出参数不合法')
     })
   })
 

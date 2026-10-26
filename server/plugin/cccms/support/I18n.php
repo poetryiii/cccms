@@ -212,8 +212,8 @@ final class I18n
      *
      * **逐文件合并而不是「取第一个命中」**：业务插件各自维护
      * `plugin/{插件}/lang/{locale}/{命名空间}.php`，而 `menu` / `apidoc` 这类命名空间
-     * cccms 自己也有一份 —— 只取一个的话，新插件的 `menu.oceanengine:account`、
-     * `apidoc.plugin_oceanengine` 永远读不到（表现为文档/菜单标题回落成中文或 key 原文）。
+     * cccms 自己也有一份 —— 只取一个的话，新插件的 `menu.{插件}:{模块}`、
+     * `apidoc.plugin_{插件}` 永远读不到（表现为文档/菜单标题回落成中文或 key 原文）。
      *
      * 优先级：cccms 自己的 key 先占位（`+` 不覆盖已有），其余插件按目录名排序补空缺，
      * 因此框架文案不会被插件意外改写；插件的 key 本身带 slug 前缀（`{插件}:{模块}`），

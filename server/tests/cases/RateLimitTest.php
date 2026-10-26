@@ -26,15 +26,15 @@ return static function (): void {
     });
 
     test('限流白名单：按路径段前缀匹配，大小写不敏感，不误伤同名前缀', function (): void {
-        $list = ['/oceanengine/consume/', '/auth'];
+        $list = ['/report/export/', '/auth'];
 
-        ok(RateLimiter::matchesWhitelist('/oceanengine/consume/sync', $list), '前缀下子路径应命中');
-        ok(RateLimiter::matchesWhitelist('/oceanengine/consume', $list), '前缀本身应命中');
-        ok(RateLimiter::matchesWhitelist('/OCEANENGINE/CONSUME/ad', $list), '大小写不敏感');
+        ok(RateLimiter::matchesWhitelist('/report/export/sync', $list), '前缀下子路径应命中');
+        ok(RateLimiter::matchesWhitelist('/report/export', $list), '前缀本身应命中');
+        ok(RateLimiter::matchesWhitelist('/REPORT/EXPORT/ad', $list), '大小写不敏感');
         ok(RateLimiter::matchesWhitelist('/auth/login', $list), '无尾斜杠前缀也能按段匹配');
-        ok(!RateLimiter::matchesWhitelist('/oceanengine/consumer', $list), '不应误伤同名前缀 /oceanengine/consumer');
+        ok(!RateLimiter::matchesWhitelist('/report/exporter', $list), '不应误伤同名前缀 /report/exporter');
         ok(!RateLimiter::matchesWhitelist('/other/route', $list), '无关路径不应命中');
-        ok(!RateLimiter::matchesWhitelist('/oceanengine/consume', []), '白名单为空不放行');
+        ok(!RateLimiter::matchesWhitelist('/report/export', []), '白名单为空不放行');
 
         // 裸 '/' 与空串是兜底防护：不能把全站放行
         ok(!RateLimiter::matchesWhitelist('/anything', ['/', '']), '裸 / 或空串不得命中所有路径');
@@ -42,8 +42,8 @@ return static function (): void {
 
     test('限流白名单输入：一行一条，兼容 CRLF / 空行 / 前后空白', function (): void {
         same(
-            ['/oceanengine/consume/', '/auth', '/zgl/'],
-            SysConfig::splitLines("/oceanengine/consume/\r\n\r\n/auth\n  /zgl/  \n"),
+            ['/report/export/', '/auth', '/notice/'],
+            SysConfig::splitLines("/report/export/\r\n\r\n/auth\n  /notice/  \n"),
             '多行拆成一行一条，去掉空行与首尾空白'
         );
         same([], SysConfig::splitLines(''), '空串返回空列表');

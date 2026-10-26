@@ -82,8 +82,8 @@ final class RateLimiter
     /**
      * 路径是否命中限流白名单。
      *
-     * 前缀匹配、大小写不敏感：`/oceanengine/consume/` 表示该前缀下所有接口都不限流。
-     * 用于盯盘同步这类「高频但合法」的接口 —— 阈值是按普通操作定的，硬套上去会把
+     * 前缀匹配、大小写不敏感：`/report/export/` 表示该前缀下所有接口都不限流。
+     * 用于轮询、同步这类「高频但合法」的接口 —— 阈值是按普通操作定的，硬套上去会把
      * 正常使用打成 429；其余接口仍按原阈值限流，防刷保护不丢。
      */
     public static function isWhitelisted(string $path): bool
@@ -94,8 +94,8 @@ final class RateLimiter
     /**
      * 白名单前缀匹配（纯函数，便于单测）。
      *
-     * 按「路径段」匹配而非裸前缀：`/oceanengine/consume` 命中 `/oceanengine/consume`、
-     * `/oceanengine/consume/sync`，但**不会**误伤 `/oceanengine/consumer`。
+     * 按「路径段」匹配而非裸前缀：`/report/export` 命中 `/report/export`、
+     * `/report/export/sync`，但**不会**误伤 `/report/exporter`。
      *
      * @param list<string> $prefixes 前缀列表（SysConfig::getLines 已去空白 / 空行）
      */

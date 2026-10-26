@@ -654,7 +654,7 @@ const effectiveSize = computed<TableSize>(() => densityPreference.value || props
  * 一旦父容器的高度是由内容撑开的 —— 典型是「`.art-scroll` 页面里把表格放进
  * `el-row > el-col > el-card`」—— el-table 会陷入反馈循环：
  * 量到内容高度 `offsetHeight` → 触发 `doLayout()` 并回灌 `bodyScrollHeight` → 表格更高 → 再量…
- * 表现就是**页面竖向滚动条持续增长（高度无限膨胀）**，`/oceanengine/material` 就踩过这个坑，
+ * 表现就是**页面竖向滚动条持续增长（高度无限膨胀）**，把表格放进 `el-card` 时踩过这个坑，
  * 同时控制台反复刷 `ResizeObserver loop completed with undelivered notifications`。
  *
  * 判定规则很简单：**表格要在容器内部滚动（撑满一屏）→ 用 `.art-fill` + 默认 `'100%'`；
