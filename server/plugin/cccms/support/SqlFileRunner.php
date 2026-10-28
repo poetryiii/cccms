@@ -23,7 +23,7 @@ final class SqlFileRunner
     /**
      * 执行一个 SQL 文件，返回实际执行的语句数。
      *
-     * @param bool $tolerateExisting 容忍「重复列 / 重复索引」：迁移文件用。
+     * @param bool $tolerateExisting 容忍「重复列 / 重复索引 / 重复约束」：迁移文件用。
      *                               同一份结构在 schema.sql 也有一份，新装环境先建全，
      *                               迁移再跑一次必然撞名 —— 这不是错误，已生效即可。
      * @throws ApiException 文件不存在或某条语句执行失败
@@ -46,7 +46,7 @@ final class SqlFileRunner
             try {
                 Db::execute($statement);
             } catch (Throwable $e) {
-                if ($tolerateExisting && preg_match('/Duplicate (column|key) name/i', $e->getMessage()) === 1) {
+                if ($tolerateExisting && self::isExistingStructureError($e->getMessage())) {
                     $count++;
                     continue; // 结构已存在（schema.sql 已建），按已生效处理
                 }
@@ -64,6 +64,29 @@ final class SqlFileRunner
         }
 
         return $count;
+    }
+
+    /**
+     * 「结构已存在」类错误的判定（只在迁移模式 `$tolerateExisting` 下使用）。
+     *
+     * MySQL 把「重复结构」拆成了**四个错误码、四套文案**，少认一个就会出现
+     * 「新装库跑迁移必红」：
+     *   - 1060 `Duplicate column name 'x'`
+     *   - 1061 `Duplicate key name 'x'`
+     *   - 1826 `Duplicate foreign key constraint name 'x'`
+     *   - 3822 `Duplicate check constraint name 'x'`
+     *
+     * 线上踩过（2026-10-26）：迁移 `20261026_100000_tenant_domain_file_public` 的第 2 条语句
+     * 同时 `ADD COLUMN is_public` 与 `ADD CONSTRAINT ck_file_public`，新装环境里两样都已由
+     * schema.sql 建好；MySQL 先校验约束名，回的是 **3822** 而不是 1060，
+     * 于是整条迁移被判失败，后面的迁移全部停住。漏的就是这条分支。
+     *
+     * 注意不要放宽到「Duplicate entry」（1062，主键/唯一键**数据**冲突）——
+     * 那是真错误，重跑也不会自己好。
+     */
+    public static function isExistingStructureError(string $message): bool
+    {
+        return preg_match('/Duplicate (?:column|key|check constraint|foreign key constraint) name/i', $message) === 1;
     }
 
     /**

@@ -20,7 +20,8 @@ use Throwable;
  *     字典序 = 执行序，跨插件按版本号全局排序）。
  *   - 已执行的版本记录在 `sys_schema_migration`，按版本号**只执行一次**。
  *   - 文件内容可包含多条语句，沿用 `SqlFileRunner` 的切分规则；
- *     「重复列 / 重复索引」视为已生效（同一份结构在 `schema.sql` 里也有一份，新装环境先建全）。
+ *     「重复列 / 重复索引 / 重复约束」视为已生效（同一份结构在 `schema.sql` 里也有一份，
+ *     新装环境先建全，见 `SqlFileRunner::isExistingStructureError()`）。
  *   - 迁移只增不改：已应用的文件被改动时只报「漂移」告警，不会重跑（重跑等于随机改生产结构）。
  */
 final class Migrator

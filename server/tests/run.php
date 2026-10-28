@@ -25,6 +25,19 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use think\facade\Db;
 
+/*
+ * 先加载 .env —— 与 webman 启动流程（`support/bootstrap.php` 里的 createUnsafeMutable）一致。
+ *
+ * 必须在读 `plugin/cccms/config/database.php` 之前：那份配置用 getenv() 取库名，
+ * 环境变量缺失时会回落到默认库 `cccms`。本地真实库若是 `sem`，
+ * 需库用例就会连到**另一个库**上：要么报「表不存在」，要么静默跳过 —— 后者更难发现
+ * （2026-10-28 实测：连的是 cccms，oe_* 表全不存在，用例一直显示「跳过」）。
+ */
+$envDir = dirname(__DIR__);
+if (class_exists(Dotenv\Dotenv::class) && is_file($envDir . '/.env')) {
+    Dotenv\Dotenv::createUnsafeMutable($envDir)->load();
+}
+
 // 审计链 v2 起用 HMAC-SHA256，写入需要签名密钥。测试环境固定一个：
 // 不设的话 `LogChain::write()` 会走「降级普通插入」分支，链相关用例全部失效
 // （表现为「row_hash 应写入」失败，而不是报错，很容易被误读成库结构问题）。
@@ -47,6 +60,8 @@ try {
 } catch (Throwable) {
     // 配置加载失败：Redis 相关用例自行跳过
 }
+
+
 
 final class Suite
 {
@@ -106,6 +121,43 @@ function requireServices(): bool
     return in_array($raw, ['1', 'true', 'on', 'yes'], true);
 }
 
+/**
+ * 用例内部主动跳过（服务可用、但前置条件不满足，例如库已连上但表还没建）。
+ *
+ * 用异常实现：断言函数都在用例中段调用，只有抛出才能从任意位置终止。
+ */
+final class SkippedTest extends RuntimeException
+{
+}
+
+/** 跳过当前用例（要求依赖服务时记为失败，与 skipNeedsService 同口径） */
+function skipTest(string $reason): never
+{
+    throw new SkippedTest($reason);
+}
+
+/**
+ * 表不存在则跳过当前用例。
+ *
+ * 与 `test(..., true)` 的区别：那个只看「数据库是否可连」，而刚建库、还没跑
+ * `cccms:db-upgrade` 时连接是通的、表却是空的 —— 直接跑会抛 1146，
+ * 看着像用例坏了，其实只是环境没初始化。
+ */
+function requireTable(string $table): void
+{
+    if (!Suite::dbAvailable()) {
+        skipTest('数据库不可用');
+    }
+
+    try {
+        Db::query('SELECT 1 FROM `' . $table . '` LIMIT 1');
+    } catch (Throwable $e) {
+        // 带上真实报错：库名/连接错了也是 1146，只写「表不存在」会把人引到 db-upgrade 上去
+        $database = (string)(Db::query('SELECT DATABASE() AS db')[0]['db'] ?? '?');
+        skipTest("表 {$table} 不可用（库 {$database}：" . $e->getMessage() . '）');
+    }
+}
+
 /** 跳过一条需要依赖服务的用例：要求服务时记为失败，否则记为跳过 */
 function skipNeedsService(string $name, string $reason): void
 {
@@ -143,6 +195,8 @@ function test(string $name, callable $fn, bool $requiresDb = false): void
         $fn();
         Suite::$passed++;
         echo '  ' . Suite::color('✓', 'green') . " {$name}\n";
+    } catch (SkippedTest $e) {
+        skipNeedsService($name, $e->getMessage());
     } catch (Throwable $e) {
         Suite::$failed++;
         Suite::$failures[] = "[{$name}] " . $e->getMessage();
