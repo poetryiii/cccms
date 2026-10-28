@@ -4,7 +4,7 @@ import type { PageResult } from '@/api/types'
 export type { PageResult }
 
 /** 列头筛选：枚举可选项 */
-export interface ArtTableFilterOption {
+interface ArtTableFilterOption {
   label: string
   /** 传给接口的原始值（多选时按逗号拼接） */
   value: string | number
@@ -18,7 +18,7 @@ export interface ArtTableFilterOption {
  * - `textarea`：多行输入框，用于请求参数 / 返回体这类 JSON 片段的关键字模糊查询；
  * - `date`：列头弹层里的日期范围选择器，分别写入起止两个字段（时间列专用）。
  */
-export interface ArtTableColumnFilter {
+interface ArtTableColumnFilter {
   type: 'enum' | 'text' | 'textarea' | 'date'
   /** 枚举可选项（`type='enum'` 时必填） */
   options?: ArtTableFilterOption[]

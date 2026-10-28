@@ -4,7 +4,7 @@ import zhCN from './zh-CN'
 import enUS from './en-US'
 
 /** 可用语言项（label 用于语言切换入口展示） */
-export interface LocaleOption {
+interface LocaleOption {
   label: string
   value: string
 }

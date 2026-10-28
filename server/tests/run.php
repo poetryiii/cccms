@@ -48,8 +48,6 @@ try {
     // 配置加载失败：Redis 相关用例自行跳过
 }
 
-
-
 final class Suite
 {
     public static int $passed = 0;

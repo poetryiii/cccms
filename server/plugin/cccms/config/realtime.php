@@ -16,7 +16,7 @@ declare(strict_types=1);
  *
  * ## 部署要点
  *
- * 1. 端口要对内网暴露（Docker 记得 `-p`），Nginx 反代见 `docs/nginx.conf.example`；
+ * 1. 端口要对内网可达（不要直接暴露到公网），Nginx 反代见 `docs/nginx.conf.example`；
  * 2. 必须关掉代理缓冲（`proxy_buffering off` / `X-Accel-Buffering: no`），否则事件会
  *    攒在 Nginx 里直到连接结束 —— 表现为「页面一直没反应，刷新后才看到」；
  * 3. 多实例部署时每个实例各跑一个进程，Redis 列表是共享的，谁连到哪台都能收到。

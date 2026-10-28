@@ -68,10 +68,6 @@ export function noticeList(params: Record<string, unknown>, config?: ListRequest
   return http.get<PageResult<NoticeRow>>('/notice', params, config)
 }
 
-export function noticeRead(id: number) {
-  return http.get<NoticeRow>('/notice/read', { id })
-}
-
 export function noticeSave(data: Record<string, unknown>) {
   return http.post<{ id: number }>('/notice/save', data)
 }

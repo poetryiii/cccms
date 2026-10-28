@@ -18,7 +18,7 @@ return [
     'client' => extension_loaded('redis') ? 'phpredis' : 'predis',
 
     'default' => [
-        // 支持环境变量覆盖（部署 / Docker Compose 用），见 server/.env.example
+        // 支持环境变量覆盖（部署环境注入），见 server/.env.example
         'password' => getenv('REDIS_PASSWORD') ?: '',
         'host' => getenv('REDIS_HOST') ?: '127.0.0.1',
         'port' => (int)(getenv('REDIS_PORT') ?: 6379),

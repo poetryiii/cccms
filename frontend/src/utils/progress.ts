@@ -27,9 +27,6 @@ const pending = new Set<unknown>()
 /** 路由令牌：同一时刻只会有一次导航在跑，固定复用即可 */
 export const ROUTE_PROGRESS = 'route'
 
-/** 上传令牌：el-upload 走原生 XHR，不经过 axios，需要单独登记 */
-export const UPLOAD_PROGRESS = 'upload'
-
 /** 登记一个任务；首个任务才真正显示进度条 */
 export function progressStart(token: unknown = ROUTE_PROGRESS): void {
   if (pending.has(token)) {

@@ -56,9 +56,6 @@ export async function fileBlobUrl(id: number): Promise<string> {
   return URL.createObjectURL(response.data)
 }
 
-// ?? 而非 ||：空串是合法值（生产无前缀），用 || 会退化成 //file/upload
-export const FILE_UPLOAD_URL = `${import.meta.env.VITE_API_BASE ?? '/api'}/file/upload`
-
 /** 单请求直传（≤ 单文件上限时使用） */
 export function fileUpload(form: FormData) {
   return http.post<FileRow>('/file/upload', form)

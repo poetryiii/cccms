@@ -16,7 +16,7 @@
 | 初始化数据库 | `php webman cccms:db-upgrade` |
 | 同步菜单 / 权限节点 | `php webman cccms:menu-sync` + `php webman cccms:perm-scan` |
 
-命令全量与说明见 [11-常用命令与运维](../docs/11-常用命令与运维.md)。
+命令全量与说明见 [11-常用命令与运维](../docs/11-常用命令与运维/index.md)。
 
 ## 关键约定
 

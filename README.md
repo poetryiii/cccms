@@ -37,7 +37,7 @@ CCCMS 是基于 **Webman 2.x（PHP 常驻内存框架）+ Vue 3** 的中后台�
 
 ## 能力一览
 
-细节见 [功能模块](docs/07-功能模块.md)；逐版本的变更见 [更新日志](docs/更新日志.md)。
+细节见 [功能模块](docs/07-功能模块/index.md)；逐版本的变更见 [更新日志](docs/更新日志.md)。
 
 | 领域 | 内容 |
 |------|------|
@@ -48,7 +48,7 @@ CCCMS 是基于 **Webman 2.x（PHP 常驻内存框架）+ Vue 3** 的中后台�
 | 系统能力 | 菜单 / 权限节点自动生成、键值配置、数据字典、软删除回收站、附件（四驱动 + 分片上传 / 秒传）、定时任务（六段 Cron、重叠保护、失败重试）、通知公告（定向投放、已读回执）、代码生成器、插件脚手架 |
 | 日志与可观测 | 操作日志与登录日志同表、三层链路 ID（请求 / 操作 / 会话）、审计链防篡改校验、异步导出任务中心、`/healthz` 与 `/metrics` |
 | 前端体验 | 动态路由、i18n（中英）、主题与设计 token、列头筛选 + 搜索卡片 + 筛选方案、大表格虚拟滚动、快捷导航与收藏、全局水印、富文本编辑器 |
-| 工程化 | GitHub Actions、后端集成测试 + 前端单元测试、PHPStan、php-cs-fixer、Prettier / ESLint、依赖审计、Docker 多阶段构建 |
+| 工程化 | GitHub Actions、后端集成测试 + 前端单元测试、PHPStan、php-cs-fixer、Prettier / ESLint、依赖审计 |
 
 ---
 
@@ -59,7 +59,7 @@ CCCMS 是基于 **Webman 2.x（PHP 常驻内存框架）+ Vue 3** 的中后台�
 | 后端 | PHP >= 8.1、Webman 2.x、think-orm 4.x、MySQL >= 8.0、Redis >= 5.0 |
 | 前端 | Vue 3.5、Vite 5、TypeScript 5、Element Plus 2、Tailwind CSS 4、Pinia、ECharts 6、RemixIcon |
 | 鉴权 | JWT（HS256）+ Redis（验证码 / 限流 / 配置缓存 / 会话分界线） |
-| 部署 | 原生启动 / Docker（`Dockerfile` + `docker-compose.yml`） |
+| 部署 | 原生启动（`php start.php start` 守护 / `windows.php`）+ Nginx 反代 |
 
 ---
 
@@ -126,19 +126,6 @@ npm run build    # 产物 dist/
 
 > 首次登录后请立即修改密码。
 
-### Docker
-
-`docker-compose.yml` 一键启动 **Webman + MySQL + Redis**，首次启动自动导入表结构与种子数据：
-
-```bash
-cd server
-cp .env.example .env           # 必须设置 JWT_SECRET / DATA_ENCRYPT_KEY / DB_PASSWORD
-docker compose up -d --build   # 暴露 8787
-
-docker compose exec webman php webman cccms:menu-sync
-docker compose exec webman php webman cccms:perm-scan
-```
-
 完整的安装、配置、生产部署与升级说明见 [02-安装部署](docs/02-安装部署.md)。
 
 ---
@@ -165,19 +152,19 @@ docker compose exec webman php webman cccms:perm-scan
 |------|------|
 | [docs/README.md](docs/README.md) | 文档地图 · 编写规范（各文件讲什么 / 不写什么） |
 | [01-项目介绍](docs/01-项目介绍.md) | 定位、技术选型、能力边界、设计理念 |
-| [02-安装部署](docs/02-安装部署.md) | 环境要求、安装、初始化、Docker、生产部署、升级 |
+| [02-安装部署](docs/02-安装部署.md) | 环境要求、安装、初始化、生产部署、升级 |
 | [03-目录结构](docs/03-目录结构.md) | 前后端目录职责与命名约定 |
 | [04-框架介绍](docs/04-框架介绍.md) | 插件化架构、请求生命周期、分层、核心组件 |
 | [05-鉴权与权限](docs/05-鉴权与权限.md) | 注解、鉴权矩阵、RBAC、角色继承、前端 v-auth |
 | [06-数据权限](docs/06-数据权限.md) | 数据档位、行级 / 字段级规则、受控表、多租户 |
-| [07-功能模块](docs/07-功能模块.md) | 每个模块的功能、接口、页面、权限节点 |
+| [07-功能模块](docs/07-功能模块/index.md) | 每个模块的功能、接口、页面、权限节点（总览 + 三卷） |
 | [08-后端开发规范](docs/08-后端开发规范.md) | 分层规范、编码约定、新增接口 / 插件步骤 |
 | [09-前端开发规范](docs/09-前端开发规范.md) | 前端架构、路由、状态、主题、测试、开发约定 |
 | [10-前端组件参考](docs/10-前端组件参考.md) | `ArtTable` / `useTable` 等组件与 Hooks API |
-| [11-常用命令与运维](docs/11-常用命令与运维.md) | CLI 命令、Redis 键、配置项、备份、监控、安全加固 |
+| [11-常用命令与运维](docs/11-常用命令与运维/index.md) | CLI 命令、Redis 键、配置项、备份、监控、安全加固（总览 + 三卷） |
 | [12-常见问题与排错](docs/12-常见问题与排错.md) | 按现象检索的 FAQ |
 | [13-数据模型](docs/13-数据模型.md) | 表的分组、字段语义、索引与软删除约定 |
-| [更新日志](docs/更新日志.md) | 已交付的版本变更 + 已决策不做的事项 |
+| [更新日志](docs/更新日志.md) | 已交付的变更（按月份分卷）+ 已决策不做的事项 |
 | [开发计划](docs/开发计划.md) | 待办清单（要做但尚未做的功能与质量项） |
 
 ---

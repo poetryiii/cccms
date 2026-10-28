@@ -59,7 +59,7 @@ final class Dumper
     }
 
     /** mysqldump 是否可用（结果缓存；装了之后重启一次进程即可识别） */
-    public static function available(): bool
+    private static function available(): bool
     {
         if (self::$mysqldumpAvailable !== null) {
             return self::$mysqldumpAvailable;

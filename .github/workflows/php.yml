@@ -139,26 +139,3 @@ jobs:
 
       - name: Unit tests
         run: composer test
-
-  # 镜像构建门禁：Dockerfile 的扩展编译 / 非 root 运行 / vendor_patch 都是「线上才生效」的，
-  # 不构建一次就等于零验证。只 build 不 push。
-  docker:
-    name: Docker 镜像构建
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build runtime image
-        uses: docker/build-push-action@v6
-        with:
-          context: server
-          target: runtime
-          push: false
-          tags: cccms/server:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

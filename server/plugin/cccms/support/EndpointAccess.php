@@ -24,7 +24,7 @@ final class EndpointAccess
     /**
      * 配置留空时的兜底：**仅本机**。
      *
-     * 容器内的 `HEALTHCHECK` / `docker compose` 探活来自回环地址，因此新装环境开箱可用；
+     * 本机探活（supervisor / 负载均衡 / 运维脚本）来自回环地址，因此新装环境开箱可用；
      * 同时不会把「依赖是否可用、磁盘还剩多少」这类内部拓扑信息暴露到公网。
      */
     private const DEFAULT_ALLOW = ['127.0.0.1', '::1'];

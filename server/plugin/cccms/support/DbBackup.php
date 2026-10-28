@@ -77,12 +77,6 @@ final class DbBackup
         ];
     }
 
-    /** mysqldump 是否可用（探测与缓存在 `Dumper`；装了之后重启一次进程即可识别） */
-    public static function mysqldumpAvailable(): bool
-    {
-        return Dumper::available();
-    }
-
     /**
      * 生成一份备份，返回落库所需的元信息。
      *

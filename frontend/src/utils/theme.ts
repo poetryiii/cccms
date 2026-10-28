@@ -19,7 +19,7 @@ export interface ThemeConfig {
   containerWidth: number
 }
 
-export interface PresetColor {
+interface PresetColor {
   name: string
   value: string
 }

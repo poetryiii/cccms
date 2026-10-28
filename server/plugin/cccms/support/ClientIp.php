@@ -14,7 +14,7 @@ use Webman\Http\Request;
  * Webman 内置实现是 `safeMode` 语义：**直连 IP 不在内网段**时返回直连 IP（可信），
  * 否则取 `X-Forwarded-For` 的**第一个**值。
  *
- * 本项目按 Docker / Nginx 反代部署，直连 IP 恰好是内网（网关）地址，于是必然走到
+ * 本项目按 Nginx 反代部署，直连 IP 恰好是内网（网关）地址，于是必然走到
  * 「取 XFF 第一个值」这条分支 —— 而 XFF 是**客户端可以自己带的头**。攻击者只要每次
  * 换一个 `X-Forwarded-For`，就能让「IP 维度」的登录失败限流（`security.login_fail_ip_limit`）
  * 形同虚设，也能把伪造 IP 写进登录日志与操作日志。

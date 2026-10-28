@@ -29,7 +29,7 @@ use Webman\Http\Response;
  * 本中间件负责**兜住存量文件**：白名单收紧前已落盘的 SVG 也只会被下载。
  *
  * ⚠️ 由 `config/static.php` 挂到 Webman 的静态文件回调上，**只有请求经过后端**时才执行；
- * Nginx 直接 `root` 托管 `public/storage` 会绕过全部三道闸（部署约束见 `docs/02 §5.2`）。
+ * Nginx 直接 `root` 托管 `public/storage` 会绕过全部三道闸（部署约束见 `docs/02 §4.2`）。
  */
 final class StorageGuard
 {

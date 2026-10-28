@@ -478,13 +478,13 @@ final class PluginScaffolder
             /** @param array<string,mixed> $data */
             public static function save(array $data): int
             {
-                // TODO: 接入模型写入，返回主键
+                // 按需接入模型写入，返回主键
                 return (int)($data['id'] ?? 0);
             }
 
             public static function delete(int $id): void
             {
-                // TODO: 接入模型删除（含软删 / 回收站）
+                // 按需接入模型删除（含软删 / 回收站）
             }
 
             /** @return array<string,mixed> */

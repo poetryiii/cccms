@@ -13,4 +13,3 @@ import { CanvasRenderer } from 'echarts/renderers'
 echarts.use([LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 export { echarts }
-export type { ECharts } from 'echarts/core'

@@ -6,7 +6,7 @@
  * 且备份页支持 GB 而没有 TB。这里统一实现，差异只由调用方通过 `empty` 表达。
  */
 
-export interface FormatBytesOptions {
+interface FormatBytesOptions {
   /** 0 / 非法值的展示文本：`'0 B'`（真的 0）或 `'—'`（未知） */
   empty?: string
   /** 小数位数上限，默认按单位自动取（B 取 0，KB 取 1，MB 以上取 2） */
